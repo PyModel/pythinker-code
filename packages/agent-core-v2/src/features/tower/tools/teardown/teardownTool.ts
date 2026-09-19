@@ -49,7 +49,7 @@ export class TowerTeardownTool implements ITowerTeardownTool {
             this.sessions.get(priorOwner) !== undefined
           ) {
             throw new TowerProtocolError(
-              `tower workspace is owned by a live session (${priorOwner}) — use TowerTeardown from that session, or close it first.`,
+              `tower workspace is owned by a live session (${priorOwner}) — tearing it down would dismantle that session's fleet. Use TowerTeardown from that session, or close it first.`,
             );
           }
           const report = await store.teardown({ force: args.force });

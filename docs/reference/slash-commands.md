@@ -47,28 +47,21 @@ Some commands are only available in the idle state. Executing these commands whi
 
 | Command | Alias | Description | Always available |
 | --- | --- | --- | --- |
-| `/yolo` | `/yes` | Open the permission mode list with Ask When Needed selected; press `Enter` to confirm. Routine edits and commands run automatically; risky actions, questions, and plans still ask | Yes |
-| `/auto` | — | Open the permission mode list with Never Ask selected; press `Enter` to confirm. Actions and decisions run automatically without asking | Yes |
+| `/yolo` | `/yes` | Open the permission mode list with Ask When Needed preselected; press `Enter` to confirm. In this mode, routine edits and commands run automatically; risky actions, questions, and plans still ask | Yes |
+| `/auto` | — | Open the permission mode list with Never Ask preselected; press `Enter` to confirm. In this mode, Pythinker never interrupts you; everything runs and is decided automatically | Yes |
 | `/plan [on\|off]` | — | Toggle Plan mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. Simply toggling does not create an empty plan file | Yes |
 | `/plan clear` | — | Clear the current plan | No |
 | `/dynamic_workflow on\|off` | — | Turn dynamic_workflow mode on or off without sending a prompt. | Yes |
-| `/dynamic_workflow <task>` | — | Turn dynamic_workflow mode on, then send `<task>` as a normal prompt. If the turn completes normally, dynamic_workflow mode turns off automatically. In `manual` permission mode, Pythinker Code asks whether to switch to Never Ask or Ask When Needed before starting. | No |
-| `/discussion [help\|status\|configure\|arm\|off\|cancel\|retry\|exchange\|reset]` | `/expert-talk`, `/expert-opinion` | Configure, arm, inspect, cancel, or retry an automatic two-model Discussion run | Yes |
-| `/tower [status\|on\|off\|teardown]` | — | Report tower status, turn workspace-wide tower coordination on or off, or ask the active tower to stop all agents | Yes |
-| `/tower <objective>` | — | Turn tower mode on and send `<objective>` as the shared objective for coordinated subagents | No |
+| `/dynamic_workflow <task>` | — | Turn dynamic_workflow mode on, then send `<task>` as a normal prompt. If the turn completes normally, dynamic_workflow mode turns off automatically. In `manual` permission mode, Pythinker Code asks whether to switch to Ask When Needed or Never Ask mode before starting. | No |
 | `/goal [...]` | — | Start or manage an autonomous goal | See below |
 
 ::: warning
 `/yolo` skips approval for regular tool calls. Please make sure you understand the potential risks before enabling it. Plan mode exit approval is not bypassed by `/yolo`; `Bash` inside Plan mode is still subject to the regular `/yolo` allow rules.
 :::
 
-`/tower` is experimental and hidden by default. Set `PYTHINKER_CODE_EXPERIMENTAL_TOWER=1` before starting Pythinker Code CLI to enable it. It requires the `agent-core-v2` engine and is unavailable when `PYTHINKER_CODE_LEGACY_FLAG=1`. A workspace can have one active tower at a time.
-
-`/discussion` is experimental and hidden by default. Set `PYTHINKER_CODE_EXPERIMENTAL_EXPERT_TALK=1` before starting Pythinker Code CLI to enable it. It requires the v2 engine. The configured Fusion Lead, Peer Expert, and role efforts persist in the session. `/discussion` or `/discussion arm` applies the pair to the next accepted message only; `/discussion off` disarms it. Both openings, both reciprocal reviews, and a fresh Fusion Lead answer then run automatically with read-only tools. `/discussion retry` starts the complete protocol again with a new run.
-
 ## Autonomous Goal
 
-`/goal` starts or manages goal mode: a persistent objective that Pythinker Code works toward across automatically continuing turns. For usage guidance and examples, see [Goals](../guides/goals.md).
+`/goal` starts or manages goal mode: a persistent objective that Pythinker Code works toward across automatically continuing turns. For usage guidance and examples, see [Interaction and input: Goal mode](../guides/interaction.md#goal-mode).
 
 ```sh
 /goal Update the checkout docs, run docs build, and stop if still blocked after 20 turns
@@ -109,7 +102,7 @@ Prompt mode exits with code `0` when the goal completes, `3` when it blocks, and
 | Command | Alias | Description | Always available |
 | --- | --- | --- | --- |
 | `/help` | `/h`, `/?` | Show keyboard shortcuts and all available commands | Yes |
-| `/btw [question]` | — | Open a side conversation in a forked sub-Agent without affecting the current main Agent turn; the side Agent may call the read-only `Read`, `Grep`, and `Glob` tools, and every other tool is rejected; without a question, opens the panel first to wait for input | Yes |
+| `/btw [question]` | — | Open a side conversation in a forked sub-Agent without affecting the current main Agent turn; without a question, opens the panel first to wait for input | Yes |
 | `/usage` | — | Show token usage, context consumption, and quota information | Yes |
 | `/status` | — | Show the current session runtime state: version, model, working directory, permission mode, etc. | Yes |
 | `/mcp` | — | List MCP servers and their connection status in the current session | Yes |

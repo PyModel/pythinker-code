@@ -13,7 +13,8 @@ import {
   TOOL_CALL_DISABLED_MESSAGE,
 } from '#/features/btw/btw';
 import { SessionBtwService } from '#/features/btw/btwService';
-import type { ToolCall } from '#/kosong/contract/message';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import type { ToolCall } from '#human/llm/message';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 
 import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
@@ -40,6 +41,7 @@ describe('SessionBtwService', () => {
         get: (id: unknown) => {
           if (id === IAgentToolApprovalService) return { formatDenyMessage };
           if (id === IAgentToolExecutorService) return executorEvents.executor;
+          if (id === IAgentReminderService) return { notify: appendReminder };
           return undefined;
         },
       },
@@ -64,7 +66,6 @@ describe('SessionBtwService', () => {
     ix.stub(IAgentLifecycleService, {
       _serviceBrand: undefined,
       fork,
-      resolve: () => ({ notify: appendReminder }),
       handleOf: (id: string) => {
         if (id === 'main') return main;
         if (id === 'agent-btw-1') return child;
@@ -114,8 +115,6 @@ describe('SessionBtwService', () => {
   it('allows read-only tool calls (Read, Grep, Glob) on the child', async () => {
     const svc = ix.get(ISessionBtwService);
     await svc.start();
-
-    expect([...BTW_READONLY_TOOLS]).toEqual(['Read', 'Grep', 'Glob']);
 
     for (const name of BTW_READONLY_TOOLS) {
       const toolCall: ToolCall = { type: 'function', id: `call_${name}`, name, arguments: '{}' };

@@ -1,12 +1,11 @@
 import {
   builtinProductSkillsEnabled,
   visibleBuiltinSkills,
-  AgentSkill,
   Error2,
   ErrorCodes,
   EXTRA_SKILL_DIRS_SECTION,
-  IAgentLifecycleService,
   IAgentRuntimeBindingService,
+  IAgentSkillService,
   IBootstrapService,
   IConfigService,
   IFileService,
@@ -26,7 +25,6 @@ import {
   MERGE_ALL_AVAILABLE_SKILLS_SECTION,
   SKILL_SOURCE_PRIORITY,
   configuredRoots,
-  ensureMainAgent,
   projectRoots,
   sessionMediaOriginalsDir,
   userRoots,
@@ -36,6 +34,7 @@ import {
   type SkillDefinition,
   type ExtraSkillDirsConfig,
   type MergeAllAvailableSkillsConfig,
+  IAgentProfileService,
 } from '@pymodel/agent-core-v2';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -262,33 +261,33 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
             core.accessor.get(IBootstrapService).cacheDir,
             {
               telemetry,
+              providerType: (await ensureMainAgentHandle(resolved.handle)).accessor
+                .get(IAgentProfileService)
+                .getModelProviderType(),
               resolveOriginalsDir: async () => sessionMediaOriginalsDir(sessionDir),
               resolveAttachmentsDir: async () => join(sessionDir, 'attachments'),
             },
           );
           attachmentParts.push(...contentToCoreParts(preparedMedia.content));
         }
-        const context = await ensureMainAgent(resolved.handle);
+        const mainAgent = await ensureMainAgentHandle(resolved.handle);
         const promptAttachments =
           preparedMedia !== undefined && preparedMedia.attachments.length > 0
             ? preparedMedia.attachments
             : undefined;
-        await resolved.handle.accessor
-          .get(IAgentLifecycleService)
-          .resolve(context, AgentSkill)
-          .activate({
-            name: parsed.id,
-            args: req.body.args,
-            content: attachmentParts,
-            attachments: promptAttachments,
-          });
+        await mainAgent.accessor.get(IAgentSkillService).activate({
+          name: parsed.id,
+          args: req.body.args,
+          content: attachmentParts,
+          attachments: promptAttachments,
+        });
         await preparedMedia?.discard();
         preparedMedia = undefined;
         requestLog(req)?.info({ session_id, skill_name: parsed.id }, 'skill activated');
         reply.send(okEnvelope({ activated: true, skill_name: parsed.id }, req.id));
-      } catch (error) {
+      } catch (err) {
         await preparedMedia?.discard();
-        sendMappedError(reply, req.id, error);
+        sendMappedError(reply, req.id, err);
       }
     },
   );

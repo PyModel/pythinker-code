@@ -4,7 +4,6 @@ import { basename, dirname, join, relative, resolve } from 'pathe';
 
 import type { AutocompleteItem } from '@pymodel/pi-tui';
 
-import { TOWER_ARG_COMPLETIONS } from '../constant/tower';
 import { completeLeadingArg, type ArgCompletionSpec } from './complete-args';
 import type { PythinkerSlashCommand, SlashCommandAvailability } from './types';
 
@@ -27,20 +26,15 @@ const DYNAMIC_WORKFLOW_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
   { value: 'off', description: 'Turn dynamic_workflow mode off' },
 ];
 
-const ADD_DIR_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'list', description: 'Show configured additional workspace directories' },
+const TOWER_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
+  { value: 'status', description: 'Report tower status' },
+  { value: 'teardown', description: 'Tear down the tower' },
+  { value: 'on', description: 'Turn tower mode on' },
+  { value: 'off', description: 'Turn tower mode off' },
 ];
 
-const EXPERT_TALK_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'help', description: 'Open the Discussion action menu' },
-  { value: 'status', description: 'Show Discussion state and progress' },
-  { value: 'configure', description: 'Select Fusion Lead and Peer Expert models' },
-  { value: 'arm', description: 'Use Discussion for the next message' },
-  { value: 'off', description: 'Return the next message to normal chat' },
-  { value: 'cancel', description: 'Stop the active Discussion run' },
-  { value: 'retry', description: 'Retry the whole Discussion run' },
-  { value: 'exchange', description: 'Show the complete exchange' },
-  { value: 'reset', description: 'Remove the configured model pair' },
+const ADD_DIR_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
+  { value: 'list', description: 'Show configured additional workspace directories' },
 ];
 
 /** Argument autocompletion for the `/goal` command (subcommands). */
@@ -62,7 +56,7 @@ export function dynamicWorkflowArgumentCompletions(argumentPrefix: string): Auto
   return completeLeadingArg(DYNAMIC_WORKFLOW_ARG_COMPLETIONS, argumentPrefix);
 }
 
-/** Argument autocompletion for the `/tower` command. */
+/** Argument autocompletion for the `/tower` command (subcommands). */
 export function towerArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
   return completeLeadingArg(TOWER_ARG_COMPLETIONS, argumentPrefix);
 }
@@ -73,10 +67,6 @@ export function addDirArgumentCompletions(argumentPrefix: string): AutocompleteI
     return completeAddDirPath(argumentPrefix);
   }
   return completeLeadingArg(ADD_DIR_ARG_COMPLETIONS, argumentPrefix);
-}
-
-export function expertTalkArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
-  return completeLeadingArg(EXPERT_TALK_ARG_COMPLETIONS, argumentPrefix);
 }
 
 function isPathLikeAddDirArgument(argumentPrefix: string): boolean {
@@ -211,18 +201,6 @@ export const BUILTIN_SLASH_COMMANDS = [
     // for the previous one to finish.
     availability: 'always',
     experimentalFlag: 'tower',
-    requiresEngineV2: true,
-  },
-  {
-    name: 'discussion',
-    aliases: ['expert-talk', 'expert-opinion'],
-    description: 'Configure, arm, inspect, or stop a Discussion run',
-    priority: 100,
-    argumentHint: '[help|status|configure|arm|off|cancel|retry|exchange|reset]',
-    completeArgs: expertTalkArgumentCompletions,
-    availability: 'always',
-    experimentalFlag: 'expert_talk',
-    requiresEngineV2: true,
   },
   {
     name: 'model',
@@ -237,7 +215,6 @@ export const BUILTIN_SLASH_COMMANDS = [
     description: 'Configure the secondary model for subagents',
     priority: 90,
     availability: 'always',
-    experimentalFlag: 'secondary-model',
   },
   {
     name: 'effort',
@@ -376,7 +353,7 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'usage',
     aliases: [],
-    description: 'Show session tokens and context window',
+    description: 'Show session tokens + context window + plan quotas',
     priority: 60,
     availability: 'always',
   },
@@ -384,6 +361,13 @@ export const BUILTIN_SLASH_COMMANDS = [
     name: 'status',
     aliases: [],
     description: 'Show current session and runtime status',
+    priority: 60,
+    availability: 'always',
+  },
+  {
+    name: 'feedback',
+    aliases: ['bug'],
+    description: 'Send feedback to make Pythinker Code better',
     priority: 60,
     availability: 'always',
   },

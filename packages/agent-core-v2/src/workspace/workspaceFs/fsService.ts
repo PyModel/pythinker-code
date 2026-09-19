@@ -25,8 +25,6 @@ import {
   type FsStatResponse,
   type FsSuggestRequest,
   type FsSuggestResponse,
-  type FsWriteRequest,
-  type FsWriteResponse,
 } from './fs';
 
 const FsWireErrorCode = {
@@ -89,8 +87,6 @@ interface SuggestRoot {
 
 const FS_READ_MAX_BYTES = 10 * 1024 * 1024;
 
-const FS_WRITE_MAX_BYTES = 10 * 1024 * 1024;
-
 const HIDDEN_NAME_RE = /^\./;
 const MACOS_NOISE = new Set(['.DS_Store', '.AppleDouble', '.LSOverride']);
 
@@ -146,8 +142,8 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     let topStat: HostFileStat;
     try {
       topStat = await this.hostFs.stat(abs);
-    } catch (error) {
-      throw mapFsError(error, req.path);
+    } catch (err) {
+      throw mapFsError(err, req.path);
     }
     if (!topStat.isDirectory) {
       throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `path not found: ${req.path}`, {
@@ -180,9 +176,9 @@ export class WorkspaceFsService implements IWorkspaceFsService {
       let names: readonly string[];
       try {
         names = (await this.hostFs.readdir(this.absOf(entry.relPath))).map((e) => e.name);
-      } catch (error) {
+      } catch (err) {
         if (entry.relPath === (rel === '.' ? '' : rel)) {
-          throw mapFsError(error, req.path);
+          throw mapFsError(err, req.path);
         }
         continue;
       }
@@ -238,8 +234,8 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     let st: HostFileStat;
     try {
       st = await this.hostFs.stat(abs);
-    } catch (error) {
-      throw mapFsError(error, req.path);
+    } catch (err) {
+      throw mapFsError(err, req.path);
     }
     if (st.isDirectory) {
       throw new Error2(ErrorCodes.FS_IS_DIRECTORY, `path is a directory: ${req.path}`, {
@@ -337,9 +333,9 @@ export class WorkspaceFsService implements IWorkspaceFsService {
           });
           results[p] = sub.items;
           if (sub.truncated) truncatedPaths.push(p);
-        } catch (error) {
-          if (error instanceof Error2 && error.code === ErrorCodes.FS_PATH_ESCAPES) throw error;
-          partialErrors[p] = toWireError(error);
+        } catch (err) {
+          if (err instanceof Error2 && err.code === ErrorCodes.FS_PATH_ESCAPES) throw err;
+          partialErrors[p] = toWireError(err);
         }
       }),
     );
@@ -356,8 +352,8 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     let st: HostFileStat;
     try {
       st = await this.hostFs.lstat(abs);
-    } catch (error) {
-      throw mapFsError(error, req.path);
+    } catch (err) {
+      throw mapFsError(err, req.path);
     }
     const name = rel === '.' ? this.path.basename(this.workDir) : this.path.basename(abs);
     return buildFsEntry(rel, name, st, true);
@@ -391,8 +387,8 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     const rel = this.toRel(abs);
     try {
       await this.hostFs.mkdir(abs, { recursive: req.recursive });
-    } catch (error) {
-      const code = errnoCode(error);
+    } catch (err) {
+      const code = errnoCode(err);
       if (code === 'EEXIST') {
         throw new Error2(ErrorCodes.FS_ALREADY_EXISTS, `path already exists: ${req.path}`, {
           details: { path: req.path },
@@ -403,66 +399,10 @@ export class WorkspaceFsService implements IWorkspaceFsService {
           details: { path: req.path },
         });
       }
-      throw error;
+      throw err;
     }
     const st = await this.hostFs.lstat(abs);
     return buildFsEntry(rel, this.path.basename(abs), st, false);
-  }
-
-  async write(req: FsWriteRequest): Promise<FsWriteResponse> {
-    const abs = await this.resolveWithin(req.path);
-    const rel = this.toRel(abs);
-
-    let prior: HostFileStat | undefined;
-    try {
-      prior = await this.hostFs.stat(abs);
-    } catch (error) {
-      if (!isMissingPathError(error)) throw mapFsError(error, req.path);
-    }
-    if (prior !== undefined) {
-      if (prior.isDirectory) {
-        throw new Error2(ErrorCodes.FS_IS_DIRECTORY, `path is a directory: ${req.path}`, {
-          details: { path: req.path },
-        });
-      }
-      if (req.base_etag !== undefined && buildEtag(prior) !== req.base_etag) {
-        throw new Error2(ErrorCodes.FS_CONFLICT, `file changed since it was read: ${req.path}`, {
-          details: { path: req.path, base_etag: req.base_etag, current_etag: buildEtag(prior) },
-        });
-      }
-    }
-
-    const bytes =
-      req.encoding === 'base64'
-        ? Buffer.from(req.content, 'base64')
-        : Buffer.from(req.content, 'utf-8');
-    if (bytes.byteLength > FS_WRITE_MAX_BYTES) {
-      throw new Error2(
-        ErrorCodes.FS_TOO_LARGE,
-        `content too large: ${req.path} (${bytes.byteLength} bytes > ${FS_WRITE_MAX_BYTES})`,
-        { details: { path: req.path, size: bytes.byteLength } },
-      );
-    }
-
-    try {
-      await this.hostFs.writeBytes(abs, bytes);
-    } catch (error) {
-      const code = errnoCode(error);
-      if (code === 'ENOENT' || code === 'ENOTDIR') {
-        throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `parent not found: ${req.path}`, {
-          details: { path: req.path },
-        });
-      }
-      if (code === 'EISDIR') {
-        throw new Error2(ErrorCodes.FS_IS_DIRECTORY, `path is a directory: ${req.path}`, {
-          details: { path: req.path },
-        });
-      }
-      throw error;
-    }
-
-    const st = await this.hostFs.stat(abs);
-    return { path: rel, size: st.size, etag: buildEtag(st), created: prior === undefined };
   }
 
   async resolvePath(relPath: string): Promise<FsPathResolved> {
@@ -471,8 +411,8 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     let st: HostFileStat;
     try {
       st = await this.hostFs.lstat(abs);
-    } catch (error) {
-      throw mapFsError(error, relPath);
+    } catch (err) {
+      throw mapFsError(err, relPath);
     }
     return { absolute: abs, relative: rel, isDirectory: st.isDirectory };
   }
@@ -483,8 +423,8 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     let st: HostFileStat;
     try {
       st = await this.hostFs.stat(abs);
-    } catch (error) {
-      throw mapFsError(error, relPath);
+    } catch (err) {
+      throw mapFsError(err, relPath);
     }
     if (st.isDirectory) {
       throw new Error2(ErrorCodes.FS_IS_DIRECTORY, `path is a directory: ${relPath}`, {
@@ -601,8 +541,8 @@ export class WorkspaceFsService implements IWorkspaceFsService {
       if (resolution !== null) {
         try {
           return await this.suggestWithRg(query, cap, controller.signal, resolution.path, roots);
-        } catch (error) {
-          if (controller.signal.aborted) throw error;
+        } catch (err) {
+          if (controller.signal.aborted) throw err;
           this.telemetry.track2('fs_suggest_node_fallback', { reason: 'rg_error' });
           return await this.suggestWithNode(query, cap, controller.signal, roots);
         }
@@ -883,8 +823,8 @@ export class WorkspaceFsService implements IWorkspaceFsService {
           top.push(this.displayCandidate(root, candidate));
         });
       }
-    } catch (error) {
-      if (error !== SUGGEST_WALK_ABORTED) throw error;
+    } catch (err) {
+      if (err !== SUGGEST_WALK_ABORTED) throw err;
     }
     const items = top.drain().map((candidate) => ({
       path: candidate.path,
@@ -1179,9 +1119,9 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     for (let i = 0; i < 256; i++) {
       try {
         const real = await this.hostFs.realpath(current);
-        return tail.length === 0 ? real : this.path.join(real, ...tail.toReversed());
-      } catch (error) {
-        if (!isMissingPathError(error)) throw error;
+        return tail.length === 0 ? real : this.path.join(real, ...tail.reverse());
+      } catch (err) {
+        if (!isMissingPathError(err)) throw err;
         const parent = this.path.dirname(current);
         if (parent === current) return abs;
         tail.push(this.path.basename(current));
@@ -1328,7 +1268,7 @@ class RgJsonAccumulator {
     const buf = this.fileBuf.get(p);
     if (buf === undefined) return;
     if (buf.matches.length > 0 && buf.pending.length > 0) {
-      const last = buf.matches.at(-1)!;
+      const last = buf.matches[buf.matches.length - 1]!;
       last.after = buf.pending.slice(0, this.req.context_lines);
     }
     if (buf.matches.length > 0) {
@@ -1454,3 +1394,4 @@ function toWireError(err: unknown): { code: number; msg: string } {
     msg: err instanceof Error ? err.message : 'internal error',
   };
 }
+

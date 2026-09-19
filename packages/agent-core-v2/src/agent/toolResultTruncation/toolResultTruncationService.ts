@@ -9,7 +9,7 @@ import {
 } from '#/tool/toolContract';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { AGENT_WIRE_RECORD_KEY } from '#/wire/record';
-import type { ContentPart } from '#/kosong/contract/message';
+import type { ContentPart } from '#human/llm/message';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { basename, join, normalize } from 'pathe';
 import {
@@ -227,7 +227,7 @@ function renderAppendedSpillPointer(
   const lines = [
     firstLine,
     `output_path: ${outputPath}`,
-    'next_step: Use Read with output_path to page through the saved output, or Grep to search it. For a line too long for Read, use Bash with cut or sed.]',
+    'next_step: Use Read with output_path to page through the saved output, or Grep to search it.]',
   ];
   if (suffix.length > 0) lines.push('', suffix);
   return lines.join('\n');
@@ -279,7 +279,7 @@ function renderPersistedToolResult(
   }
   lines.push(
     `output_path: ${outputPath}`,
-    'next_step: Use Read with output_path to page through the saved output, or Grep to search it. For a line too long for Read, use Bash with cut or sed.',
+    'next_step: Use Read with output_path to page through the saved output, or Grep to search it.',
   );
   appendPreviewLines(lines, previewText);
   if (suffix.length > 0) lines.push('', suffix);
@@ -329,8 +329,8 @@ function dropInlineSuffixLines(suffix: string, shapedText: string): string {
 
 function safeToolResultFileStem(toolName: string, toolCallId: string): string {
   const label = `${toolName}-${toolCallId}`
-    .replaceAll(/[^a-zA-Z0-9._-]+/g, '_')
-    .replaceAll(/^_+|_+$/g, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
     .slice(0, 80);
   return label || 'tool-result';
 }

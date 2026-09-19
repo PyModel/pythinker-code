@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { zstdCompressSync } from 'node:zlib';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ZipFile } from 'yazl';
 
 import { nativeBinaryUrl, nativeManifestUrl } from '#/cli/update/native-manifest';
 import {
@@ -73,36 +73,12 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 
 const VERSION = '0.7.0';
 const PAYLOAD = Buffer.from('fake-sea-binary-payload');
-// The release serves a zip holding the bare platform binary; the manifest
-// checksum is the archive's sha256, the staged record carries the binary's.
-const BINARY_FILENAME = 'pythinker-code-linux-x64.zip';
+// The CDN serves the bare platform binary; the manifest checksum is its sha256.
+const BINARY_FILENAME = 'pythinker-code-linux-x64';
+const COMPRESSED_FILENAME = 'pythinker-code-linux-x64.zst';
 
 function sha256Hex(data: Buffer): string {
   return createHash('sha256').update(data).digest('hex');
-}
-
-/** Build the single-entry archive the release pipeline ships (yazl, deflate). */
-async function zipOf(payload: Buffer, entryName = 'pythinker'): Promise<Buffer> {
-  const zip = new ZipFile();
-  zip.addBuffer(payload, entryName, { mode: 0o100755 });
-  zip.end();
-  const chunks: Buffer[] = [];
-  for await (const chunk of zip.outputStream) {
-    chunks.push(chunk as Buffer);
-  }
-  return Buffer.concat(chunks);
-}
-
-const archiveCache = new Map<string, Promise<Buffer>>();
-
-function archiveOf(payload: Buffer): Promise<Buffer> {
-  const key = payload.toString('base64');
-  let archive = archiveCache.get(key);
-  if (archive === undefined) {
-    archive = zipOf(payload);
-    archiveCache.set(key, archive);
-  }
-  return archive;
 }
 
 /** Write a staging artifact old enough for the orphan sweep to reap it. */
@@ -114,31 +90,44 @@ async function agedOrphan(path: string, content: string | Buffer): Promise<void>
 
 interface MockCdnOptions {
   readonly version?: string;
-  /** The binary inside the archive. */
   readonly payload: Buffer;
-  /** Serve these bytes instead of a well-formed archive of `payload`. */
-  readonly archive?: Buffer;
   readonly checksum?: string;
+  /**
+   * When set, the manifest entry advertises a compressed artifact; the .zst
+   * URL serves `payload` (null → 404, a CDN without the artifact yet).
+   */
+  readonly compressed?: {
+    readonly payload: Buffer | null;
+    readonly checksum?: string;
+    readonly field?: 'compressed' | 'zstd';
+  };
 }
 
 function mockCdnFetch(options: MockCdnOptions): typeof fetch {
   const version = options.version ?? VERSION;
-  const archive =
-    options.archive === undefined ? archiveOf(options.payload) : Promise.resolve(options.archive);
+  const platformEntry: Record<string, unknown> = {
+    filename: BINARY_FILENAME,
+    checksum: options.checksum ?? sha256Hex(options.payload),
+  };
+  if (options.compressed !== undefined) {
+    const checksum =
+      options.compressed.checksum ?? sha256Hex(options.compressed.payload ?? Buffer.alloc(0));
+    if (options.compressed.field === 'zstd') {
+      platformEntry['zstd'] = { file: COMPRESSED_FILENAME, sha256: checksum };
+    } else {
+      platformEntry['compressed'] = { filename: COMPRESSED_FILENAME, checksum };
+    }
+  }
+  const manifestBody = JSON.stringify({
+    version,
+    tag: `v${version}`,
+    platforms: {
+      'linux-x64': platformEntry,
+    },
+  });
   return vi.fn(async (input: string | URL) => {
     const url = String(input);
-    const bytes = await archive;
     if (url === nativeManifestUrl(version)) {
-      const manifestBody = JSON.stringify({
-        version,
-        tag: `@pymodel/pythinker-code@${version}`,
-        platforms: {
-          'linux-x64': {
-            filename: BINARY_FILENAME,
-            checksum: options.checksum ?? sha256Hex(bytes),
-          },
-        },
-      });
       return { ok: true, status: 200, text: async () => manifestBody, body: null };
     }
     if (url === nativeBinaryUrl(version, BINARY_FILENAME)) {
@@ -148,9 +137,22 @@ function mockCdnFetch(options: MockCdnOptions): typeof fetch {
         text: async (): Promise<string> => '',
         headers: {
           get: (name: string): string | null =>
-            name === 'content-length' ? String(bytes.length) : null,
+            name === 'content-length' ? String(options.payload.length) : null,
         },
-        body: [bytes],
+        body: [options.payload],
+      };
+    }
+    if (url === nativeBinaryUrl(version, COMPRESSED_FILENAME) && options.compressed?.payload) {
+      const payload = options.compressed.payload;
+      return {
+        ok: true,
+        status: 200,
+        text: async (): Promise<string> => '',
+        headers: {
+          get: (name: string): string | null =>
+            name === 'content-length' ? String(payload.length) : null,
+        },
+        body: [payload],
       };
     }
     return { ok: false, status: 404, text: async () => '', body: null };
@@ -169,6 +171,7 @@ describe('stageNativeUpdate', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await rm(workDir, { recursive: true, force: true });
   });
 
@@ -197,12 +200,152 @@ describe('stageNativeUpdate', () => {
     expect(stagedOnDisk).toEqual(result.staged);
     const exeBytes = await readFile(stagedExePath(exePath, result.staged));
     expect(exeBytes.equals(PAYLOAD)).toBe(true);
-    // Both intermediates (.zip.part archive, .part binary) are gone once
-    // the download was promoted.
+    // The .part intermediate is gone once the download was promoted.
     const leftovers = (await readdir(getNativeStagingDir(exePath))).filter((entry) =>
       entry.endsWith('.part'),
     );
     expect(leftovers).toEqual([]);
+  });
+
+  it.each(['compressed', 'zstd'] as const)('downloads the %s artifact and stages the decompressed binary', async (field) => {
+    const fetchImpl = mockCdnFetch({
+      payload: PAYLOAD,
+      compressed: { payload: zstdCompressSync(PAYLOAD), field },
+    });
+    const result = await stageNativeUpdate({
+      version: VERSION,
+      exePath,
+      platform: 'linux',
+      arch: 'x64',
+      fetchImpl,
+    });
+
+    expect(result.status).toBe('staged');
+    // The metadata records the BARE binary's checksum and size.
+    expect(result.staged.sha256).toBe(sha256Hex(PAYLOAD));
+    expect(result.staged.exeSize).toBe(PAYLOAD.length);
+    const exeBytes = await readFile(stagedExePath(exePath, result.staged));
+    expect(exeBytes.equals(PAYLOAD)).toBe(true);
+    // The bare binary was never downloaded…
+    expect(fetchImpl).not.toHaveBeenCalledWith(
+      nativeBinaryUrl(VERSION, BINARY_FILENAME),
+      expect.anything(),
+    );
+    // …and the .zst intermediate is gone once decompressed and published.
+    const leftovers = (await readdir(getNativeStagingDir(exePath))).filter((entry) =>
+      entry.endsWith('.part'),
+    );
+    expect(leftovers).toEqual([]);
+  });
+
+  it.each(['compressed', 'zstd'] as const)('falls back to the bare binary when the compressed artifact is missing (%s)', async (field) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchImpl = mockCdnFetch({
+      payload: PAYLOAD,
+      compressed: { payload: null, field },
+    });
+    const result = await stageNativeUpdate({
+      version: VERSION,
+      exePath,
+      platform: 'linux',
+      arch: 'x64',
+      fetchImpl,
+    });
+
+    expect(result.status).toBe('staged');
+    expect(fetchImpl).toHaveBeenCalledWith(
+      nativeBinaryUrl(VERSION, BINARY_FILENAME),
+      expect.anything(),
+    );
+    const exeBytes = await readFile(stagedExePath(exePath, result.staged));
+    expect(exeBytes.equals(PAYLOAD)).toBe(true);
+  });
+
+  it.each(['compressed', 'zstd'] as const)('falls back to the bare binary when the compressed artifact fails verification (%s)', async (field) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchImpl = mockCdnFetch({
+      payload: PAYLOAD,
+      // The .zst bytes do not hash to the advertised compressed checksum.
+      compressed: { payload: zstdCompressSync(PAYLOAD), checksum: 'f'.repeat(64), field },
+    });
+    const result = await stageNativeUpdate({
+      version: VERSION,
+      exePath,
+      platform: 'linux',
+      arch: 'x64',
+      fetchImpl,
+    });
+
+    expect(result.status).toBe('staged');
+    expect(fetchImpl).toHaveBeenCalledWith(
+      nativeBinaryUrl(VERSION, BINARY_FILENAME),
+      expect.anything(),
+    );
+    const exeBytes = await readFile(stagedExePath(exePath, result.staged));
+    expect(exeBytes.equals(PAYLOAD)).toBe(true);
+  });
+
+  it.each(['compressed', 'zstd'] as const)('falls back to the bare binary when the decompressed content fails verification (%s)', async (field) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // The .zst verifies against its own checksum but inflates to something
+    // other than the bare binary the manifest checksum covers.
+    const fetchImpl = mockCdnFetch({
+      payload: PAYLOAD,
+      compressed: { payload: zstdCompressSync(Buffer.from('other-content')), field },
+    });
+    const result = await stageNativeUpdate({
+      version: VERSION,
+      exePath,
+      platform: 'linux',
+      arch: 'x64',
+      fetchImpl,
+    });
+
+    expect(result.status).toBe('staged');
+    expect(result.staged.sha256).toBe(sha256Hex(PAYLOAD));
+    const exeBytes = await readFile(stagedExePath(exePath, result.staged));
+    expect(exeBytes.equals(PAYLOAD)).toBe(true);
+  });
+
+  it('prefers zstd when both manifest formats are present', async () => {
+    const compressedPayload = zstdCompressSync(PAYLOAD);
+    const fetchImpl = mockCdnFetch({
+      payload: PAYLOAD,
+      compressed: { payload: compressedPayload, field: 'zstd' },
+    });
+    vi.mocked(fetchImpl).mockResolvedValueOnce(new Response(JSON.stringify({
+      version: VERSION,
+      platforms: {
+        'linux-x64': {
+          filename: BINARY_FILENAME,
+          checksum: sha256Hex(PAYLOAD),
+          zstd: { file: COMPRESSED_FILENAME, sha256: sha256Hex(compressedPayload) },
+          compressed: { filename: 'legacy.zst', checksum: 'a'.repeat(64) },
+        },
+      },
+    })));
+
+    const result = await stageNativeUpdate({
+      version: VERSION,
+      exePath,
+      platform: 'linux',
+      arch: 'x64',
+      fetchImpl,
+    });
+
+    expect(await readFile(stagedExePath(exePath, result.staged))).toEqual(PAYLOAD);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      nativeBinaryUrl(VERSION, COMPRESSED_FILENAME),
+      expect.anything(),
+    );
+    expect(fetchImpl).not.toHaveBeenCalledWith(
+      nativeBinaryUrl(VERSION, 'legacy.zst'),
+      expect.anything(),
+    );
+    expect(fetchImpl).not.toHaveBeenCalledWith(
+      nativeBinaryUrl(VERSION, BINARY_FILENAME),
+      expect.anything(),
+    );
   });
 
   it('marks the staged exe executable', async () => {
@@ -271,9 +414,8 @@ describe('stageNativeUpdate', () => {
         progress.push([downloaded, total]);
       },
     });
-    // One frame per chunk; the mock stream delivers the archive in one piece.
-    const archive = await archiveOf(PAYLOAD);
-    expect(progress).toEqual([[archive.length, archive.length]]);
+    // One frame per chunk; the mock stream delivers the payload in one piece.
+    expect(progress).toEqual([[PAYLOAD.length, PAYLOAD.length]]);
   });
 
   it('aborts a stalled download after the idle timeout', async () => {
@@ -466,42 +608,6 @@ describe('stageNativeUpdate', () => {
     await expect(stat(getNativeStagingDir(exePath))).rejects.toThrow();
   });
 
-  it('rejects an archive that is not a single-entry zip and cleans up leftovers', async () => {
-    const zip = new ZipFile();
-    zip.addBuffer(PAYLOAD, 'pythinker');
-    zip.addBuffer(Buffer.from('extra'), 'README');
-    zip.end();
-    const chunks: Buffer[] = [];
-    for await (const chunk of zip.outputStream) chunks.push(chunk as Buffer);
-    const archive = Buffer.concat(chunks);
-
-    await expect(
-      stageNativeUpdate({
-        version: VERSION,
-        exePath,
-        platform: 'linux',
-        arch: 'x64',
-        fetchImpl: mockCdnFetch({ payload: PAYLOAD, archive }),
-      }),
-    ).rejects.toThrow(/single-entry archive/);
-
-    expect(await readStagedNativeUpdate(exePath)).toBeNull();
-    await expect(stat(getNativeStagingDir(exePath))).rejects.toThrow();
-  });
-
-  it('rejects a download that is not a zip archive even when its checksum matches', async () => {
-    await expect(
-      stageNativeUpdate({
-        version: VERSION,
-        exePath,
-        platform: 'linux',
-        arch: 'x64',
-        fetchImpl: mockCdnFetch({ payload: PAYLOAD, archive: PAYLOAD }),
-      }),
-    ).rejects.toThrow(/zip archive/);
-    expect(await readStagedNativeUpdate(exePath)).toBeNull();
-  });
-
   it('throws when the platform is missing from the manifest', async () => {
     await expect(
       stageNativeUpdate({
@@ -593,7 +699,6 @@ describe('stageNativeUpdate', () => {
     // a stale .part download (aged past the orphan grace period).
     await agedOrphan(join(stagingDir, 'pythinker-9.9.9'), Buffer.from('orphan-exe'));
     await agedOrphan(join(stagingDir, 'pythinker-9.9.9.part'), Buffer.from('partial'));
-    await agedOrphan(join(stagingDir, 'pythinker-9.9.9.zip.part'), Buffer.from('partial-zip'));
     // A live swap claim referencing its own staged exe must survive.
     const claimExe = 'pythinker-8.8.8';
     await writeFile(join(stagingDir, claimExe), Buffer.from('swap-in-progress'));
@@ -617,7 +722,6 @@ describe('stageNativeUpdate', () => {
 
     await expect(stat(join(stagingDir, 'pythinker-9.9.9'))).rejects.toThrow();
     await expect(stat(join(stagingDir, 'pythinker-9.9.9.part'))).rejects.toThrow();
-    await expect(stat(join(stagingDir, 'pythinker-9.9.9.zip.part'))).rejects.toThrow();
     await expect(stat(join(stagingDir, 'staged.json.swap-1234'))).resolves.toBeDefined();
     await expect(stat(join(stagingDir, claimExe))).resolves.toBeDefined();
     await expect(stat(join(stagingDir, youngExe))).resolves.toBeDefined();

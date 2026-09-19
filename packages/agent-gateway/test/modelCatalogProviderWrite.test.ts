@@ -2,8 +2,9 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { IConfigService } from '@pymodel/agent-core-v2';
 import { parse as parseToml } from 'smol-toml';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -68,15 +69,15 @@ const POOL_TOML = [
 
 const POOL_DANGLING_DEFAULT_TOML = POOL_TOML.replace('default_model = "k2"', 'default_model = "gpt4o"');
 
-const OAUTH_TOML = [
-  '[providers."file-oauth"]',
+const MANAGED_TOML = [
+  '[providers."managed:pythinker-code"]',
   'type = "pythinker"',
   'api_key = ""',
   'base_url = "https://api.example.test/v1"',
-  'oauth = { storage = "file", key = "oauth/example" }',
+  'oauth = { storage = "file", key = "oauth/pythinker-code" }',
   '',
-  '[models."file-oauth/example-model"]',
-  'provider = "file-oauth"',
+  '[models."managed:pythinker-code/kimi-k2"]',
+  'provider = "managed:pythinker-code"',
   'model = "kimi-k2"',
   'max_context_size = 131072',
   '',
@@ -115,29 +116,10 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
   let home: string | undefined;
   let base: string;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-provider-write-'));
     process.env['PYTHINKER_CODE_MODEL_CATALOG_REFRESH_ON_START'] = '0';
     process.env['PYTHINKER_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS'] = '0';
-  });
-
-  afterEach(async () => {
-    if (server !== undefined) {
-      await server.close();
-      server = undefined;
-    }
-    if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
-      home = undefined;
-    }
-    delete process.env['PYTHINKER_CODE_MODEL_CATALOG_REFRESH_ON_START'];
-    delete process.env['PYTHINKER_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS'];
-  });
-
-  async function boot(toml?: string): Promise<void> {
-    if (toml !== undefined) {
-      await writeFile(join(home as string, 'config.toml'), toml, 'utf-8');
-    }
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
       host: '127.0.0.1',
@@ -146,6 +128,24 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
       logLevel: 'silent',
     });
     base = `http://127.0.0.1:${server.port}`;
+  });
+
+  afterAll(async () => {
+    if (server !== undefined) {
+      await server.close();
+      server = undefined;
+    }
+    if (home !== undefined) {
+      await rm(home, { recursive: true, force: true });
+      home = undefined;
+    }
+    delete process.env['PYTHINKER_CODE_MODEL_CATALOG_REFRESH_ON_START'];
+    delete process.env['PYTHINKER_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS'];
+  });
+
+  async function boot(toml?: string): Promise<void> {
+    await writeFile(join(home as string, 'config.toml'), toml ?? '', 'utf-8');
+    await (server as RunningServer).core.accessor.get(IConfigService).reload();
   }
 
   async function getJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
@@ -200,18 +200,6 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
   async function readConfigToml(): Promise<Record<string, unknown>> {
     const text = await readFile(join(home as string, 'config.toml'), 'utf-8');
     return parseToml(text) as Record<string, unknown>;
-  }
-
-  async function waitForConfigToml(
-    predicate: (onDisk: Record<string, unknown>) => boolean,
-  ): Promise<Record<string, unknown>> {
-    let onDisk = await readConfigToml();
-    const deadline = Date.now() + 30_000;
-    while (!predicate(onDisk) && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-      onDisk = await readConfigToml();
-    }
-    return onDisk;
   }
 
   it('creates a provider with model aliases and persists them to config.toml', async () => {
@@ -287,11 +275,11 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(body.data).toEqual({
       id: 'vertex',
       type: 'vertexai',
+      default_model: 'vertex/gemini-2.5-pro',
       has_api_key: false,
       status: 'unconfigured',
       models: ['vertex/gemini-2.5-pro'],
     });
-    expect(body.data).not.toHaveProperty('default_model');
   });
 
   it('seeds the global default_model on a fresh setup (the provider default wins)', async () => {
@@ -302,11 +290,13 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     const onDisk = await readConfigToml();
     expect(onDisk['default_model']).toBe('my-openai/gpt-4.1');
 
-    const auth = await getJson<{ ready: boolean; default_model: string | null }>('/api/v1/auth');
-    expect(auth.body.data).toMatchObject({ ready: true, default_model: 'my-openai/gpt-4.1' });
+    const config = await getJson<{ default_model: string | null }>('/api/v1/config');
+    expect(config.body.data.default_model).toBe('my-openai/gpt-4.1');
+    const auth = await getJson<{ models_ready: boolean }>('/api/v1/auth');
+    expect(auth.body.data).toMatchObject({ models_ready: true });
   });
 
-  it('adopts a default when the create body names no provider default', async () => {
+  it('seeds the first model when the create body names no provider default', async () => {
     await boot();
     const { status } = await postJson<unknown>('/api/v1/providers', {
       id: 'my-openai',
@@ -319,9 +309,8 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     });
     expect(status).toBe(201);
 
-    const auth = await getJson<{ ready: boolean; default_model: string | null }>('/api/v1/auth');
-    expect(auth.body.data.default_model).toBe('my-openai/gpt-4.1');
-    expect(auth.body.data.ready).toBe(true);
+    const onDisk = await readConfigToml();
+    expect(onDisk['default_model']).toBe('my-openai/gpt-4o-mini');
   });
 
   it('keeps an existing global default_model on create', async () => {
@@ -333,15 +322,13 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(onDisk['default_model']).toBe('gpt4o');
   });
 
-  it('repairs a dangling default_model on create by re-ranking the new catalog', async () => {
+  it('leaves even a dangling default_model untouched on create', async () => {
     await boot(DANGLING_DEFAULT_TOML);
     const { status } = await postJson<unknown>('/api/v1/providers', CREATE_BODY);
     expect(status).toBe(201);
 
-    const onDisk = await waitForConfigToml(
-      (disk) => disk['default_model'] === 'my-openai/gpt-4o-mini',
-    );
-    expect(onDisk['default_model']).toBe('my-openai/gpt-4o-mini');
+    const onDisk = await readConfigToml();
+    expect(onDisk['default_model']).toBe('gone');
   });
 
   it('rejects a duplicate provider id with 40921', async () => {
@@ -361,16 +348,16 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     await boot();
     const { status, body } = await postJson<{ id: string }>('/api/v1/providers', {
       ...CREATE_BODY,
-      id: '\u6D4B\u8BD5 Pythinker',
+      id: '测试 Pythinker',
     });
     expect(status).toBe(201);
     expect(body.code).toBe(0);
-    expect(body.data.id).toBe('\u6D4B\u8BD5 Pythinker');
+    expect(body.data.id).toBe('测试 Pythinker');
 
     const onDisk = await readConfigToml();
-    expect(onDisk['providers']).toMatchObject({ '\u6D4B\u8BD5 Pythinker': { type: 'openai' } });
+    expect(onDisk['providers']).toMatchObject({ '测试 Pythinker': { type: 'openai' } });
     expect(onDisk['models']).toMatchObject({
-      '\u6D4B\u8BD5 Pythinker/gpt-4.1': { provider: '\u6D4B\u8BD5 Pythinker', model: 'gpt-4.1' },
+      '测试 Pythinker/gpt-4.1': { provider: '测试 Pythinker', model: 'gpt-4.1' },
     });
   });
 
@@ -446,57 +433,39 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(models.body.data.items.map((m) => m.model)).toEqual(['k2']);
   });
 
-  it('deletes model rows that point at the provider through provider_id', async () => {
-    await boot(
-      `${KEEP_DEFAULT_TOML}\n[models.legacy]\nprovider_id = "openai"\nmodel = "gpt-4o-mini"\nmax_context_size = 128000\n`,
-    );
-    const { status } = await deleteJson<unknown>('/api/v1/providers/openai');
-    expect(status).toBe(204);
-
-    const onDisk = await readConfigToml();
-    expect(Object.keys(onDisk['models'] as Record<string, unknown>)).toEqual(['k2']);
-    const models = await getJson<{ items: Array<{ model: string }> }>('/api/v1/models');
-    expect(models.body.data.items.map((m) => m.model)).toEqual(['k2']);
-  });
-
-  it('re-points a dangling default_model to the remaining best model when their owner is deleted (204)', async () => {
+  it('never touches default_provider/default_model when deleting their owner (204, pointers dangling)', async () => {
     await boot(DEFAULTED_TOML);
     const { status, text } = await deleteJson<unknown>('/api/v1/providers/openai');
     expect(status).toBe(204);
     expect(text).toBe('');
 
-    const onDisk = await waitForConfigToml((disk) => disk['default_model'] === 'k2');
+    const onDisk = await readConfigToml();
     expect(onDisk['default_provider']).toBe('openai');
-    expect(onDisk['default_model']).toBe('k2');
+    expect(onDisk['default_model']).toBe('gpt4o');
     expect(onDisk['providers']).toEqual({ pythinker: { type: 'pythinker', api_key: 'sk-test' } });
     expect(onDisk['models']).toEqual({
       k2: { provider: 'pythinker', model: 'kimi-k2', max_context_size: 131072 },
     });
   });
 
-  it('preserves secondary_model when its provider is deleted', async () => {
+  it('leaves the secondary_model pool untouched when a provider is deleted', async () => {
     await boot(POOL_TOML);
     const { status } = await deleteJson<unknown>('/api/v1/providers/openai');
     expect(status).toBe(204);
 
-    const onDisk = await waitForConfigToml(
-      (disk) =>
-        !('gpt4o' in ((disk['models'] ?? {}) as Record<string, unknown>)) &&
-        disk['default_model'] === 'k2',
-    );
-    expect(onDisk['default_model']).toBe('k2');
+    const onDisk = await readConfigToml();
     expect(onDisk['secondary_model']).toEqual({
       default_model: 'k2',
       models: { k2: 'fast', gpt4o: 'smart' },
     });
   });
 
-  it('preserves secondary_model when its default dangles after deletion', async () => {
+  it('keeps the secondary_model section even when its default dangles after deletion', async () => {
     await boot(POOL_DANGLING_DEFAULT_TOML);
     const { status } = await deleteJson<unknown>('/api/v1/providers/openai');
     expect(status).toBe(204);
 
-    const onDisk = await waitForConfigToml((disk) => disk['default_model'] === 'k2');
+    const onDisk = await readConfigToml();
     expect(onDisk['secondary_model']).toEqual({
       default_model: 'gpt4o',
       models: { k2: 'fast', gpt4o: 'smart' },
@@ -520,23 +489,19 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(providers.body.data.items).toEqual([]);
   });
 
-  it('deletes a provider with an explicit OAuth credential reference', async () => {
-    await boot(OAUTH_TOML);
-    const { status } = await deleteJson<unknown>('/api/v1/providers/file-oauth');
-    expect(status).toBe(204);
+  it('rejects deleting an OAuth-managed provider with 40003', async () => {
+    await boot(MANAGED_TOML);
+    const { body } = await deleteJson<unknown>('/api/v1/providers/managed%3Apythinker-code');
+    expect(body?.code).toBe(40003);
+    expect(body?.msg).toContain('/oauth/logout');
+
     const providers = await getJson<{ items: Array<{ id: string }> }>('/api/v1/providers');
-    expect(providers.body.data.items).toEqual([]);
+    expect(providers.body.data.items.map((p) => p.id)).toEqual(['managed:pythinker-code']);
   });
 
   it('maps an unknown provider id to 40412 on delete', async () => {
     await boot(KEEP_DEFAULT_TOML);
     const { body } = await deleteJson<unknown>('/api/v1/providers/missing');
-    expect(body?.code).toBe(40412);
-  });
-
-  it('does not treat inherited object properties as provider ids', async () => {
-    await boot(KEEP_DEFAULT_TOML);
-    const { body } = await deleteJson<unknown>('/api/v1/providers/toString');
     expect(body?.code).toBe(40412);
   });
 
@@ -678,7 +643,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     });
   });
 
-  it('re-points default_model to the best ready model when the rebuild drops its alias (no rename)', async () => {
+  it('never touches default_model when the rebuild drops its alias (no rename)', async () => {
     await boot(DEFAULTED_TOML);
     const { status, body } = await putJson<unknown>(
       '/api/v1/providers/openai',
@@ -687,10 +652,8 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(status).toBe(200);
     expect(body.code).toBe(0);
 
-    const onDisk = await waitForConfigToml(
-      (disk) => disk['default_model'] === 'openai/gpt-4.1',
-    );
-    expect(onDisk['default_model']).toBe('openai/gpt-4.1');
+    const onDisk = await readConfigToml();
+    expect(onDisk['default_model']).toBe('gpt4o');
     expect(onDisk['default_provider']).toBe('openai');
     expect(onDisk['providers']).toEqual({
       pythinker: { type: 'pythinker', api_key: 'sk-test' },
@@ -735,10 +698,10 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
       'my-openai/gpt-4.1': { provider: 'my-openai', model: 'gpt-4.1', max_context_size: 1047576 },
     });
     expect(onDisk2['default_provider']).toBe('my-openai');
-    expect(onDisk2['default_model']).toBe('my-openai/gpt-4.1');
+    expect(onDisk2['default_model']).toBe('my-openai/gpt-4o');
   });
 
-  it('migrates default_provider on rename and re-ranks a default_model whose model was dropped', async () => {
+  it('migrates default_provider on rename but leaves default_model alone when its model was dropped', async () => {
     await boot(DEFAULTED_TOML);
     const { status, body } = await putJson<unknown>(
       '/api/v1/providers/openai',
@@ -747,14 +710,12 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(status).toBe(200);
     expect(body.code).toBe(0);
 
-    const onDisk = await waitForConfigToml(
-      (disk) => disk['default_model'] === 'my-openai/gpt-4.1',
-    );
+    const onDisk = await readConfigToml();
     expect(onDisk['default_provider']).toBe('my-openai');
-    expect(onDisk['default_model']).toBe('my-openai/gpt-4.1');
+    expect(onDisk['default_model']).toBe('gpt4o');
   });
 
-  it('leaves secondary_model pool entries untouched on provider rename', async () => {
+  it('leaves secondary_model pool entries alone on provider rename', async () => {
     await boot(POOL_TOML);
     const { status } = await putJson<unknown>('/api/v1/providers/openai', {
       type: 'openai',
@@ -770,7 +731,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     });
   });
 
-  it('preserves secondary_model pool entries dropped by a provider edit', async () => {
+  it('leaves secondary_model pool entries alone on provider edit', async () => {
     await boot(POOL_TOML);
     const { status } = await putJson<unknown>('/api/v1/providers/openai', REPLACE_BODY);
     expect(status).toBe(200);
@@ -782,14 +743,12 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     });
   });
 
-  it('preserves secondary_model when a provider edit orphans its default', async () => {
+  it('keeps the secondary_model section even when a provider edit orphans its default', async () => {
     await boot(POOL_DANGLING_DEFAULT_TOML);
     const { status } = await putJson<unknown>('/api/v1/providers/openai', REPLACE_BODY);
     expect(status).toBe(200);
 
-    const onDisk = await waitForConfigToml(
-      (disk) => disk['default_model'] === 'openai/gpt-4.1',
-    );
+    const onDisk = await readConfigToml();
     expect(onDisk['secondary_model']).toEqual({
       default_model: 'gpt4o',
       models: { k2: 'fast', gpt4o: 'smart' },
@@ -836,18 +795,19 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     }
   });
 
-  it('replaces a provider with an explicit OAuth credential reference', async () => {
-    await boot(OAUTH_TOML);
-    const { status, body } = await putJson<unknown>('/api/v1/providers/file-oauth', REPLACE_BODY);
-    expect(status).toBe(200);
-    expect(body.code).toBe(0);
+  it('rejects replacing an OAuth-managed provider with 40003', async () => {
+    await boot(MANAGED_TOML);
+    const { body } = await putJson<unknown>(
+      '/api/v1/providers/managed%3Apythinker-code',
+      REPLACE_BODY,
+    );
+    expect(body.code).toBe(40003);
+    expect(body.msg).toContain('/oauth/logout');
+
     const providers = await getJson<{ items: Array<{ id: string }> }>('/api/v1/providers');
-    expect(providers.body.data.items.map((p) => p.id)).toEqual(['file-oauth']);
+    expect(providers.body.data.items.map((p) => p.id)).toEqual(['managed:pythinker-code']);
     const models = await getJson<{ items: Array<{ model: string }> }>('/api/v1/models');
-    expect(models.body.data.items.map((m) => m.model)).toEqual([
-      'file-oauth/gpt-4.1',
-      'file-oauth/gpt-4o-mini',
-    ]);
+    expect(models.body.data.items.map((m) => m.model)).toEqual(['managed:pythinker-code/kimi-k2']);
   });
 
   it('maps an unknown provider id to 40412 on replace', async () => {
@@ -857,13 +817,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(body.data).toBeNull();
   });
 
-  it('rejects a prototype property name as a provider id', async () => {
-    await boot(KEEP_DEFAULT_TOML);
-    const { body } = await putJson<unknown>('/api/v1/providers/__proto__', REPLACE_BODY);
-    expect(body.code).toBe(40001);
-  });
-
-  it('clears omitted provider fields from config.toml, leaving only the adopted global default in the response', async () => {
+  it('clears omitted provider fields (base_url/default_model) from config.toml for real', async () => {
     const FULL_TOML = [
       '[providers.openai]',
       'type = "openai"',
@@ -905,7 +859,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
 
     const single = await getJson<Record<string, unknown>>('/api/v1/providers/openai');
     expect(single.body.data).not.toHaveProperty('base_url');
-    expect(single.body.data).toHaveProperty('default_model', 'openai/gpt-4.1');
+    expect(single.body.data).not.toHaveProperty('default_model');
   });
 
   it('does not reveal an empty-string api_key on the single GET', async () => {

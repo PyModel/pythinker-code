@@ -10,6 +10,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import type { ServiceIdentifier } from '#/_base/di/instantiation';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentTaskService, type AgentTaskInfo } from '#/agent/task/task';
 import type { AnyAgentTool } from '#/agent/toolRegistry/toolContribution';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { TOWER_TOOL_CONTRIBUTIONS } from '#/features/tower/towerFeature';
@@ -43,10 +44,7 @@ import { TowerStatusTool } from '#/features/tower/tools/status/statusTool';
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 import { stubAgentContext } from '../../../agent/agentContext/stubs';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
-import {
-  TOWER_BUILD_MISSION_NEEDS_TASKS,
-  TOWER_MODE_USER_ENABLED_ONLY,
-} from '#/features/tower/tools/support';
+import { TOWER_MODE_USER_ENABLED_ONLY } from '#/features/tower/tools/support';
 
 const execFileAsync = promisify(execFile);
 const signal = new AbortController().signal;
@@ -77,6 +75,7 @@ let towerRequestedBase: string | undefined;
 let currentAgentId: string;
 let currentSessionId: string;
 let liveSessionIds: string[];
+let liveAgentTaskIds: string[];
 const agentContexts = new Map<string, AgentContext>();
 
 beforeEach(async () => {
@@ -90,6 +89,7 @@ beforeEach(async () => {
   towerRequestedBase = undefined;
   currentAgentId = 'main';
   liveSessionIds = [];
+  liveAgentTaskIds = [];
   currentSessionId = 'session-test';
   agentContexts.clear();
 
@@ -131,9 +131,9 @@ beforeEach(async () => {
         get requestedBase() {
           return towerRequestedBase;
         },
-        enter: async () => {
+        enter: () => {
           towerActive = true;
-          return { entered: true as const };
+          return Promise.resolve({ entered: true as const });
         },
         exit: () => {
           towerActive = false;
@@ -144,6 +144,12 @@ beforeEach(async () => {
       } as unknown as ISessionManager);
       reg.definePartialInstance(ITowerRateLimitService, {
         snapshot: () => ({ budget: 2, inflight: 0, blockedUntil: null }),
+      });
+      reg.definePartialInstance(IAgentTaskService, {
+        list: () =>
+          liveAgentTaskIds.map(
+            (agentId) => ({ kind: 'agent', agentId }) as unknown as AgentTaskInfo,
+          ),
       });
       reg.define(ITowerInitTool, TowerInitTool);
       reg.define(ITowerPlanTool, TowerPlanTool);
@@ -259,7 +265,7 @@ describe('TowerInitTool', () => {
   it('is idempotent — a second run reports already-initialized and keeps state', async () => {
     await initViaTool();
     await run(ix.get(ITowerPlanTool), {
-      missions: [{ title: 'kept mission', scope: ['src/kept/**'], tasks: ['keep it'] }],
+      missions: [{ title: 'kept mission', scope: ['src/kept/**'] }],
     });
 
     const second = await run(ix.get(ITowerInitTool), {});
@@ -290,7 +296,7 @@ describe('TowerInitTool', () => {
     expect(state.roster.agents).toEqual([]);
   });
 
-  it('refuses to adopt while the owning session is live', async () => {
+  it('refuses to adopt while the owning session is live in this process', async () => {
     await initViaTool();
     liveSessionIds = ['session-test'];
     currentSessionId = 'session-next';
@@ -299,7 +305,26 @@ describe('TowerInitTool', () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain('owned by a live session (session-test)');
-    expect((await new TowerStore(repo).load()).sessionId).toBe('session-test');
+    const state = await new TowerStore(repo).load();
+    expect(state.sessionId).toBe('session-test');
+  });
+
+  it('adopts once the owning session released ownership, even while it is still live', async () => {
+    await initViaTool();
+    liveSessionIds = ['session-test'];
+    currentSessionId = 'session-next';
+
+    const blocked = await run(ix.get(ITowerInitTool), {});
+    expect(blocked.isError).toBe(true);
+    expect(blocked.output).toContain('owned by a live session (session-test)');
+
+    await new TowerStore(repo).release('session-test');
+
+    const adopted = await run(ix.get(ITowerInitTool), {});
+    expect(adopted.isError).toBeFalsy();
+    expect(adopted.output).toContain('tower workspace already initialized');
+    const state = await new TowerStore(repo).load();
+    expect(state.sessionId).toBe('session-next');
   });
 });
 
@@ -319,7 +344,7 @@ describe('TowerPlanTool', () => {
     const result = await run(ix.get(ITowerPlanTool), {
       missions: [
         { title: 'Build engine', scope: ['src/engine/**'], tasks: ['scaffold'] },
-        { title: 'Build UI', scope: ['src/ui/**'], tasks: ['wire the shell'], deps: ['M1'] },
+        { title: 'Build UI', scope: ['src/ui/**'], deps: ['M1'] },
       ],
     });
 
@@ -327,30 +352,6 @@ describe('TowerPlanTool', () => {
     expect(result.output).toContain('planned 2 mission(s):');
     expect(result.output).toContain('| M1 | Build engine | build | feat/build-engine | wt-1 | src/engine/** |');
     expect(result.output).toContain('| M2 | Build UI | build | feat/build-ui | wt-2 | src/ui/** |');
-  });
-
-  it.each([
-    ['omitted tasks', { title: 'Build engine', scope: ['src/engine/**'] }],
-    ['empty tasks', { title: 'Build engine', scope: ['src/engine/**'], tasks: [] }],
-    ['blank task text', { title: 'Build engine', scope: ['src/engine/**'], tasks: ['  '] }],
-  ])('rejects a build mission with %s', async (_label, mission) => {
-    await initViaTool();
-
-    const result = await run(ix.get(ITowerPlanTool), { missions: [mission] });
-
-    expect(result.isError).toBe(true);
-    expect(result.output).toBe(TOWER_BUILD_MISSION_NEEDS_TASKS);
-  });
-
-  it('plans a survey mission without tasks', async () => {
-    await initViaTool();
-
-    const result = await run(ix.get(ITowerPlanTool), {
-      missions: [{ title: 'Scan engine', scope: ['src/engine/**'], kind: 'survey' }],
-    });
-
-    expect(result.isError).toBeFalsy();
-    expect(result.output).toContain('planned 1 mission(s):');
   });
 
   it('passes mission context through to the stored mission', async () => {
@@ -371,6 +372,39 @@ describe('TowerPlanTool', () => {
     const state = await new TowerStore(repo).load();
     expect(state.missions[0]?.context).toBe('Ship it as a single binary.');
   });
+
+  it('rejects a re-planned title whose slugged branch is already taken, guiding a title change', async () => {
+    await initViaTool();
+    await run(ix.get(ITowerPlanTool), {
+      missions: [{ title: 'Build engine', scope: ['src/engine/**'] }],
+    });
+
+    const result = await run(ix.get(ITowerPlanTool), {
+      missions: [{ title: 'build engine', scope: ['src/engine-v2/**'] }],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('feat/build-engine');
+    expect(result.output).toContain('already used by M1');
+    expect(result.output).toContain('change the title');
+    expect((await new TowerStore(repo).load()).missions).toHaveLength(1);
+  });
+
+  it('rejects the slug of an abandoned mission too — reuse would corrupt branch-to-mission resolution', async () => {
+    await initViaTool();
+    await run(ix.get(ITowerPlanTool), {
+      missions: [{ title: 'Build engine', scope: ['src/engine/**'] }],
+    });
+    await new TowerStore(repo).updateMission('tower', 'M1', { status: 'abandoned' });
+
+    const result = await run(ix.get(ITowerPlanTool), {
+      missions: [{ title: 'Build engine', scope: ['src/web/**'] }],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('already used by M1 (abandoned)');
+    expect((await new TowerStore(repo).load()).missions).toHaveLength(1);
+  });
 });
 
 describe('TowerTeardownTool', () => {
@@ -385,7 +419,7 @@ describe('TowerTeardownTool', () => {
     expect(towerActive).toBe(true);
   });
 
-  it('refuses to tear down a tower owned by another live session', async () => {
+  it('refuses to tear down while the owning session is live in this process', async () => {
     await initViaTool();
     liveSessionIds = ['session-test'];
     currentSessionId = 'session-next';
@@ -393,8 +427,24 @@ describe('TowerTeardownTool', () => {
     const result = await run(ix.get(ITowerTeardownTool), {});
 
     expect(result.isError).toBe(true);
-    expect(result.output).toContain('owned by a live session (session-test)');
+    expect(result.output).toContain('dismantle that session');
     expect((await new TowerStore(repo).load()).sessionId).toBe('session-test');
+  });
+
+  it('tears down once the owning session released ownership, even while it is still live', async () => {
+    await initViaTool();
+    liveSessionIds = ['session-test'];
+    currentSessionId = 'session-next';
+
+    const blocked = await run(ix.get(ITowerTeardownTool), {});
+    expect(blocked.isError).toBe(true);
+    expect(blocked.output).toContain('dismantle that session');
+
+    await new TowerStore(repo).release('session-test');
+
+    const result = await run(ix.get(ITowerTeardownTool), {});
+    expect(result.isError).toBeFalsy();
+    expect(result.output).toContain('tower teardown:');
   });
 });
 
@@ -451,6 +501,26 @@ describe('TowerSendTool + TowerInboxTool', () => {
     expect(result.output).toContain('unknown recipient "ghost"');
     expect(result.output).toContain('known: tower, all, w1, w2');
   });
+
+  it('notes when the tower messages a roster agent that has no running task to deliver it', async () => {
+    const idle = await run(ix.get(ITowerSendTool), { to: 'w1', subject: 'wake', body: 'x' });
+    expect(idle.isError).toBeFalsy();
+    expect(idle.output).toContain('w1 has no running task');
+    expect(idle.output).toContain('Agent(resume="agent-w1", run_in_background=true');
+
+    liveAgentTaskIds.push('agent-w1');
+    const busy = await run(ix.get(ITowerSendTool), { to: 'w1', subject: 'wake', body: 'x' });
+    expect(busy.output).not.toContain('has no running task');
+  });
+
+  it('skips the delivery note for broadcasts and for sends from workers', async () => {
+    const broadcast = await run(ix.get(ITowerSendTool), { to: 'all', subject: 'b', body: 'x' });
+    expect(broadcast.output).not.toContain('has no running task');
+
+    currentAgentId = 'agent-w1';
+    const fromWorker = await run(ix.get(ITowerSendTool), { to: 'w2', subject: 'b', body: 'x' });
+    expect(fromWorker.output).not.toContain('has no running task');
+  });
 });
 
 describe('TowerStatusTool', () => {
@@ -468,7 +538,7 @@ describe('TowerStatusTool', () => {
   it('marks dead roster agents and warns about the missions they own', async () => {
     await initViaTool();
     await run(ix.get(ITowerPlanTool), {
-      missions: [{ title: 'engine', scope: ['src/engine/**'], tasks: ['scaffold'] }],
+      missions: [{ title: 'engine', scope: ['src/engine/**'] }],
     });
     const store = new TowerStore(repo);
     await store.registerAgent({
@@ -488,7 +558,7 @@ describe('TowerStatusTool', () => {
     expect(result.output).toContain('💀 failed');
     expect(result.output).toContain('## Dead workers');
     expect(result.output).toContain('M1 owner w1 died (failed)');
-    expect(result.output).toContain('Agent(resume="agent-w1"');
+    expect(result.output).toContain('Agent(resume="agent-w1", run_in_background=true');
   });
 });
 

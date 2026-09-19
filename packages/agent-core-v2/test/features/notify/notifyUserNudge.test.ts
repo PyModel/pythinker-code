@@ -261,7 +261,7 @@ describe('lastMidResponsePosition', () => {
   it('finds the latest assistant message carrying visible text', () => {
     const history = [
       userPrompt(),
-      assistantWithText('I will search first', 'WebSearch'),
+      assistantWithText('我来搜索一下', 'WebSearch'),
       assistantWithTools('FetchURL'),
     ];
 
@@ -271,7 +271,7 @@ describe('lastMidResponsePosition', () => {
   it('ignores thinking-only messages', () => {
     const history = [
       userPrompt(),
-      assistantWithThink('let me think', 'WebSearch'),
+      assistantWithThink('让我想想', 'WebSearch'),
       assistantWithTools('FetchURL'),
     ];
 
@@ -281,14 +281,14 @@ describe('lastMidResponsePosition', () => {
   it('stops at the last NotifyUser call and at the turn boundary', () => {
     const notified = [
       userPrompt(),
-      assistantWithText('said this earlier', 'Bash'),
+      assistantWithText('早期说过的话', 'Bash'),
       assistantWithTools('NotifyUser'),
       assistantWithTools('Bash'),
     ];
     expect(lastMidResponsePosition(notified)).toBe(-1);
 
     const previousTurn = [
-      assistantWithText('previous turn body', 'Bash'),
+      assistantWithText('上一轮的正文', 'Bash'),
       userPrompt(),
       assistantWithTools('Bash'),
     ];
@@ -297,28 +297,28 @@ describe('lastMidResponsePosition', () => {
 
   it('does not treat the previous turn\'s reply as mid-response across non-user boundaries', () => {
     const acrossCron = [
-      assistantWithText('previous turn body', 'Bash'),
+      assistantWithText('上一轮的正文', 'Bash'),
       cronPrompt(),
       assistantWithTools('Bash'),
     ];
     expect(lastMidResponsePosition(acrossCron)).toBe(-1);
 
     const acrossSlashSkill = [
-      assistantWithText('previous turn body', 'Bash'),
+      assistantWithText('上一轮的正文', 'Bash'),
       slashSkillPrompt(),
       assistantWithTools('Bash'),
     ];
     expect(lastMidResponsePosition(acrossSlashSkill)).toBe(-1);
 
     const acrossTask = [
-      assistantWithText('previous turn body', 'Bash'),
+      assistantWithText('上一轮的正文', 'Bash'),
       taskPrompt(),
       assistantWithTools('Bash'),
     ];
     expect(lastMidResponsePosition(acrossTask)).toBe(-1);
 
     const acrossRetry = [
-      assistantWithText('previous turn body', 'Bash'),
+      assistantWithText('上一轮的正文', 'Bash'),
       retryPrompt(),
       assistantWithTools('Bash'),
     ];
@@ -328,7 +328,7 @@ describe('lastMidResponsePosition', () => {
   it('still finds mid-turn text that precedes a stop-hook continuation', () => {
     const history = [
       userPrompt(),
-      assistantWithText('mid-turn note', 'WebSearch'),
+      assistantWithText('中段说明', 'WebSearch'),
       stopHookContinuation(),
       assistantWithTools('FetchURL'),
     ];

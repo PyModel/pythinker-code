@@ -4,28 +4,16 @@ import { ILogService, type LogPayload } from '#/_base/log/log';
 import {
   DEFAULT_MODEL_SECTION,
   DEFAULT_PROVIDER_SECTION,
-  LAST_USED_MODEL_SECTION,
   MODELS_SECTION,
   PROVIDERS_SECTION,
 } from '#/app/kosongConfig/configSection';
-import { type ModelRecord } from '#/kosong/model/model';
-import { ModelService } from '#/kosong/model/modelService';
-import { IEventService } from '#/app/event/event';
-import { type ProviderConfig } from '#/kosong/provider/provider';
-import { ProviderService } from '#/kosong/provider/providerService';
-import '#/kosong/provider/providers/pythinker/pythinker.contrib';
+import { type ModelRecord } from '#/llm-adapter/model/model';
+import { ModelService } from '#/llm-adapter/model/model-service';
+import { type ProviderConfig } from '#/llm-adapter/provider/provider';
+import { ProviderService } from '#/llm-adapter/provider/provider-service';
 
-import { StubConfigService } from '../../kosong/stubs';
+import { StubConfigService } from '../../stubs';
 import { KosongConfigService } from '#/app/kosongConfig/kosongConfigService';
-
-function stubEventService(): IEventService {
-  return {
-    _serviceBrand: undefined,
-    onDidPublish: undefined,
-    publish: () => {},
-    subscribe: () => ({ dispose: () => {} }),
-  } as unknown as IEventService;
-}
 
 function stubLogService(): ILogService & { warnings: Array<{ message: string; payload?: LogPayload }> } {
   const warnings: Array<{ message: string; payload?: LogPayload }> = [];
@@ -58,7 +46,7 @@ interface BridgeFixture {
 async function createBridge(sections: Record<string, unknown> = {}): Promise<BridgeFixture> {
   const config = new StubConfigService(sections);
   const providers = new ProviderService();
-  const models = new ModelService(providers, stubEventService());
+  const models = new ModelService();
   const log = stubLogService();
   const bridge = new KosongConfigService(config, providers, models, log);
   await bridge.ready;
@@ -100,18 +88,6 @@ describe('KosongConfigService startup hydration', () => {
     expect(providers.getDefaultProvider()).toBeUndefined();
     expect(models.list()).toEqual({});
     expect(models.getDefaultModel()).toBeUndefined();
-  });
-
-  it('hydrates the last-used model pointer from config', async () => {
-    const { models } = await createBridge({ ...seededSections, lastUsedModel: 'k1' });
-
-    expect(models.getLastUsedModel()).toBe('k1');
-  });
-
-  it('leaves the last-used pointer unset when config does not carry one', async () => {
-    const { models } = await createBridge(seededSections);
-
-    expect(models.getLastUsedModel()).toBeUndefined();
   });
 });
 
@@ -167,23 +143,6 @@ describe('KosongConfigService kosong → config persistence', () => {
       await flush();
 
       expect(config.get<string>(DEFAULT_PROVIDER_SECTION)).toBe('openai');
-    } finally {
-      bridge.dispose();
-    }
-  });
-
-  it('persists the last-used model pointer', async () => {
-    const { config, models, bridge } = await createBridge(seededSections);
-    try {
-      await models.setLastUsedModel('k1');
-      await flush();
-
-      expect(config.get<string>(LAST_USED_MODEL_SECTION)).toBe('k1');
-
-      await models.setLastUsedModel(undefined);
-      await flush();
-
-      expect(config.get<string>(LAST_USED_MODEL_SECTION)).toBeUndefined();
     } finally {
       bridge.dispose();
     }
@@ -291,10 +250,6 @@ describe('KosongConfigService config → kosong sync', () => {
       await config.replace(DEFAULT_PROVIDER_SECTION, 'openai');
       await flush();
       expect(providers.getDefaultProvider()).toBe('openai');
-
-      await config.replace(LAST_USED_MODEL_SECTION, 'k2');
-      await flush();
-      expect(models.getLastUsedModel()).toBe('k2');
     } finally {
       bridge.dispose();
     }
@@ -345,35 +300,6 @@ describe('KosongConfigService loop termination', () => {
   });
 });
 
-describe('KosongConfigService last-used model survival', () => {
-  it('keeps last_used_model in config when the models section is wiped and the default pointer clears', async () => {
-    const { config, models, bridge } = await createBridge({
-      ...seededSections,
-      lastUsedModel: 'k1',
-    });
-    try {
-      expect(models.getDefaultModel()).toBe('k1');
-
-      await config.replace(MODELS_SECTION, {});
-      await flush();
-
-      expect(models.list()).toEqual({});
-      expect(models.getDefaultModel()).toBeUndefined();
-      expect(config.get<string>(DEFAULT_MODEL_SECTION)).toBeUndefined();
-      expect(config.get<string>(LAST_USED_MODEL_SECTION)).toBe('k1');
-      expect(models.getLastUsedModel()).toBe('k1');
-
-      await config.replace(MODELS_SECTION, { k1: K1_MODEL });
-      await flush();
-
-      expect(models.getDefaultModel()).toBe('k1');
-      expect(config.get<string>(DEFAULT_MODEL_SECTION)).toBe('k1');
-    } finally {
-      bridge.dispose();
-    }
-  });
-});
-
 describe('KosongConfigService default-provider deletion', () => {
   it('clears the pointer when the default provider is deleted and persists the cleared pointer', async () => {
     const { config, providers, bridge } = await createBridge({
@@ -415,15 +341,9 @@ describe('KosongConfigService env-pinned default pointer', () => {
   }
 
   it('re-asserts the pinned effective default model into the registry after a registry-originated write', async () => {
-    const config = new PinnedConfigService(DEFAULT_MODEL_SECTION, 'env-model', {
-      ...seededSections,
-      models: {
-        k1: K1_MODEL,
-        'env-model': { provider: 'pythinker', model: 'env-model', maxContextSize: 1000 },
-      },
-    });
+    const config = new PinnedConfigService(DEFAULT_MODEL_SECTION, 'env-model', seededSections);
     const providers = new ProviderService();
-    const models = new ModelService(providers, stubEventService());
+    const models = new ModelService();
     const bridge = new KosongConfigService(config, providers, models, stubLogService());
     await bridge.ready;
     try {

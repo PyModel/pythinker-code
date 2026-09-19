@@ -70,7 +70,10 @@ export class NoticeMessageComponent extends Container {
     super.invalidate();
   }
 
+  // Indent every line, not just the first. The `detail` may be multi-line;
+  // prefixing the whole string once would only indent the first line and leave
+  // the rest at column 0 (same handling as StatusMessageComponent).
   private renderDetail(detail: string): string {
-    return currentTheme.fg('textDim', detail).replaceAll('\r', '').split('\n').map((line) => `  ${line}`).join('\n');
+    return currentTheme.fg('textDim', detail).split('\n').map((line) => `  ${line}`).join('\n');
   }
 }

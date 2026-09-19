@@ -8,23 +8,19 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (31 sections · 2 overlay(s))
-#   advisor                  src/session/advisor/configSection.ts
+# Index (28 sections · 2 overlay(s))
 #   background               src/agent/task/configSection.ts
 #   builtinProductSkills     src/features/skill/catalog/configSection.ts
 #   cron                     src/features/cron/configSection.ts
 #   database                 src/persistence/configSection.ts
 #   defaultPermissionMode    src/agent/permissionMode/configSection.ts
 #   defaultPlanMode          src/features/plan/configSection.ts
-#   dynamicWorkflow          src/features/dynamic_workflow/configSection.ts
 #   experimental             src/app/flag/flag.ts
 #   extraAgentDirs           src/workspace/workspaceAgentProfileLoader/configSection.ts
 #   extraSkillDirs           src/features/skill/catalog/configSection.ts
 #   hooks                    src/features/externalHooks/configSection.ts
 #   identity                 src/app/agentIdentity/configSection.ts
 #   image                    src/agent/media/configSection.ts
-#   lastUsedModel            src/app/kosongConfig/configSection.ts
-#   llm                      src/app/kosongConfig/configSection.ts
 #   loopControl              src/agent/loop/configSection.ts
 #   mcp                      src/app/mcpConfig/configSection.ts
 #   mergeAllAvailableSkills  src/features/skill/catalog/configSection.ts
@@ -36,23 +32,13 @@
 #   secondaryModel           src/session/subagent/configSection.ts
 #   services                 src/app/auth/configSection.ts
 #   subagent                 src/session/subagent/configSection.ts
+#   dynamic_workflow                    src/features/dynamic_workflow/configSection.ts
 #   task                     src/agent/task/configSection.ts
 #   thinking                 src/app/kosongConfig/configSection.ts
 #   tokenCounting            src/agent/tokenCounting/configSection.ts
 #   tools                    src/agent/toolPolicy/configSection.ts
 #   (overlay) servicesCredentialEnvOverlay  src/app/auth/configSection.ts
 #   (overlay) pythinkerModelEnvOverlay  src/app/kosongConfig/envOverlay.ts
-
-# ##########################################################################
-# advisor
-#   owner: src/session/advisor/configSection.ts
-#   scope: core
-# ##########################################################################
-
-[advisor]
-enabled = false
-# model: string
-# instructions: string
 
 # ##########################################################################
 # background
@@ -143,20 +129,6 @@ manual_tick = false
 default_plan_mode = false
 
 # ##########################################################################
-# dynamicWorkflow (config.toml: dynamic_workflow)
-#   owner: src/features/dynamic_workflow/configSection.ts
-#   scope: core
-#   hooks: stripEnv
-#   env:
-#     timeout_ms <- PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_TIMEOUT_MS (custom parse)
-#     max_concurrency <- PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY (custom parse)
-# ##########################################################################
-
-[dynamic_workflow]
-timeout_ms = 7200000
-# max_concurrency: integer
-
-# ##########################################################################
 # experimental
 #   owner: src/app/flag/flag.ts
 #   scope: core
@@ -225,23 +197,6 @@ extra_skill_dirs = []
 # read_byte_budget: integer
 
 # ##########################################################################
-# lastUsedModel (config.toml: last_used_model)
-#   owner: src/app/kosongConfig/configSection.ts
-#   scope: core
-# ##########################################################################
-
-# last_used_model: string
-
-# ##########################################################################
-# llm
-#   owner: src/app/kosongConfig/configSection.ts
-#   scope: core
-# ##########################################################################
-
-[llm]
-# request_idle_timeout_ms: integer
-
-# ##########################################################################
 # loopControl (config.toml: loop_control)
 #   owner: src/agent/loop/configSection.ts
 #   scope: core
@@ -252,7 +207,6 @@ extra_skill_dirs = []
 #   env:
 #     max_steps_per_turn <- PYTHINKER_LOOP_MAX_STEPS_PER_TURN (custom parse)
 #     max_attempts_per_step <- PYTHINKER_LOOP_MAX_ATTEMPTS_PER_STEP (custom parse; deprecated fallback PYTHINKER_LOOP_MAX_RETRIES_PER_STEP)
-#     turn_budget_tokens <- PYTHINKER_LOOP_TURN_BUDGET_TOKENS (custom parse)
 # ##########################################################################
 
 [loop_control]
@@ -261,7 +215,6 @@ extra_skill_dirs = []
 # max_ralph_iterations: integer
 # reserved_context_size: integer
 # compaction_trigger_ratio: number
-# turn_budget_tokens: integer
 
 # ##########################################################################
 # mcp
@@ -460,6 +413,18 @@ merge_all_available_skills = true
 # ##########################################################################
 
 [subagent]
+timeout_ms = 7200000
+
+# ##########################################################################
+# dynamic_workflow
+#   owner: src/features/dynamic_workflow/configSection.ts
+#   scope: core
+#   hooks: stripEnv
+#   env:
+#     timeout_ms <- PYTHINKER_CODE_DYNAMIC_WORKFLOW_TIMEOUT_MS (custom parse)
+# ##########################################################################
+
+[dynamic_workflow]
 timeout_ms = 7200000
 
 # ##########################################################################

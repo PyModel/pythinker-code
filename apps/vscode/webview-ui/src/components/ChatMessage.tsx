@@ -1,5 +1,5 @@
-import { useState, Fragment, memo, type ReactNode } from "react";
-import { IconGitFork } from "@tabler/icons-react";
+import { useState, Fragment, memo } from "react";
+import { IconLoader3, IconGitFork } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Content } from "@/lib/content";
 import { Markdown } from "./Markdown";
@@ -11,7 +11,6 @@ import { MediaThumbnail } from "./MediaThumbnail";
 import { MediaPreviewModal } from "./MediaPreviewModal";
 import { InlineError } from "./InlineError";
 import { PlanCard } from "./PlanCard";
-import { PythinkerLogo } from "./PythinkerLogo";
 import { StreamingConfirmDialog } from "./StreamingConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
@@ -29,18 +28,9 @@ interface ChatMessageProps {
 
 function ThinkingIndicator() {
   return (
-    <div className="flex items-center gap-2.5 mt-1 py-1">
-      <div className="flex min-w-0 items-center gap-2">
-        <PythinkerLogo className="size-4 shrink-0" />
-        <span className="text-[11px] font-medium tracking-wide text-muted-foreground flex items-center">
-          <span className="animate-shimmer-text">Pythinking</span>
-          <span className="inline-flex ml-[1px]">
-            <span className="animate-dot-1">.</span>
-            <span className="animate-dot-2">.</span>
-            <span className="animate-dot-3">.</span>
-          </span>
-        </span>
-      </div>
+    <div className="flex items-center gap-2 mt-1 text-blue-500/80 py-1">
+      <IconLoader3 className="size-3.5 animate-spin" />
+      <span className="text-[11px] font-medium tracking-wide">Processing…</span>
     </div>
   );
 }
@@ -49,7 +39,7 @@ function SteerBubble({ content }: { content: string | ContentPart[] }) {
   const text = typeof content === "string" ? content : Content.getText(content);
   return (
     <div className="flex justify-end my-1">
-      <div className="max-w-[85%] px-3 py-1 rounded-2xl rounded-br-md bg-muted text-foreground">
+      <div className="max-w-[85%] px-3 py-1 rounded-2xl rounded-br-md bg-zinc-100 dark:bg-zinc-800 text-foreground">
         <p className="text-xs leading-relaxed">{text}</p>
       </div>
     </div>
@@ -63,7 +53,7 @@ function StepItemRenderer({ item }: { item: UIStepItem }) {
     case "text":
       return <Markdown content={item.content} className="text-xs leading-relaxed" enableEnrichment={item.finished === true} />;
     case "tool_use":
-      return <ToolCallCard call={item.call} result={item.result} subagentSteps={item.subagent_steps} subagentStatus={item.subagent_status} workflowWarning={item.workflow_warning} />;
+      return <ToolCallCard call={item.call} result={item.result} subagentSteps={item.subagent_steps} />;
     case "compaction":
       return <CompactionCard />;
     case "steer":
@@ -73,23 +63,10 @@ function StepItemRenderer({ item }: { item: UIStepItem }) {
   }
 }
 
-/** A reply row whose gutter carries the assistant logo, lined up with the step markers. */
-function LogoRow({ children, className }: { children: ReactNode; className?: string }) {
-  return (
-    <div className={cn("flex gap-2", className)}>
-      <div className="hidden @[420px]:flex shrink-0 w-5 justify-center">
-        <PythinkerLogo className="size-4 mt-0.5" />
-      </div>
-      <div className="flex-1 min-w-0">{children}</div>
-    </div>
-  );
-}
-
-function StepContent({ step, showConnector, showLogo }:{ step: UIStep; showConnector?: boolean; showLogo?: boolean }) {
+function StepContent({ step, showConnector }: { step: UIStep; showConnector?: boolean }) {
   const hasItems = step.items.length > 0;
   const hasToolOrThinking = step.items.some((item) => item.type === "tool_use" || item.type === "thinking" || item.type === "compaction");
   const showIndicator = hasToolOrThinking;
-  const logoItemIndex = step.items.findIndex((item) => item.type === "text");
   const hasActiveItem = step.items.some((item) => (item.type === "text" || item.type === "thinking") && !item.finished);
 
   if (!hasItems) {
@@ -101,13 +78,13 @@ function StepContent({ step, showConnector, showLogo }:{ step: UIStep; showConne
       {showIndicator ? (
         <div className="hidden @[420px]:flex shrink-0 w-5 flex-col items-center relative">
           <div
-            className={cn("size-1.5 rounded-full mt-2 shrink-0 relative z-10", hasActiveItem ? "bg-brand shadow-[0_0_8px_color-mix(in_srgb,var(--brand)_60%,transparent)] animate-pulse" : "bg-brand")}
+            className={cn("size-1.5 rounded-full mt-2 shrink-0 relative z-10", hasActiveItem ? "bg-blue-400 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse" : "bg-blue-400")}
           />
           {showConnector && (
             <div
               className={cn(
                 "absolute left-1/2 w-px",
-                hasActiveItem ? "bg-gradient-to-b from-border to-transparent" : "bg-border",
+                hasActiveItem ? "bg-gradient-to-b from-zinc-300 to-transparent dark:from-zinc-600 dark:to-transparent" : "bg-zinc-300 dark:bg-zinc-600",
               )}
               style={{ top: "calc(0.5rem + 0.1875rem)", bottom: "calc(-0.75rem - 0.5rem - 0.1875rem)", transform: "translateX(-50%)" }}
             />
@@ -117,20 +94,9 @@ function StepContent({ step, showConnector, showLogo }:{ step: UIStep; showConne
         <div className="hidden @[420px]:block shrink-0 w-5" />
       )}
       <div className="flex-1 min-w-0 space-y-2">
-        {step.items.map((item, idx) => {
-          const renderer = <StepItemRenderer item={item} />;
-          if (!showLogo || idx !== logoItemIndex) {
-            return <Fragment key={`${step.n}-${idx}`}>{renderer}</Fragment>;
-          }
-          // The logo belongs beside the reply itself, not beside whatever tool or
-          // thinking block happens to open the step, so it claims the outer gutter
-          // from this row: `-ml-7` is the `w-5` marker column plus the `gap-2`.
-          return (
-            <LogoRow key={`${step.n}-${idx}`} className="@[420px]:-ml-7">
-              {renderer}
-            </LogoRow>
-          );
-        })}
+        {step.items.map((item, idx) => (
+          <StepItemRenderer key={`${step.n}-${idx}`} item={item} />
+        ))}
       </div>
     </div>
   );
@@ -214,7 +180,7 @@ function ForkButton({ turnIndex, className }: ForkButtonProps) {
         variant="ghost"
         size="icon-xs"
         className={cn(
-          "h-5 w-5 text-muted-foreground hover:text-foreground transition-all border-0! hover:bg-toolbar-hover cursor-pointer",
+          "h-5 w-5 text-muted-foreground hover:text-foreground transition-all border-0! hover:bg-zinc-200 dark:hover:bg-zinc-800 cursor-pointer",
           isForking && "opacity-50 pointer-events-none",
           className,
         )}
@@ -251,22 +217,20 @@ function UserMessage({ message }: { message: ChatMessageType }) {
   const videos = Content.getVideos(message.content);
 
   return (
-    <>
-      <div className="px-3 pt-3 pb-1 flex justify-end">
-        <div className={cn("max-w-[85%] px-3.5 py-1.5 rounded-2xl rounded-br-md", "bg-muted", "text-foreground")}>
-          {displayContent && (
-            // FIX: removed whitespace-pre-wrap — it conflicted with ReactMarkdown's
-            // block-level elements (<p>, <ol>, <li>), doubling vertical spacing.
-            // ReactMarkdown already handles paragraph breaks from \n\n.
-            <div className="text-xs leading-relaxed wrap-break-word">
-              <Markdown content={displayContent} enableEnrichment enableLocalImageRender={false} />
-            </div>
-          )}
-          <MessageMedia images={images} videos={videos} onPreview={setPreviewMedia} />
-        </div>
+    <div className="px-3 pt-3 pb-1 flex justify-end">
+      <div className={cn("max-w-[85%] px-3.5 py-1.5 rounded-2xl rounded-br-md", "bg-zinc-100 dark:bg-zinc-800", "text-foreground")}>
+        {displayContent && (
+          // FIX: removed whitespace-pre-wrap — it conflicted with ReactMarkdown's
+          // block-level elements (<p>, <ol>, <li>), doubling vertical spacing.
+          // ReactMarkdown already handles paragraph breaks from \n\n.
+          <div className="text-xs leading-relaxed wrap-break-word">
+            <Markdown content={displayContent} enableEnrichment enableLocalImageRender={false} />
+          </div>
+        )}
+        <MessageMedia images={images} videos={videos} onPreview={setPreviewMedia} />
       </div>
       <MediaPreviewModal src={previewMedia} onClose={() => setPreviewMedia(null)} />
-    </>
+    </div>
   );
 }
 
@@ -285,10 +249,7 @@ function AssistantMessage({ message, turnIndex, isStreaming }: { message: ChatMe
     if (!hasSteps) {
       return typeof message.content === "string" ? message.content : "";
     }
-    const lastStep = steps.at(-1);
-    if (lastStep === undefined) {
-      return typeof message.content === "string" ? message.content : "";
-    }
+    const lastStep = steps[steps.length - 1];
     const textItems = lastStep.items.filter((item) => item.type === "text");
     if (textItems.length > 0) {
       return textItems.map((item) => (item as { type: "text"; content: string }).content).join("\n");
@@ -304,69 +265,63 @@ function AssistantMessage({ message, turnIndex, isStreaming }: { message: ChatMe
   const isShowingInlineError = message.inlineError && !isStreaming;
 
   return (
-    <>
-      <div className="@container px-3 py-3 group/message">
-        <div className="flex gap-3 flex-col">
-          <div className="flex-1 min-w-0">
-            <div className="flex flex-col">
-              <div className="[&>*:not(:last-child)]:mb-3">
-                {hasSteps &&
-                  groupStepsByPlanMode(steps).map((group, gi) => {
-                    const totalSteps = steps.length;
-                    // The logo identifies the assistant on its first reply, but only when the
-                    // message draws no timeline: sitting in the gutter, it would cut the
-                    // connector running between the step markers.
-                    const hasTimeline = stepHasIndicator.filter(Boolean).length > 1;
-                    const firstTextStepIndex = hasTimeline ? -1 : steps.findIndex((s) => s.items.some((item) => item.type === "text"));
-                    const stepsContent = group.steps.map((step, i) => {
-                      const globalIndex = group.startIndex + i;
-                      const isLastInGroup = i === group.steps.length - 1;
-                      const isLastOverall = globalIndex === totalSteps - 1;
-                      const hasIndicator = stepHasIndicator[globalIndex];
-                      const hasNextIndicator = stepHasIndicator.slice(globalIndex + 1).some(Boolean);
-                      const showConnector = hasIndicator && hasNextIndicator && !isLastInGroup && !isLastOverall;
-                      return <StepContent key={step.n} step={step} showConnector={showConnector} showLogo={globalIndex === firstTextStepIndex} />;
-                    });
+    <div className="@container px-3 py-3 group/message">
+      <div className="flex gap-3 flex-col">
+        <div className="flex flex-row items-center justify-start gap-2">
+          <div className="shrink-0 size-5 rounded flex items-center justify-center text-[10px] font-medium bg-blue-500 text-white">K</div>
+          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Pythinker</div>
+        </div>
 
-                    if (group.planMode) {
-                      return <PlanCard key={`plan-${gi}`}>{stepsContent}</PlanCard>;
-                    }
-                    return <Fragment key={`normal-${gi}`}>{stepsContent}</Fragment>;
-                  })}
-                {!hasSteps && displayContent && (
-                  <LogoRow>
-                    <Markdown content={displayContent} className="text-xs leading-relaxed" enableEnrichment={!isStreaming} />
-                  </LogoRow>
-                )}
-                {(images.length > 0 || videos.length > 0) && (
-                  <div className="@[420px]:pl-5">
-                    <MessageMedia images={images} videos={videos} onPreview={setPreviewMedia} />
-                  </div>
-                )}
-              </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-col">
+            <div className="[&>*:not(:last-child)]:mb-3">
+              {hasSteps &&
+                groupStepsByPlanMode(steps).map((group, gi) => {
+                  const totalSteps = steps.length;
+                  const stepsContent = group.steps.map((step, i) => {
+                    const globalIndex = group.startIndex + i;
+                    const isLastInGroup = i === group.steps.length - 1;
+                    const isLastOverall = globalIndex === totalSteps - 1;
+                    const hasIndicator = stepHasIndicator[globalIndex];
+                    const hasNextIndicator = stepHasIndicator.slice(globalIndex + 1).some(Boolean);
+                    const showConnector = hasIndicator && hasNextIndicator && !isLastInGroup && !isLastOverall;
+                    return <StepContent key={step.n} step={step} showConnector={showConnector} />;
+                  });
 
-              {/* Inline error display */}
-              {isShowingInlineError && message.inlineError && (
+                  if (group.planMode) {
+                    return <PlanCard key={`plan-${gi}`}>{stepsContent}</PlanCard>;
+                  }
+                  return <Fragment key={`normal-${gi}`}>{stepsContent}</Fragment>;
+                })}
+              {!hasSteps && displayContent && <Markdown content={displayContent} className="text-xs leading-relaxed @[420px]:pl-5" enableEnrichment={!isStreaming} />}
+              {(images.length > 0 || videos.length > 0) && (
                 <div className="@[420px]:pl-5">
-                  <InlineError error={message.inlineError} />
+                  <MessageMedia images={images} videos={videos} onPreview={setPreviewMedia} />
                 </div>
               )}
-              <div className="flex flex-row items-center space-between">
-                <div className="inline-flex flex-1">{isStreaming && !isShowingInlineError && !isCompacting && <ThinkingIndicator />}</div>
-                <div className="inline-flex flex-1" />
-                {!isStreaming && contentToCopy.trim().length > 0 && (
-                  <div className="flex justify-start pt-1 gap-1 opacity-0 group-hover/message:opacity-100 transition-opacity duration-100">
-                    <CopyButton content={contentToCopy} />
-                    {message.forkable !== false && turnIndex !== undefined && turnIndex >= 0 && <ForkButton turnIndex={turnIndex} />}
-                  </div>
-                )}
+            </div>
+
+            {/* 内嵌错误显示 */}
+            {isShowingInlineError && message.inlineError && (
+              <div className="@[420px]:pl-5">
+                <InlineError error={message.inlineError} />
               </div>
+            )}
+            <div className="flex flex-row items-center space-between">
+              <div className="inline-flex flex-1">{isStreaming && !isShowingInlineError && !isCompacting && <ThinkingIndicator />}</div>
+              <div className="inline-flex flex-1" />
+              {!isStreaming && contentToCopy.trim().length > 0 && (
+                <div className="flex justify-start pt-1 gap-1 opacity-0 group-hover/message:opacity-100 transition-opacity duration-100">
+                  <CopyButton content={contentToCopy} />
+                  {message.forkable !== false && turnIndex !== undefined && turnIndex >= 0 && <ForkButton turnIndex={turnIndex} />}
+                </div>
+              )}
             </div>
           </div>
         </div>
       </div>
       <MediaPreviewModal src={previewMedia} onClose={() => setPreviewMedia(null)} />
-    </>
+    </div>
   );
 }
 

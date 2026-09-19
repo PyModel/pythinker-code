@@ -7,7 +7,6 @@
  */
 
 import type { KlientContract } from './types.js';
-import { agentActivityViewContract } from './agent/activity.js';
 import {
   agentCommandContract,
   agentContextMemoryContract,
@@ -25,7 +24,7 @@ import {
   agentTokenCountingContract,
   agentUsageContract,
 } from './agent/services.js';
-import { authSummaryContract } from './global/auth.js';
+import { authContract, authSummaryContract } from './global/auth.js';
 import { capabilitiesContract } from './global/capabilities.js';
 import { catalogContract } from './global/catalog.js';
 import { providerDiscoveryContract } from './global/providerDiscovery.js';
@@ -41,7 +40,7 @@ import { providersContract } from './global/providers.js';
 import { sessionsContract } from './global/sessions.js';
 import { workspacesContract } from './global/workspaces.js';
 import { sessionApprovalContract } from './session/approval.js';
-import { sessionExpertTalkContract } from './session/expertTalk.js';
+import { sessionActivityViewContract } from './session/activity.js';
 import { sessionInteractionContract } from './session/interaction.js';
 import { sessionManagerContract } from './session/lifecycle.js';
 import { sessionMetadataContract } from './session/metadata.js';
@@ -58,6 +57,7 @@ export const globalContract: KlientContract = {
   modelService: modelsContract,
   modelResolver: catalogContract,
   providerDiscovery: providerDiscoveryContract,
+  oauthService: authContract,
   authSummaryService: authSummaryContract,
   flagService: flagsContract,
   pluginService: pluginsContract,
@@ -71,10 +71,10 @@ export const globalContract: KlientContract = {
   sessionMetadata: sessionMetadataContract,
   sessionInteractionService: sessionInteractionContract,
   sessionApprovalService: sessionApprovalContract,
-  sessionExpertTalkService: sessionExpertTalkContract,
   sessionQuestionService: sessionQuestionContract,
   sessionSkillCatalog: sessionSkillCatalogContract,
   sessionTitleService: sessionTitleContract,
+  sessionActivityView: sessionActivityViewContract,
   // agent scope
   agentPromptService: agentPromptContract,
   agentSkillService: agentSkillContract,
@@ -84,7 +84,6 @@ export const globalContract: KlientContract = {
   agentRuntimeBindingService: agentRuntimeBindingContract,
   agentContextMemoryService: agentContextMemoryContract,
   agentTokenCountingService: agentTokenCountingContract,
-  agentActivityView: agentActivityViewContract,
   agentShellCommandService: agentShellCommandContract,
   agentProfileService: agentProfileContract,
   agentUsageService: agentUsageContract,

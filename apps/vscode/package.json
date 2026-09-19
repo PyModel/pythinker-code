@@ -1,9 +1,9 @@
 {
-  "name": "pythinker",
-  "publisher": "pymodel",
-  "displayName": "Pythinker",
-  "description": "Pythinker Code extension for VS Code",
-  "version": "0.9.7",
+  "name": "pythinker-code",
+  "publisher": "moonshot-ai",
+  "displayName": "Pythinker Code",
+  "description": "Official Pythinker Code plugin for VS Code",
+  "version": "0.7.5",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -39,8 +39,9 @@
     "skills",
     "json",
     "autocomplete",
+    "pymodel",
     "pythinker",
-    "pymodel"
+    "moonshot-ai"
   ],
   "pricing": "Free",
   "activationEvents": [],
@@ -53,7 +54,7 @@
         "pythinker.yoloMode": {
           "type": "boolean",
           "default": false,
-          "description": "Start new sessions in YOLO mode (auto-approve regular tool calls; the agent may still ask questions). Sessions keep the mode they were last left in; changing this applies to the open sessions too."
+          "description": "Auto-approve regular tool calls; the agent may still ask questions"
         },
         "pythinker.autosave": {
           "type": "boolean",
@@ -123,11 +124,6 @@
         "icon": "$(mention)"
       },
       {
-        "command": "pythinker.addTerminalSelection",
-        "title": "Pythinker Code: Add Terminal Selection to Pythinker",
-        "icon": "$(terminal)"
-      },
-      {
         "command": "pythinker.newConversation",
         "title": "Pythinker Code: New Conversation",
         "icon": "$(add)"
@@ -146,6 +142,10 @@
         "command": "pythinker.logout",
         "title": "Pythinker Code: Logout",
         "icon": "$(sign-out)"
+      },
+      {
+        "command": "pythinker.migrateLegacyData",
+        "title": "Pythinker Code: Migrate Legacy Data"
       }
     ],
     "keybindings": [
@@ -159,64 +159,6 @@
         "key": "alt+k",
         "mac": "alt+k",
         "when": "editorTextFocus"
-      },
-      {
-        "command": "pythinker.newConversation",
-        "key": "ctrl+alt+n",
-        "mac": "cmd+alt+n"
-      }
-    ],
-    "walkthroughs": [
-      {
-        "id": "pythinkerGettingStarted",
-        "title": "Get started with Pythinker Code",
-        "description": "Set up Pythinker Code and run your first conversation.",
-        "steps": [
-          {
-            "id": "openView",
-            "title": "Open the Pythinker view",
-            "description": "Select the Pythinker icon in the Activity Bar to open the chat view.\n[Open Pythinker](command:pythinker.webview.focus)",
-            "media": {
-              "markdown": "walkthrough/open-view.md"
-            },
-            "completionEvents": [
-              "onView:pythinker.webview"
-            ]
-          },
-          {
-            "id": "signIn",
-            "title": "Sign in or add a provider",
-            "description": "Sign in with your Pythinker account, or add a model provider with your own API key.",
-            "media": {
-              "markdown": "walkthrough/sign-in.md"
-            },
-            "completionEvents": [
-              "onContext:pythinker.isLoggedIn"
-            ]
-          },
-          {
-            "id": "firstConversation",
-            "title": "Run your first conversation",
-            "description": "Send a request and learn how the approval modes control what the agent can do.\n[New Conversation](command:pythinker.newConversation)",
-            "media": {
-              "markdown": "walkthrough/first-conversation.md"
-            },
-            "completionEvents": [
-              "onCommand:pythinker.newConversation"
-            ]
-          },
-          {
-            "id": "referenceCode",
-            "title": "Reference your code",
-            "description": "Use @ mentions and Alt+K to point Pythinker at the exact files and lines you mean.",
-            "media": {
-              "markdown": "walkthrough/reference-code.md"
-            },
-            "completionEvents": [
-              "onCommand:pythinker.insertMention"
-            ]
-          }
-        ]
       }
     ],
     "viewsContainers": {
@@ -272,10 +214,6 @@
           "when": "true"
         },
         {
-          "command": "pythinker.addTerminalSelection",
-          "when": "false"
-        },
-        {
           "command": "pythinker.newConversation",
           "when": "true"
         },
@@ -290,19 +228,17 @@
         {
           "command": "pythinker.logout",
           "when": "pythinker.isLoggedIn"
+        },
+        {
+          "command": "pythinker.migrateLegacyData",
+          "when": "true"
         }
       ],
       "editor/context": [
         {
           "command": "pythinker.insertMention",
-          "group": "pythinker@1",
-          "when": "editorHasSelection"
-        }
-      ],
-      "terminal/context": [
-        {
-          "command": "pythinker.addTerminalSelection",
-          "group": "pythinker@1"
+          "group": "moonshot-ai",
+          "when": "editorTextFocus"
         }
       ]
     }
@@ -311,7 +247,6 @@
     "vscode:prepublish": "pnpm run build",
     "dev": "pnpm run dev:prepare && pnpm run \"/^dev:(extension|webview)$/\"",
     "dev:prepare": "node scripts/prepare-dev.mjs",
-    "dev:prepare:seeded": "node scripts/prepare-dev.mjs --seed-config --base-dir ../../.tmp/seeded/vscode-extension-dev",
     "dev:extension": "node scripts/watch-extension.mjs",
     "dev:webview": "vite build --config webview-ui/vite.config.ts --watch --sourcemap",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p webview-ui/tsconfig.json --noEmit",
@@ -323,7 +258,6 @@
     "package:platform": "node scripts/vsix-package.mjs",
     "package:verify": "node scripts/vsix-verify.mjs",
     "publish:vsix": "node scripts/vsix-publish.mjs",
-    "release": "node scripts/release-extension.mjs",
     "publish:ovsx": "node scripts/ovsx-publish.mjs"
   },
   "devDependencies": {
@@ -336,23 +270,27 @@
     "@types/node": "^22.15.3",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
+    "@types/react-scroll-to-bottom": "^4.2.5",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@types/vscode": "1.100.0",
     "@vitejs/plugin-react": "^4.4.1",
     "@vscode/test-cli": "^0.0.11",
-    "@vscode/test-electron": "^3.1.0",
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "3.9.2",
     "acorn": "8.17.0",
     "jsdom": "^30.0.1",
     "ovsx": "1.0.2",
     "tailwindcss": "^4.1.4",
-    "vite": "^6.4.3",
+    "vite": "^6.3.3",
     "vite-plugin-css-injected-by-js": "^3.5.2",
-    "vitest": "4.1.11"
+    "vitest": "4.1.4"
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",
+    "@fontsource-variable/inter": "5.2.8",
+    "@pymodel/pythinker-code-oauth": "workspace:^",
     "@pymodel/pythinker-code-sdk": "workspace:^",
+    "@pymodel/migration-legacy": "workspace:^",
     "@radix-ui/react-accordion": "^1.2.12",
     "@tabler/icons-react": "^3.36.0",
     "@tanstack/react-query": "^5.74.4",
@@ -369,8 +307,8 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
+    "react-scroll-to-bottom": "^4.2.0",
     "react-syntax-highlighter": "^16.1.0",
-    "react-virtuoso": "^4.18.11",
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",

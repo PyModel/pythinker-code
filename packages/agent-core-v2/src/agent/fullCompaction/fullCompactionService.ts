@@ -3,14 +3,15 @@ import { Service } from "#/_base/di/service";
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/state/state';
-import { estimateTokensForMessage } from "#/kosong/contract/tokens";
+import { estimateTokensForMessage } from "#/llm-adapter/contract/tokens";
 import { buildCompactionSummaryText, isRealUserInput } from '#/agent/contextMemory/compactionHandoff';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IAgentLLMRequesterService, type AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';
-import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
+import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import { retryBackoffDelays, sleepForRetry } from '#/_base/utils/retry';
+import { runWithCredentialRecovery } from '#/llm-adapter/model/credential-recovery';
 import { IAgentLoopService, type LoopErrorContext } from '#/agent/loop/loop';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded } from '#/agent/loop/turnOps';
@@ -24,27 +25,26 @@ import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { stripDynamicToolContext } from '#/agent/toolSelect/dynamicTools';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { AgentTodo, type TodoRuntime } from '#/features/todo/todoAgentRuntime';
+import { IAgentTodoService } from '#/features/todo/todoService';
 import { renderTodoList } from '#/features/todo/todoItem';
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
+import type { WireLineRange } from '#/wire/record';
+import { IWireService } from '#/wire/wire';
 import {
   APIContextOverflowError,
   APIEmptyResponseError,
   APIStatusError,
   isRetryableGenerateError,
-} from '#/kosong/contract/errors';
-import { createUserMessage, type Message } from '#/kosong/contract/message';
-import type { Tool } from '#/kosong/contract/tool';
-import { inputTotal, type TokenUsage } from '#/kosong/contract/usage';
+} from '#/llm-adapter/contract/errors';
+import { createUserMessage, type Message } from '#/llm-adapter/contract/message';
+import type { ToolDescription as Tool } from '#human/llm/message';
+import { inputTotal, type TokenUsage } from '#human/llm/usage';
 import { IEventBus } from '#/app/event/eventBus';
 import type { CompactionFailedEvent, CompactionFinishedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2, isCodedError, isError2, toPythinkerErrorPayload, unwrapErrorCause } from "#/errors";
 import { AgentErrorEvent } from '#/agent/mcp/mcpEvents';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
-import type { WireLineRange } from '#/wire/record';
-import { IWireService } from '#/wire/wire';
 import { renderCompactionInstruction } from './compactionInstruction';
 import { renderContextRecoveryPointer } from './contextRecovery';
 import {
@@ -139,7 +139,6 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   readonly onDidFinishCompaction: Event<FullCompactionTask> = this._onDidFinishCompaction.event;
 
   private readonly strategy: CompactionStrategy;
-  private readonly todo: TodoRuntime;
   private _compacting: ActiveCompaction | null = null;
 
   constructor(
@@ -149,8 +148,8 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @IAgentToolSelectService private readonly toolSelect: IAgentToolSelectService,
-    @IAgentLifecycleService manager: IAgentLifecycleService,
     @IAgentScopeContext private readonly agent: IAgentScopeContext,
+    @IAgentTodoService private readonly todo: IAgentTodoService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @IEventBus private readonly eventBus: IEventBus,
@@ -159,7 +158,6 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     @IWireService private readonly wire: IWireService,
   ) {
     super();
-    this.todo = manager.resolve(agent.agentContext, AgentTodo);
     this.states.contributeState(fullCompactionKey);
     this.states.contributeState(fullCompactionWireRangesKey);
     this.states.contributeState(fullCompactionCompactionCountInTurnKey);
@@ -491,9 +489,8 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   }
 
   private retryFailedDriver(context: LoopErrorContext): boolean {
-    const driver = context.failedDriver;
-    if (driver === undefined || context.currentStep?.signal.aborted === true) return false;
-    context.retry(driver, { at: 'head' });
+    if (context.signal.aborted) return false;
+    context.retry();
     return true;
   }
 
@@ -656,22 +653,30 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         const estimatedCompactionRequestTokens = this.requestTokens(messages);
 
         try {
-          const request = this.llmRequester.start(
-            {
-              messages,
-              maxOutputSize: compactionMaxOutputSize,
-              source: {
-                type: 'operation',
-                turnId: active.originTurnId,
-                requestKind: 'full_compaction',
-                logFields: { droppedCount },
+          const runRequest = async () => {
+            const request = this.llmRequester.start(
+              {
+                messages,
+                maxOutputSize: compactionMaxOutputSize,
+                source: {
+                  type: 'operation',
+                  turnId: active.originTurnId,
+                  requestKind: 'full_compaction',
+                  logFields: { droppedCount },
+                },
               },
-            },
-            undefined,
+              undefined,
+              signal,
+            );
+            active.trace = request.trace;
+            return request.result;
+          };
+          const result = await runWithCredentialRecovery(
+            this.llmRequester.currentCredentials(),
+            runRequest,
             signal,
           );
-          active.trace = request.trace;
-          attempt = collectSummary(await request.result);
+          attempt = collectSummary(result);
           break;
         } catch (error) {
           const isContextOverflow = this.shouldRecoverFromContextOverflow(
@@ -751,7 +756,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         compactedCount: originalHistory.length,
         tokensBefore,
         summaryOutputTokens:
-          attempt.usage === null || attempt.usage === undefined
+          attempt.usage === null
             ? undefined
             : attempt.usage.output +
               (recoveryFooter === undefined ? 0 : this.tokenCounting.estimateText(recoveryFooter)),
@@ -801,6 +806,14 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     }
   }
 
+  private async postProcessSummary(summary: string): Promise<string> {
+    const todos = this.todo.get();
+    if (todos.length === 0) {
+      return summary;
+    }
+    return `${summary.trim()}\n\n${renderTodoList(todos, '## TODO List')}`;
+  }
+
   private async captureWireLines(): Promise<WireLineRange | undefined> {
     try {
       await this.wire.flush();
@@ -821,14 +834,6 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     if (journalPath === undefined) return undefined;
     const windows = [...this.states.get(fullCompactionWireRangesKey), wireLines];
     return renderContextRecoveryPointer({ journalPath, windows });
-  }
-
-  private async postProcessSummary(summary: string): Promise<string> {
-    const todos = this.todo.get();
-    if (todos.length === 0) {
-      return summary;
-    }
-    return `${summary.trim()}\n\n${renderTodoList(todos, '## TODO List')}`;
   }
 
   private tokenCountWithPending(): number {

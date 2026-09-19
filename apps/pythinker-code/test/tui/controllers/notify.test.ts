@@ -608,9 +608,9 @@ describe('NotifyController', () => {
     h.emit('tool.call.started', {
       toolCallId: 'a1',
       name: 'Agent',
-      args: { description: 'survey the example project', subagent_type: 'explore', prompt: '…' },
+      args: { description: '调研 example 项目', subagent_type: 'explore', prompt: '…' },
     });
-    expect(h.texts()).toEqual(['▸ Delegated to explore: **survey the example project**']);
+    expect(h.texts()).toEqual(['▸ Delegated to explore: **调研 example 项目**']);
     expect(h.notifyPanelContainer.children).toEqual([h.notifyPanel]);
 
     h.emit('tool.call.started', {
@@ -619,8 +619,8 @@ describe('NotifyController', () => {
       args: { items: [{ prompt: 'x' }, { prompt: 'y' }, { prompt: 'z' }] },
     });
     expect(h.texts()).toEqual([
-      '▸ Delegated to explore: **survey the example project**',
-      '▸ Delegated to a dynamic workflow of 3 subagents',
+      '▸ Delegated to explore: **调研 example 项目**',
+      '▸ Delegated to a dynamic_workflow of 3 subagents',
     ]);
   });
 
@@ -631,7 +631,7 @@ describe('NotifyController', () => {
       name: 'AgentDynamicWorkflow',
       args: { resume_agent_ids: { 'agent-1': 'continue the review', 'agent-2': 'keep going' } },
     });
-    expect(h.texts()).toEqual(['▸ Delegated to a dynamic workflow of 2 subagents']);
+    expect(h.texts()).toEqual(['▸ Delegated to a dynamic_workflow of 2 subagents']);
 
     h.emit('tool.call.started', {
       toolCallId: 'a2',
@@ -639,8 +639,8 @@ describe('NotifyController', () => {
       args: { items: ['x', 'y'], resume_agent_ids: { 'agent-3': 'resume' } },
     });
     expect(h.texts()).toEqual([
-      '▸ Delegated to a dynamic workflow of 2 subagents',
-      '▸ Delegated to a dynamic workflow of 3 subagents',
+      '▸ Delegated to a dynamic_workflow of 2 subagents',
+      '▸ Delegated to a dynamic_workflow of 3 subagents',
     ]);
   });
 
@@ -663,7 +663,7 @@ describe('NotifyController', () => {
     });
     expect(h.texts()).toHaveLength(3);
 
-    h.emit('tool.result', { toolCallId: 'a2', isError: true, output: 'workflow validation failed' });
+    h.emit('tool.result', { toolCallId: 'a2', isError: true, output: 'dynamic_workflow validation failed' });
     expect(h.texts()).toEqual([
       '▸ Delegated to explore: **keep me**',
       '▸ Delegated to subagent: **interrupted**',

@@ -40,7 +40,8 @@ import {
   type TranscriptTurn,
 } from '@pymodel/transcript';
 
-import { resolveStoragePath } from '../../lib/storagePath';
+import { readWireRecords, type ContextRecord } from './wireRecords';
+import { toWireQuestion } from '../../protocol/question-wire';
 import { projectPromptContentParts } from '../messages/messageProjection';
 import {
   bindSessionTranscript,
@@ -48,8 +49,6 @@ import {
   type TranscriptBinding,
   type TranscriptBindingLogger,
 } from './coreBinding';
-import { readWireRecords, type ContextRecord } from './wireRecords';
-import { toWireQuestion } from '../../protocol/question-wire';
 
 const SESSIONS_ROOT = 'sessions';
 const AGENTS_DIR = 'agents';
@@ -428,9 +427,8 @@ export class TranscriptService {
     if (summary === undefined) return undefined;
     let meta: SessionMeta;
     try {
-      const sessionsRoot = join(this.deps.homeDir, SESSIONS_ROOT);
       const raw = await readFile(
-        resolveStoragePath(sessionsRoot, summary.workspaceId, sessionId, STATE_FILE),
+        join(this.deps.homeDir, SESSIONS_ROOT, summary.workspaceId, sessionId, STATE_FILE),
         'utf-8',
       );
       meta = JSON.parse(raw) as SessionMeta;
@@ -451,34 +449,33 @@ export class TranscriptService {
     if (!isPlainAgentId(agentId)) {
       return groupMessagesIntoSnapshot([]);
     }
-    const sessionsRoot = join(this.deps.homeDir, SESSIONS_ROOT);
+    const wirePath = join(
+      this.deps.homeDir,
+      SESSIONS_ROOT,
+      summary.workspaceId,
+      sessionId,
+      AGENTS_DIR,
+      agentId,
+      WIRE_FILE,
+    );
     let records: Awaited<ReturnType<typeof readWireRecords>>;
     try {
-      records = await readWireRecords(
-        sessionsRoot,
-        summary.workspaceId,
-        sessionId,
-        AGENTS_DIR,
-        agentId,
-        WIRE_FILE,
-      );
+      records = await readWireRecords(wirePath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         return groupMessagesIntoSnapshot([]);
       }
       throw error;
     }
-    const contextTranscript = reduceContextTranscript(records);
-    const messages = [...contextTranscript.entries];
+    const messages = [...reduceContextTranscript(records).entries];
     const taskOriginTurnTaskIds = new Set<string>();
-    const steeredRecordIndexes = new Set<number>();
-    const pendingSteers: ContextRecord[] = [];
+    const steeredContents = new Map<string, Map<string, number>>();
     const anchorStack: { taskIdsSnapshot: Set<string> }[] = [];
     let anchorFloor = 0;
     let sawTurnPrompt = false;
-    for (const [recordIndex, record] of records.entries()) {
+    for (const record of records) {
       if (record.type === 'context.undo') {
-        const count = typeof record['count'] === 'number' ? record['count'] : 0;
+        const count = typeof record['count'] === 'number' ? (record['count'] as number) : 0;
         for (let i = 0; i < count && anchorStack.length > anchorFloor; i++) {
           const popped = anchorStack.pop()!;
           taskOriginTurnTaskIds.clear();
@@ -495,14 +492,18 @@ export class TranscriptService {
         if (message !== undefined && isUndoAnchor(message)) {
           anchorStack.push({ taskIdsSnapshot: new Set(taskOriginTurnTaskIds) });
         }
-        const pendingSteer = pendingSteers.shift();
-        if (pendingSteer !== undefined && message !== undefined && steerMatchesMessage(pendingSteer, message)) {
-          steeredRecordIndexes.add(recordIndex);
-        }
         continue;
       }
       if (record.type === 'turn.steer') {
-        if (isUserSteer(record)) pendingSteers.push(record);
+        const input = record['input'];
+        if (Array.isArray(input)) {
+          const key = JSON.stringify(input);
+          const steerOrigin = (record as { origin?: { kind?: unknown } }).origin?.kind;
+          const kind = typeof steerOrigin === 'string' ? steerOrigin : 'user';
+          const byKind = steeredContents.get(key) ?? new Map<string, number>();
+          byKind.set(kind, (byKind.get(kind) ?? 0) + 1);
+          steeredContents.set(key, byKind);
+        }
         continue;
       }
       if (record.type !== 'turn.prompt') continue;
@@ -516,17 +517,9 @@ export class TranscriptService {
         taskOriginTurnTaskIds.add(origin.taskId);
       }
     }
-    const steeredMessageIndexes = new Set<number>();
-    contextTranscript.recordIndexes.forEach((recordIndex, messageIndex) => {
-      if (recordIndex !== undefined && steeredRecordIndexes.has(recordIndex)) {
-        steeredMessageIndexes.add(messageIndex);
-      }
-    });
     const base = groupMessagesIntoSnapshot(
       messages,
-      sawTurnPrompt || steeredMessageIndexes.size > 0
-        ? { taskOriginTurnTaskIds, steeredMessageIndexes }
-        : undefined,
+      sawTurnPrompt || steeredContents.size > 0 ? { taskOriginTurnTaskIds, steeredContents } : undefined,
     );
     const folded = foldWireRecordFacts(projectQuestionInteractionRecords(records, sessionId), base, {
       resolvePlanRevisionKey: (key) =>
@@ -550,19 +543,15 @@ export class TranscriptService {
       return snapshot;
     }
     const modes = { ...snapshot.meta.modes, tower: undefined };
-    const cleared =
-      modes.plan === undefined &&
-      modes.dynamic_workflow === undefined &&
-      modes.tower === undefined;
+    const cleared = modes.plan === undefined && modes.dynamic_workflow === undefined && modes.tower === undefined;
     return { ...snapshot, meta: { ...snapshot.meta, modes: cleared ? undefined : modes } };
   }
 
   private async coldTowerOwnedHere(sessionId: string, cwd: string | undefined): Promise<boolean> {
-    if (cwd === undefined) return false;
-    const owner = await new TowerStore(resolveTowerRepoRoot(cwd)).load().then(
-      (state) => state.sessionId,
-      () => undefined,
-    );
+    if (cwd === undefined) return true;
+    const owner = await new TowerStore(resolveTowerRepoRoot(cwd))
+      .load()
+      .then((state) => state.sessionId, () => undefined);
     if (owner === undefined || owner === sessionId) return true;
     return this.deps.core.accessor.get(ISessionManager).get(owner) === undefined;
   }
@@ -580,22 +569,6 @@ export class TranscriptService {
     this.live.delete(sessionId);
     entry.binding.dispose();
   }
-}
-
-function steerMatchesMessage(steer: ContextRecord, message: ContextMessage): boolean {
-  if (message.role !== 'user') return false;
-  const input = steer['input'];
-  return Array.isArray(input) && JSON.stringify(input) === JSON.stringify(message.content);
-}
-
-function isUserSteer(record: ContextRecord): boolean {
-  const origin = record['origin'];
-  return (
-    origin !== null &&
-    typeof origin === 'object' &&
-    !Array.isArray(origin) &&
-    (origin as { kind?: unknown }).kind === 'user'
-  );
 }
 
 export function snapshotToOps(

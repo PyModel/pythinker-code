@@ -18,10 +18,6 @@ import { type Command, Option } from 'commander';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, WEB_USER_AGENT_SUFFIX } from '#/constant/app';
 import { getNativeWebAssetsDir } from '#/native/web-assets';
-import {
-  PYTHINKER_LOGO_LINES,
-  renderPythinkerLogoLine,
-} from '#/tui/components/chrome/pythinker-logo';
 import { darkColors } from '#/tui/theme/colors';
 import { openUrl as defaultOpenUrl } from '#/utils/open-url';
 import { getDataDir } from '#/utils/paths';
@@ -40,12 +36,10 @@ import {
   isLoopbackHost,
   splitTokenFragment,
 } from './access-urls';
-import { formatHostForUrl, type NetworkAddress } from './networks';
+import { type NetworkAddress } from './networks';
 import {
   formatRemoteControlOutput,
   formatRemoteControlStatus,
-  resolveRelayKey,
-  resolveRelayOrigin,
   startRemoteControl,
   type RemoteControlHandle,
   type RemoteControlOptions,
@@ -79,14 +73,11 @@ interface RoutedServer {
 export interface WebCliOptions extends ServerCliOptions {
   open?: boolean;
   remoteControl?: boolean;
-  relayOrigin?: string;
-  relayKey?: string;
 }
 
 export interface StartForegroundHooks {
   /** Fires once the server is listening, before the foreground runner blocks. */
   onReady?: (origin: string) => void | Promise<void>;
-  /** Fires once shutdown starts, before the server socket is closed. */
   onShutdown?: (reason: string) => void | Promise<void>;
 }
 
@@ -96,6 +87,7 @@ export interface WebCommandDeps {
     options: ParsedServerOptions,
     hooks?: StartForegroundHooks,
   ) => Promise<never>;
+  startRemoteControl?: (options: RemoteControlOptions) => Promise<RemoteControlHandle>;
   openUrl(url: string): void;
   /**
    * Best-effort read of the server's persistent bearer token. When it returns
@@ -104,8 +96,6 @@ export interface WebCommandDeps {
    * it simply print/open the plain origin.
    */
   resolveToken?: () => string | undefined;
-  /** Remote Control starter; defaults to the real relay client when omitted. */
-  startRemoteControl?: (options: RemoteControlOptions) => Promise<RemoteControlHandle>;
   /**
    * Non-loopback interface addresses to display for a wildcard bind. Defaults
    * to the machine's own interfaces (`listNetworkAddresses()`); inject a fixed
@@ -183,18 +173,6 @@ export function buildWebCommand(
       ).default(false),
     );
   }
-  withServerOptions.addOption(
-    new Option(
-      '--relay-key <key>',
-      'Secret the Remote Control relay requires. Defaults to $PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY.',
-    ),
-  );
-  withServerOptions.addOption(
-    new Option(
-      '--relay-origin <url>',
-      'Remote Control relay to tunnel through. Defaults to $PYTHINKER_CODE_REMOTE_CONTROL_RELAY.',
-    ),
-  );
   return withServerOptions
     .option('--no-open', 'Do not open the web UI in the default browser.', true)
     .action(async (opts: WebCliOptions) => {
@@ -220,8 +198,6 @@ export async function handleWebCommand(
   if (opts.remoteControl === true && !isLoopbackHost(parsed.host)) {
     throw new Error('--remote-control requires a loopback host.');
   }
-  const relayOrigin = opts.remoteControl === true ? resolveRelayOrigin(opts.relayOrigin) : undefined;
-  const relayKey = opts.remoteControl === true ? resolveRelayKey(opts.relayKey) : '';
   const run = deps.startServerForeground ?? startServerForeground;
   let remoteControl: RemoteControlHandle | undefined;
   await run(parsed, {
@@ -237,9 +213,6 @@ export async function handleWebCommand(
       if (opts.remoteControl === true) {
         if (token === undefined) throw new Error('Unable to read the local server token.');
         const dataDir = getDataDir();
-        // Status lines can arrive while the relay handshake is still running,
-        // before the banner is printed. Buffer them so they never interleave
-        // with the banner they are supposed to follow.
         let outputReady = false;
         const pendingStatuses: string[] = [];
         const onStatus = (status: RemoteControlStatus): void => {
@@ -250,10 +223,8 @@ export async function handleWebCommand(
         remoteControl = await (deps.startRemoteControl ?? startRemoteControl)({
           homeDir: dataDir,
           localOrigin: origin,
-          localServerToken: () => deps.resolveToken?.() ?? '',
+          localServerToken: token,
           clientVersion: `pythinker-code/${getVersion()}`,
-          relayKey,
-          relayOrigin,
           stderr: deps.stderr,
           onStatus,
         });
@@ -262,7 +233,7 @@ export async function handleWebCommand(
           formatRemoteControlOutput({
             url: remoteControl.url,
             localOrigin: origin,
-            localServerToken: token ?? '',
+            localServerToken: token,
             deviceName: remoteControl.deviceName,
             qrCode: qrCode.terminal,
             pngPath: qrCode.pngPath,
@@ -336,7 +307,7 @@ export async function startServerForeground(
  */
 async function runServerInProcess(
   options: ParsedServerOptions,
-  hooks: StartForegroundHooks = {},
+  hooks: StartForegroundHooks,
 ): Promise<never> {
   const version = getVersion();
   // Registers the telemetry provider for `track` / `shutdownTelemetry`; the
@@ -388,7 +359,7 @@ async function runServerInProcess(
     // rather than agent-gateway's private package version.
     serverVersion: version,
     // The CLI's host identity: feeds the engine's bootstrap client identity
-    // and the derived outbound headers (User-Agent), so web-UI
+    // and the derived outbound headers (User-Agent + X-Msh-*), so web-UI
     // OAuth flows and model / WebSearch requests carry the CLI identity. The
     // `web` User-Agent suffix distinguishes web-UI traffic from direct CLI
     // runs upstream (same product token, same platform).
@@ -412,7 +383,7 @@ async function runServerInProcess(
   });
   logger.info('serving the REST/WS API and the bundled web UI');
   running = {
-    address: `http://${formatHostForUrl(v2.host, v2.host.includes(':') ? 'IPv6' : 'IPv4')}:${v2.port}`,
+    address: `http://${v2.host}:${v2.port}`,
     logger,
     close: () => v2.close(),
   };
@@ -431,24 +402,11 @@ async function runServerInProcess(
   try {
     await hooks.onReady?.(running.address);
   } catch (error) {
-    // Every cleanup step runs even when an earlier one fails, and none of them
-    // may replace the startup error the caller needs to see.
-    for (const step of [
-      async () => hooks.onShutdown?.('startup_failed'),
-      async () => running.close(),
-      async () => shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS }),
-    ]) {
-      try {
-        await step();
-      } catch (cleanupError) {
-        running.logger.error(
-          {
-            err:
-              cleanupError instanceof Error ? cleanupError : new Error(String(cleanupError)),
-          },
-          'startup cleanup step failed',
-        );
-      }
+    try {
+      await hooks.onShutdown?.('startup_failed');
+    } finally {
+      await running.close();
+      await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
     }
     throw error;
   }
@@ -490,8 +448,6 @@ interface FormatReadyBannerOptions {
   networkAddresses?: NetworkAddress[];
   /** When true, render a red danger notice (auth is disabled). */
   dangerousBypassAuth?: boolean;
-  /** Use the full five-row robot mark for a TUI-to-web handoff. */
-  useTuiLogo?: boolean;
 }
 
 export function formatReadyBanner(
@@ -513,28 +469,15 @@ export function formatReadyBanner(
   };
 
   const port = Number(origin.slice(origin.lastIndexOf(':') + 1));
-  const lines: string[] =
-    opts.useTuiLogo === true
-      ? [
-          '',
-          ...PYTHINKER_LOGO_LINES.map((line, index) => {
-            const colored = renderPythinkerLogoLine(index);
-            const copy =
-              index === 2
-                ? `${title('Pythinker server ready')}  ${dim(getVersion())}`
-                : index === 3
-                  ? dim('Local web UI is available from this machine.')
-                  : '';
-            return copy === '' ? `  ${colored}` : `  ${colored}  ${copy}`;
-          }),
-          '',
-        ]
-      : [
-          '',
-          `  ${primary('▐█▛█▛█▌')}  ${title('Pythinker server ready')}  ${dim(getVersion())}`,
-          `  ${primary('▐█████▌')}  ${dim('Local web UI is available from this machine.')}`,
-          '',
-        ];
+  // Borderless header: the Pythinker sprite (the little mascot with eyes) sits next
+  // to the title, keeping the brand without the enclosing box.
+  const logo = ['▐█▛█▛█▌', '▐█████▌'] as const;
+  const lines: string[] = [
+    '',
+    `  ${primary(logo[0])}  ${title('Pythinker server ready')}  ${dim(getVersion())}`,
+    `  ${primary(logo[1])}  ${dim('Local web UI is available from this machine.')}`,
+    '',
+  ];
 
   if (opts.dangerousBypassAuth === true) {
     // Red, impossible-to-miss notice: the bearer-token gate is off, so anyone
@@ -573,9 +516,7 @@ export function formatReadyBanner(
 
 const DEFAULT_WEB_COMMAND_DEPS: WebCommandDeps = {
   startServerForeground,
-  openUrl: (url) => {
-    void defaultOpenUrl(url);
-  },
+  openUrl: defaultOpenUrl,
   resolveToken: () => {
     // Read the persistent `<homeDir>/server.token` written on first boot
     // (M5.1). Best-effort: a missing/older server yields undefined and the

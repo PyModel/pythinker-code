@@ -36,7 +36,6 @@ import type {
   GoalSnapshot,
   GoalStatus,
   GoalToolResult,
-  SubagentBindingProvenance,
 } from '@pymodel/agent-core-v2';
 import type {
   AssistantDeltaPayload,
@@ -62,7 +61,7 @@ import type {
   ShellStartedPayload,
 } from '@pymodel/agent-core-v2/agent/shellCommand/shellCommandService';
 
-import type { TurnStepRetryingPayload } from '@pymodel/agent-core-v2/agent/stepRetry/stepRetryService';
+import type { TurnStepRetryingPayload } from '@pymodel/agent-core-v2/agent/loop/turnEvents';
 import type { AgentTaskStatus } from '@pymodel/agent-core-v2/agent/task/types';
 import type {
   ToolCallStartedPayload,
@@ -70,8 +69,8 @@ import type {
   ToolResultEventPayload,
 } from '@pymodel/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
 import type { UsageStatus } from '@pymodel/agent-core-v2/agent/usage/usage';
-import type { FinishReason } from '@pymodel/agent-core-v2/kosong/contract/provider';
-import type { TokenUsage } from '@pymodel/agent-core-v2/kosong/contract/usage';
+import type { FinishReason } from '@pymodel/agent-core-v2/human/llm/finish-reason';
+import type { TokenUsage } from '@pymodel/agent-core-v2/human/llm/usage';
 import type {
   SubagentCompletedPayload,
   SubagentFailedPayload,
@@ -85,7 +84,6 @@ import { ToolInputDisplaySchema } from './display';
 import { configResponseSchema } from './rest-config';
 import { sessionPendingInteractionSchema, sessionSchema } from './session';
 import { workspaceSchema } from './workspace';
-import { expertTalkStatusSchema } from './rest-expert-talk';
 
 export const tokenUsageSchema = z.object({
   inputOther: z.number(),
@@ -492,16 +490,6 @@ export const agentPhaseSchema = z.discriminatedUnion('kind', [
     since: z.number(),
   }),
   z.object({
-    kind: z.literal('streaming'),
-    turnId: z.number(),
-    step: z.number(),
-    stepId: z.string(),
-    stream: z.enum(['assistant', 'thinking', 'tool_call']),
-    toolCallId: z.string().optional(),
-    toolName: z.string().optional(),
-    since: z.number(),
-  }),
-  z.object({
     kind: z.literal('tool_call'),
     turnId: z.number(),
     step: z.number(),
@@ -632,7 +620,7 @@ export const sessionStatusChangedEventSchema = z.object({
 
 export const configChangedEventSchema = z.object({
   type: z.literal('event.config.changed'),
-  changed_fields: z.array(z.string().min(1)),
+  changedFields: z.array(z.string().min(1)),
   config: configResponseSchema,
 });
 
@@ -679,11 +667,6 @@ export const capabilityChangedEventSchema = z.object({
     error: z.string().optional(),
     note: z.string().optional(),
   }),
-});
-
-export const expertTalkChangedEventSchema = z.object({
-  type: z.literal('expert_talk.changed'),
-  status: expertTalkStatusSchema,
 });
 
 export const diUnitChangedEventSchema = z.object({
@@ -792,6 +775,7 @@ export const turnStepCompletedEventSchema = z.object({
   llmServerFirstTokenMs: z.number().optional(),
   llmServerDecodeMs: z.number().optional(),
   llmClientConsumeMs: z.number().optional(),
+  llmClientBlockedMs: z.number().optional(),
   providerFinishReason: finishReasonSchema.optional(),
   rawFinishReason: z.string().optional(),
 }) satisfies z.ZodType<TurnStepCompletedPayload>;
@@ -905,24 +889,6 @@ export const toolResultEventSchema = z.object({
   synthetic: z.boolean().optional(),
 }) satisfies z.ZodType<ToolResultEventPayload>;
 
-const subagentRoutingProvenanceSchema = z.object({
-  operation: z.enum(['spawn', 'fork', 'resume']),
-  profileSource: z.enum(['requested', 'default', 'fork-inherit', 'resume-existing']),
-  modelSource: z.enum([
-    'caller',
-    'policy-default',
-    'policy-pool',
-    'policy-force',
-    'fork-inherit',
-    'resume-existing',
-  ]),
-  policyMode: z.enum(['inherit', 'default', 'pool', 'force']),
-  policySource: z.enum(['config', 'default']),
-  featureSource: z.enum(['master-env', 'env', 'config', 'default']),
-  resolvedFromRoutingEnvironmentRevision: z.string(),
-  routeDecisionFingerprint: z.string(),
-}) satisfies z.ZodType<SubagentBindingProvenance>;
-
 export const subagentSpawnedEventSchema = z.object({
   type: z.literal('subagent.spawned'),
   subagentId: z.string(),
@@ -936,8 +902,6 @@ export const subagentSpawnedEventSchema = z.object({
   runInBackground: z.boolean(),
   model: z.string().optional(),
   thinkingEffort: z.string().optional(),
-  routing: subagentRoutingProvenanceSchema.optional(),
-  currentRoutingEnvironmentRevision: z.string().optional(),
   taskId: z.string().optional(),
 }) satisfies z.ZodType<SubagentSpawnedPayload>;
 
@@ -1140,7 +1104,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   promptSteeredEventSchema,
 ]);
 
-export const eventSchema = z.union([agentEventSchema, expertTalkChangedEventSchema]).and(
+export const eventSchema = agentEventSchema.and(
   z.object({
     agentId: z.string(),
     sessionId: z.string(),

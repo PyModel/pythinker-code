@@ -84,7 +84,7 @@ auto_install = false
     });
     expect(session.reloadSession).not.toHaveBeenCalled();
     expect(host.reloadCurrentSessionView).toHaveBeenCalledWith(
-      { ...session, id: 'ses-1-reloaded' },
+      session,
       'Session reloaded.',
     );
     expect(host.harness.getConfig).toHaveBeenCalledWith({ reload: true });
@@ -150,7 +150,6 @@ auto_install = false
     const refreshPluginCommands = vi.fn(async () => {});
     const hydrateLazyConfigDefaults = vi.fn(async () => {});
     Object.assign(host, {
-      engineV2: true,
       refreshSkillCommands,
       refreshPluginCommands,
       hydrateLazyConfigDefaults,
@@ -207,7 +206,7 @@ function makeHost({
     state,
     session,
     harness: {
-      reloadSession: vi.fn(async () => ({ ...session, id: 'ses-1-reloaded' })),
+      reloadSession: vi.fn(async () => session),
       getConfig: vi.fn(async () => ({
         models: {
           fresh: { provider: 'test', model: 'fresh-model', maxContextSize: 1000 },

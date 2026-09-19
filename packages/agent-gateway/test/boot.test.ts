@@ -11,8 +11,8 @@ import {
   IBootstrapService,
   IFileSystemStorageService,
   IHostRequestHeaders,
-  IMcpOAuthService,
   InMemoryStorageService,
+  IOAuthToolkit,
   ITelemetryService,
   noopTelemetryService,
 } from '@pymodel/agent-core-v2';
@@ -27,7 +27,6 @@ describe('server-v2 boot', () => {
   let home: string | undefined;
 
   afterEach(async () => {
-    vi.unstubAllGlobals();
     if (server !== undefined) {
       await server.close();
       server = undefined;
@@ -76,12 +75,17 @@ describe('server-v2 boot', () => {
     expect(auth.status).toBe(200);
     const authBody = await auth.json() as {
       code: number;
-      data: { ready: boolean; providers_count: number; default_model: string | null };
+      data: { models_ready: boolean; providers_count: number };
     };
     expect(authBody.code).toBe(0);
-    expect(typeof authBody.data.ready).toBe('boolean');
+    expect(typeof authBody.data.models_ready).toBe('boolean');
     expect(authBody.data.providers_count).toBeGreaterThanOrEqual(0);
 
+    const oauthPoll = await authedFetch(server, base, '/api/v1/oauth/login');
+    expect(oauthPoll.status).toBe(200);
+    const oauthBody = await oauthPoll.json() as { code: number; data: null };
+    expect(oauthBody.code).toBe(0);
+    expect(oauthBody.data).toBeNull();
   });
 
   it('reports opts.serverVersion as server_version instead of the package version', async () => {
@@ -130,8 +134,8 @@ describe('server-v2 boot', () => {
     });
     const defaults = server.core.accessor.get(IHostRequestHeaders);
     expect(defaults.headers['User-Agent']).toBe('test-host/0.0.0-test');
-    expect(defaults.headers['X-Msh-Version']).toBeUndefined();
-    expect(defaults.headers['X-Msh-Platform']).toBeUndefined();
+    expect(defaults.headers['X-Msh-Version']).toBe('0.0.0-test');
+    expect(defaults.headers['X-Msh-Platform']).toBe('test_platform');
 
     await server.close();
     server = undefined;
@@ -194,7 +198,6 @@ describe('server-v2 boot', () => {
   });
 
   it('completes server cleanup when owned telemetry shutdown fails', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 204 })));
     home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-telemetry-failure-'));
     const storage = new InMemoryStorageService();
     const write = storage.write.bind(storage);
@@ -202,6 +205,13 @@ describe('server-v2 boot', () => {
       if (scope === 'telemetry') throw new Error('telemetry storage unavailable');
       await write(scope, key, data, options);
     });
+    const auth = {
+      _serviceBrand: undefined,
+      getCachedAccessToken: async () => {
+        throw new Error('telemetry auth unavailable');
+      },
+    } as unknown as IOAuthToolkit;
+
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
       host: '127.0.0.1',
@@ -211,6 +221,7 @@ describe('server-v2 boot', () => {
       telemetry: true,
       seeds: [
         [IFileSystemStorageService, storage],
+        [IOAuthToolkit, auth],
       ],
     });
     const core = server.core;
@@ -273,49 +284,6 @@ describe('server-v2 boot', () => {
 
     expect(process.listenerCount('unhandledRejection')).toBe(rejectionBefore.length);
     expect(process.listenerCount('uncaughtException')).toBe(exceptionBefore.length);
-  });
-
-  it('joins concurrent close calls into one shutdown', async () => {
-    home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-close-once-'));
-    server = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logLevel: 'silent',
-    });
-    const dispose = vi.spyOn(server.core, 'dispose');
-
-    await Promise.all([server.close(), server.close()]);
-    await server.close();
-    server = undefined;
-
-    expect(dispose).toHaveBeenCalledTimes(1);
-    expect(await listLiveServerInstances(home)).toEqual([]);
-  });
-
-  it('runs every cleanup phase and rethrows when a required drain fails', async () => {
-    home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-close-fail-'));
-    const rejectionBefore = process.listenerCount('unhandledRejection');
-    const exceptionBefore = process.listenerCount('uncaughtException');
-    server = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logLevel: 'silent',
-    });
-    const core = server.core;
-    const oauth = core.accessor.get(IMcpOAuthService);
-    vi.spyOn(oauth, 'shutdown').mockRejectedValueOnce(new Error('oauth shutdown failed'));
-
-    await expect(server.close()).rejects.toThrow('oauth shutdown failed');
-    server = undefined;
-
-    expect(() => core.accessor.get(IBootstrapService)).toThrow();
-    expect(await listLiveServerInstances(home)).toEqual([]);
-    expect(process.listenerCount('unhandledRejection')).toBe(rejectionBefore);
-    expect(process.listenerCount('uncaughtException')).toBe(exceptionBefore);
   });
 
   it('does not leave process handlers installed when startup fails', async () => {

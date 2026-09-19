@@ -8,7 +8,7 @@ import {
   IAgentLifecycleService,
   getLiveSessionById,
 } from '@pymodel/agent-core-v2';
-import { beforeAll, describe, expect, it, afterAll } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';

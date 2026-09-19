@@ -4,6 +4,7 @@ import { isTelemetryDisabledByEnv } from '@pymodel/pythinker-telemetry';
 import { Key, matchesKey, Spacer } from '@pymodel/pi-tui';
 
 import {
+  getSurveyPopupConfig,
   peekSurveyPopupConfig,
   peekSurveyPopupConfigFresh,
   type SurveyPopupConfig,
@@ -69,6 +70,7 @@ export interface SurveyControllerDeps {
   readonly configFresh?: () => boolean;
   readonly terminalWidth?: () => number;
   readonly configRegion?: () => string;
+  readonly accessToken?: () => Promise<string | undefined>;
   readonly readGlobalLastShown?: () => Promise<number | undefined>;
   readonly writeGlobalLastShown?: (wallTime: number) => void;
 }
@@ -92,7 +94,7 @@ const defaultDeps = {
   writeGlobalLastShown: writeSurveyLastShownTime,
 } satisfies Omit<
   Required<SurveyControllerDeps>,
-  'feedbackSurveyDisabled' | 'refreshConfig'
+  'feedbackSurveyDisabled' | 'refreshConfig' | 'accessToken'
 >;
 
 export class SurveyController {
@@ -609,8 +611,19 @@ export class SurveyController {
         .finally(markReady);
       return true;
     }
-    markReady();
-    return false;
+    const accessToken = this.deps.accessToken;
+    if (accessToken === undefined) {
+      markReady();
+      return false;
+    }
+    this.configReady = false;
+    void (async () => {
+      const token = await accessToken();
+      await getSurveyPopupConfig({ accessToken: token });
+    })()
+      .catch(() => undefined)
+      .finally(markReady);
+    return true;
   }
 
   private tooNarrow(): boolean {

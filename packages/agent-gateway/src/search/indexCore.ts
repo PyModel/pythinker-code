@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { open, readFile, readdir, stat, type FileHandle } from 'node:fs/promises';
+import { open, readFile, readdir, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 import {
@@ -60,7 +60,6 @@ function legacyFileMetaKey(filePath: string): string {
 
 const WIRE_READ_CHUNK_BYTES = 1 << 20;
 const WIRE_BATCH_OPS = 1_000;
-const MAX_WIRE_PENDING_BYTES = 4 * 1024 * 1024;
 const SYNC_ROUND_BYTE_BUDGET = 64 << 20;
 const SYNC_ROUND_TIME_BUDGET_MS = 30_000;
 const SYNC_FAILURE_ESCALATION_LIMIT = 5;
@@ -536,7 +535,6 @@ export class SearchIndexCore {
       if (result.failed) {
         const count = (this.sessionSyncFailures.get(summary.id) ?? 0) + 1;
         this.sessionSyncFailures.set(summary.id, count);
-        failures += 1;
         if (count >= SESSION_SYNC_FAILURE_SKIP_LIMIT) {
           this.sessionSyncFailures.delete(summary.id);
           this.sessionSyncSkips.set(summary.id, { at: Date.now(), updatedAt: summary.updatedAt });
@@ -545,6 +543,7 @@ export class SearchIndexCore {
             { sessionId: summary.id, error: result.error },
           );
         } else {
+          failures += 1;
           this.log.warn('global search: failed to index session', {
             sessionId: summary.id,
             error: result.error,
@@ -666,21 +665,11 @@ export class SearchIndexCore {
     file: WireFileRef,
     budget: SyncRoundBudget,
   ): Promise<SessionSyncResult> {
-    let handle: FileHandle;
-    try {
-      handle = await open(file.path, 'r');
-    } catch (error) {
-      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-        return { truncated: false, failed: false };
-      }
-      return { truncated: false, failed: true, error: errorMessage(error) };
-    }
     let st: { size: number; mtimeMs: number; ino: number };
     try {
-      st = await handle.stat();
-    } catch (error) {
-      await handle.close();
-      return { truncated: false, failed: true, error: errorMessage(error) };
+      st = await stat(file.path);
+    } catch {
+      return { truncated: false, failed: false };
     }
     const size = st.size;
     const metaKey = fileMetaKey(summary.id, file.path);
@@ -741,15 +730,19 @@ export class SearchIndexCore {
         if (legacyKey !== null) ops.push({ op: 'del', key: legacyKey });
         await db.batch(ops);
       }
-      await handle.close();
       return { truncated: false, failed: false };
     }
 
+    let handle: Awaited<ReturnType<typeof open>>;
+    try {
+      handle = await open(file.path, 'r');
+    } catch (error) {
+      return { truncated: false, failed: true, error: errorMessage(error) };
+    }
     const ops: BatchInputOp<SearchDoc>[] = [];
     let byteCursor = offset;
     let position = offset;
     let wireError: unknown;
-    let pendingOverflow = false;
     try {
       let pending: Buffer = EMPTY_BUFFER;
       let finishing = false;
@@ -803,10 +796,6 @@ export class SearchIndexCore {
           pending.length > 0
             ? Buffer.concat([pending, slice.subarray(start)])
             : Buffer.from(slice.subarray(start));
-        if (pending.length > MAX_WIRE_PENDING_BYTES) {
-          pendingOverflow = true;
-          break;
-        }
         if (finishing && completedRecord) break;
         if (ops.length >= WIRE_BATCH_OPS) {
           ops.push({ op: 'set', key: metaKey, value: fileMeta(byteCursor, turnState, stepState) });
@@ -822,7 +811,7 @@ export class SearchIndexCore {
       await handle.close();
     }
 
-    const truncated = pendingOverflow || (position < size && syncBudgetExhausted(budget));
+    const truncated = position < size && syncBudgetExhausted(budget);
     if (byteCursor !== offset || legacyKey !== null) {
       ops.push({ op: 'set', key: metaKey, value: fileMeta(byteCursor, turnState, stepState) });
       if (legacyKey !== null) ops.push({ op: 'del', key: legacyKey });

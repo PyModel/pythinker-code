@@ -15,7 +15,6 @@ import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import { TelemetryService } from '#/app/telemetry/telemetryService';
 import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
 import {
   SESSION_INDEX_MANIFEST,
@@ -74,13 +73,6 @@ describe('SessionIndexMirror', () => {
       ScopeActivation.OnDemand,
       'storage',
     );
-    registerScopedService(
-      LifecycleScope.App,
-      ITelemetryService,
-      TelemetryService,
-      ScopeActivation.OnDemand,
-      'telemetry',
-    );
     homeDir = await fsp.mkdtemp(join(os.tmpdir(), 'session-mirror-'));
   });
 
@@ -122,7 +114,7 @@ describe('SessionIndexMirror', () => {
     mirror.record(summary('a', { title: 'first', updatedAt: 1 }));
     mirror.record(summary('a', { title: 'latest', updatedAt: 5 }));
     mirror.record(summary('b', { archived: true, updatedAt: 3 }));
-    expect(mirror.pending().map((s) => s.id).toSorted()).toEqual(['a', 'b']);
+    expect(mirror.pending().map((s) => s.id).sort()).toEqual(['a', 'b']);
 
     await mirror.drain();
     expect(mirror.pending()).toEqual([]);
@@ -175,6 +167,7 @@ describe('SessionIndexMirror', () => {
       stubPair(IFileSystemStorageService, new FileStorageService(homeDir)),
       stubPair(ILogService, stubLog()),
       stubPair(IConfigService, stubConfigService({ [DATABASE_SECTION]: { base: true } })),
+      stubPair(ITelemetryService, noopTelemetryService),
     ]);
     disposeHost = () => {
       host.dispose();

@@ -2,10 +2,7 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 
-import {
-  resolveConfigPath,
-  type PythinkerConfigValidationIssue,
-} from '@pymodel/pythinker-code-sdk';
+import { resolveConfigPath, type PythinkerConfigValidationIssue } from '@pymodel/pythinker-code-sdk';
 import type { Command } from 'commander';
 import { z } from 'zod';
 

@@ -1,6 +1,5 @@
-import { ISubagentRoutingService } from '#/session/subagent/subagentRoutingService';
 import { createControlledPromise } from '@antfu/utils';
-import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
@@ -10,7 +9,6 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { userCancellationReason } from '#/_base/utils/abort';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
@@ -18,9 +16,7 @@ import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import { IEventBus } from '#/app/event/eventBus';
 import type { Event2 } from '#/app/event/event2';
-import { IConfigService } from '#/app/config/config';
-import { APIProviderRateLimitError } from '#/kosong/contract/errors';
-import { ErrorCodes } from '#/errors';
+import { APIProviderRateLimitError } from '#/llm-adapter/contract/errors';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 import {
   IAgentLifecycleService,
@@ -45,6 +41,7 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 import { IAgentRuntimeBindingService } from '#/agent/runtimeBinding/runtimeBinding';
 import {
   AgentRunBatch,
+  resolveDynamicWorkflowMaxConcurrency,
   type AgentRunAttemptHandle,
   type AgentRunAttemptOptions,
   type AgentRunBatchLauncher,
@@ -57,7 +54,34 @@ import { ISessionDynamicWorkflowService, type SessionDynamicWorkflowSpawnTask, t
 import { SessionDynamicWorkflowService } from '#/features/dynamic_workflow/session/sessionDynamicWorkflowService';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
-import { stubBootstrap } from '../../app/bootstrap/stubs';
+
+describe('resolveDynamicWorkflowMaxConcurrency', () => {
+  it('returns undefined when the variable is unset', () => {
+    expect(resolveDynamicWorkflowMaxConcurrency({})).toBeUndefined();
+  });
+
+  it('returns undefined for empty or whitespace-only values', () => {
+    expect(
+      resolveDynamicWorkflowMaxConcurrency({ PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY: '' }),
+    ).toBeUndefined();
+    expect(
+      resolveDynamicWorkflowMaxConcurrency({ PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY: '   ' }),
+    ).toBeUndefined();
+  });
+
+  it('throws for non-positive, non-integer, or non-numeric values', () => {
+    for (const raw of ['0', '-1', '2.5', 'abc']) {
+      expect(() =>
+        resolveDynamicWorkflowMaxConcurrency({ PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY: raw }),
+      ).toThrow(/PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY.*positive integer/);
+    }
+  });
+
+  it('returns the integer for a positive integer value', () => {
+    expect(resolveDynamicWorkflowMaxConcurrency({ PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY: '3' })).toBe(3);
+    expect(resolveDynamicWorkflowMaxConcurrency({ PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY: ' 8 ' })).toBe(8);
+  });
+});
 
 describe('AgentRunBatch scheduling contract', () => {
   it('normal phase starts five tasks immediately, then one task every 700ms', async () => {
@@ -194,48 +218,6 @@ describe('AgentRunBatch scheduling contract', () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it('keeps only the active resume agent id when cancellation interrupts validation', async () => {
-    const controller = new AbortController();
-    const resuming = createControlledPromise<AgentRunAttemptHandle>();
-    const launcher: AgentRunBatchLauncher = {
-      spawn: vi.fn(async () => {
-        throw new Error('unexpected spawn');
-      }),
-      resume: vi.fn(() => resuming),
-      retry: vi.fn(async () => {
-        throw new Error('unexpected retry');
-      }),
-    };
-    const running = new AgentRunBatch(
-      launcher,
-      [
-        { ...resumeSessionTask('agent-active'), signal: controller.signal },
-        { ...resumeSessionTask('agent-queued'), signal: controller.signal },
-      ],
-      { maxConcurrency: 1 },
-    ).run();
-    await vi.waitFor(() => {
-      expect(launcher.resume).toHaveBeenCalledOnce();
-    });
-
-    controller.abort(userCancellationReason());
-    resuming.reject(userCancellationReason());
-
-    const results = await running;
-    expect(results).toMatchObject([
-      {
-        agentId: 'agent-active',
-        status: 'aborted',
-        state: 'started',
-      },
-      {
-        status: 'aborted',
-        state: 'not_started',
-      },
-    ]);
-    expect(results[1]).not.toHaveProperty('agentId');
   });
 
   it('normal phase keeps processing completions while waiting for the next launch', async () => {
@@ -822,33 +804,6 @@ describe('AgentRunBatch max concurrency cap', () => {
       vi.useRealTimers();
     }
   });
-
-  it('keeps maxConcurrency authoritative when rate-limit capacity recovers', async () => {
-    vi.useFakeTimers();
-    try {
-      const controller = new AbortController();
-      const { runBatch, attempts } = createMockAgentRunBatchRunner({ maxConcurrency: 1 });
-      const running = runBatch(
-        Array.from({ length: 3 }, (_, index) => queuedAgentRunTask(index + 1)),
-        { signal: controller.signal },
-      );
-      void running.catch(() => {});
-
-      await vi.advanceTimersByTimeAsync(0);
-      attempts[0]!.markReady();
-      attempts[0]!.outcome.resolve({ type: 'rate_limited', agentId: 'agent-1' });
-      await vi.advanceTimersByTimeAsync(3_000);
-      expect(attempts).toHaveLength(2);
-
-      await vi.advanceTimersByTimeAsync(177_000);
-      expect(attempts).toHaveLength(2);
-
-      controller.abort();
-      await expect(running).rejects.toThrow();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
 });
 
 describe('AgentRunBatch dynamic_workflow item forwarding', () => {
@@ -918,10 +873,9 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
   let handles: Map<string, IAgentScopeHandle>;
   let lifecycle: IAgentLifecycleService;
   let subagents: ISessionSubagentService;
-  let spawnAgent: Mock<ISessionSubagentService['spawn']>;
+  let spawnAgent: ReturnType<typeof vi.fn>;
   let runAgent: ReturnType<typeof vi.fn>;
   let eventBus: IEventBus;
-  let currentRoutingRevision: string;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -931,17 +885,12 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
     eventBus = eventBusStub();
     lifecycle = lifecycleStub(handles, eventBus);
     subagents = subagentStub(handles, lifecycle, eventBus);
-    spawnAgent = subagents.spawn as Mock<ISessionSubagentService['spawn']>;
+    spawnAgent = subagents.spawn as ReturnType<typeof vi.fn>;
     runAgent = subagents.run as ReturnType<typeof vi.fn>;
-    currentRoutingRevision = 'route-env:v1:test';
     handles.set('main', agentHandle('main', lifecycle, eventBus));
 
     ix.stub(IAgentLifecycleService, lifecycle);
     ix.stub(ISessionSubagentService, subagents);
-    ix.stub(IConfigService, {
-      get: () => undefined,
-    } as unknown as IConfigService);
-    ix.stub(IBootstrapService, stubBootstrap());
     ix.stub(ISessionMetadata, {
       _serviceBrand: undefined,
       ready: Promise.resolve(),
@@ -959,15 +908,6 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
       registerAgent: async (agentId, meta) => {
         agents[agentId] = meta;
       },
-      unregisterAgent: async (agentId) => {
-        delete agents[agentId];
-      },
-    });
-    ix.stub(ISubagentRoutingService, {
-      _serviceBrand: undefined,
-      resolve: () => Promise.reject(new Error('not stubbed')),
-      resumed: () => ({ routing: undefined, currentRoutingEnvironmentRevision: 'route-env:v1:test' }),
-      currentRevision: () => currentRoutingRevision,
     });
     ix.set(ISessionDynamicWorkflowService, new SyncDescriptor(SessionDynamicWorkflowService));
   });
@@ -1057,15 +997,12 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
       },
     ]);
 
-    expect(spawnAgent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        callerAgentId: 'main',
-        plan: { profileName: 'coder', model: 'pythinker-test', thinking: 'medium', fork: false },
-        labels: { parentAgentId: 'main', dynamicWorkflowItem: 'src/a.ts' },
-        prompt: 'Review the file',
-        onAgentCreated: expect.any(Function),
-      }),
-    );
+    expect(spawnAgent).toHaveBeenCalledWith({
+      callerAgentId: 'main',
+      plan: { profileName: 'coder', model: 'pythinker-test', thinking: 'medium', fork: false },
+      labels: { parentAgentId: 'main', dynamicWorkflowItem: 'src/a.ts' },
+      prompt: 'Review the file',
+    });
   });
 
   it('keeps v1 resume ownership errors inside the per-subagent result', async () => {
@@ -1153,45 +1090,6 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
     );
   });
 
-  it('projects the routing revision at spawn time instead of the stale plan revision', async () => {
-    currentRoutingRevision = 'route-env:v1:new';
-    const service = ix.get(ISessionDynamicWorkflowService);
-    const task: SessionDynamicWorkflowSpawnTask = {
-      ...spawnSessionTask('src/a.ts'),
-      plan: {
-        profileName: 'coder',
-        model: 'provider/pool',
-        thinking: 'low',
-        fork: false,
-        routing: {
-          operation: 'spawn',
-          profileSource: 'requested',
-          modelSource: 'policy-pool',
-          policyMode: 'pool',
-          policySource: 'config',
-          featureSource: 'config',
-          resolvedFromRoutingEnvironmentRevision: 'route-env:v1:old',
-          routeDecisionFingerprint: 'route-decision:v1:old',
-        },
-      },
-    };
-
-    await expect(
-      service.run({ callerAgentId: 'main', tasks: [task] }),
-    ).resolves.toMatchObject([
-      {
-        status: 'completed',
-        binding: { currentRoutingEnvironmentRevision: 'route-env:v1:new' },
-      },
-    ]);
-    expect(eventBus.publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'subagent.spawned',
-        currentRoutingEnvironmentRevision: 'route-env:v1:new',
-      }),
-    );
-  });
-
   it('returns a failed per-task result when the subagent spawn rejects', async () => {
     spawnAgent.mockRejectedValueOnce(new Error('spawn boom'));
     const service = ix.get(ISessionDynamicWorkflowService);
@@ -1209,81 +1107,6 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
       },
     ]);
     expect(runAgent).not.toHaveBeenCalled();
-  });
-
-  it('rejects a second workflow for the same caller while the first is active', async () => {
-    const firstCompletion = createControlledPromise<{ summary: string }>();
-    runAgent.mockResolvedValueOnce({
-      agentId: 'agent-new',
-      turn: {} as never,
-      completion: firstCompletion,
-    });
-    const service = ix.get(ISessionDynamicWorkflowService);
-    const first = service.run({
-      callerAgentId: 'main',
-      tasks: [spawnSessionTask('src/a.ts')],
-    });
-    await vi.waitFor(() => {
-      expect(runAgent).toHaveBeenCalledTimes(1);
-    });
-
-    await expect(
-      service.run({ callerAgentId: 'main', tasks: [spawnSessionTask('src/b.ts')] }),
-    ).rejects.toMatchObject({ code: ErrorCodes.AGENT_ALREADY_RUNNING });
-
-    firstCompletion.resolve({ summary: 'done' });
-    await expect(first).resolves.toMatchObject([{ status: 'completed' }]);
-  });
-
-  it('keeps the created child id when starting its first turn fails', async () => {
-    runAgent.mockRejectedValueOnce(new Error('run setup boom'));
-    const service = ix.get(ISessionDynamicWorkflowService);
-
-    await expect(
-      service.run({ callerAgentId: 'main', tasks: [spawnSessionTask('src/a.ts')] }),
-    ).resolves.toMatchObject([
-      {
-        agentId: 'agent-new',
-        status: 'failed',
-        state: 'started',
-        error: 'run setup boom',
-      },
-    ]);
-  });
-
-  it('keeps the created child id when cancellation interrupts spawn setup', async () => {
-    const spawning = createControlledPromise<
-      Awaited<ReturnType<ISessionSubagentService['spawn']>>
-    >();
-    let spawnOptions: SpawnSubagentOptions | undefined;
-    spawnAgent.mockImplementationOnce((options) => {
-      spawnOptions = options;
-      return spawning;
-    });
-    const service = ix.get(ISessionDynamicWorkflowService);
-    const running = service.run({
-      callerAgentId: 'main',
-      tasks: [spawnSessionTask('src/a.ts')],
-    });
-    await vi.waitFor(() => {
-      expect(spawnAgent).toHaveBeenCalledTimes(1);
-    });
-    handles.set('agent-new', agentHandle('agent-new', lifecycle, eventBus));
-    if (spawnOptions === undefined) throw new Error('spawn options were not captured');
-    expect(spawnOptions.signal).toBeInstanceOf(AbortSignal);
-    spawnOptions.onAgentCreated?.('agent-new');
-
-    service.cancel({ callerAgentId: 'main' });
-    expect(spawnOptions.signal?.aborted).toBe(true);
-    spawning.reject(userCancellationReason());
-
-    await expect(running).resolves.toMatchObject([
-      {
-        agentId: 'agent-new',
-        status: 'aborted',
-        state: 'started',
-      },
-    ]);
   });
 
   it('does not emit spawned again when a rate-limited child retries', async () => {
@@ -1359,7 +1182,7 @@ describe('SessionDynamicWorkflowService metadata compatibility', () => {
           IAgentLoopService,
           {
             _serviceBrand: undefined,
-            status: () => ({ state: 'running', activeTurnId: 1, pendingTurnIds: [], hasPendingRequests: true }),
+            status: () => ({ state: 'running', activeTurnId: 1, pendingPromptIds: [], hasPendingRequests: true }),
           },
         ],
       ])),
@@ -1419,48 +1242,37 @@ function lifecycleStub(
   handles: Map<string, IAgentScopeHandle>,
   eventBus: IEventBus,
 ): IAgentLifecycleService {
-  const contextOf = (handle: IAgentScopeHandle): AgentContext =>
-    handle.accessor.get(IAgentScopeContext).agentContext;
-  const lifecycle: IAgentLifecycleService = {
+  const lifecycle = {
     _serviceBrand: undefined,
-    onDidCreate: Event.None as IAgentLifecycleService['onDidCreate'],
-    onDidCreateScope: Event.None as IAgentLifecycleService['onDidCreateScope'],
-    onWillClose: Event.None as IAgentLifecycleService['onWillClose'],
-    onDidClose: Event.None as IAgentLifecycleService['onDidClose'],
+    onDidCreate: Event.None,
+    onDidCreateScope: Event.None,
+    onWillClose: Event.None,
+    onDidClose: Event.None,
     create: vi.fn(async (opts: CreateAgentOptions = {}) => {
       if (opts.agentId !== undefined) {
         const existing = handles.get(opts.agentId);
-        if (existing !== undefined) return contextOf(existing);
+        if (existing !== undefined) return stubAgentContext(opts.agentId, 1);
       }
       const id = opts.agentId ?? 'agent-new';
-      const handle = agentHandle(id, lifecycle, eventBus, {
+      const handle = agentHandle(id, lifecycle as IAgentLifecycleService, eventBus, {
         profileName: opts.binding?.profile ?? 'coder',
         modelAlias: opts.binding?.model ?? 'pythinker-test',
         thinkingLevel: opts.binding?.thinking ?? 'medium',
       });
       handles.set(id, handle);
-      return contextOf(handle);
+      return stubAgentContext(id, 1);
     }),
-    fork: vi.fn(async (source: AgentContext) => source),
-    get: (agentId: string) => {
-      const handle = handles.get(agentId);
-      return handle === undefined ? undefined : contextOf(handle);
-    },
+    fork: vi.fn(),
+    get: (agentId: string) => (handles.has(agentId) ? stubAgentContext(agentId, 1) : undefined),
     handleOf: (agentId: string) => handles.get(agentId),
-    list: () => [...handles.values()].map(contextOf),
-    resolve: () => { throw new Error('not used'); },
-    inspect: (agent: AgentContext) => ({
-      identity: { agentId: agent.agentId, generation: agent.generation },
-      contributions: [],
-    }),
-    adopt: contextOf,
-    attachRuntimes: () => {},
+    list: () => [...handles.keys()].map((agentId) => stubAgentContext(agentId, 1)),
     remove: async (context: AgentContext) => {
       handles.delete(context.agentId);
     },
     broadcastPermissionMode: () => {},
+    adopt: (handle: IAgentScopeHandle) => stubAgentContext(handle.id, 1),
   };
-  return lifecycle;
+  return lifecycle as IAgentLifecycleService;
 }
 
 function subagentStub(
@@ -1488,7 +1300,6 @@ function subagentStub(
         modelAlias: opts.plan.model,
       });
       handles.set('agent-new', handle);
-      opts.onAgentCreated?.('agent-new');
       return {
         agentId: 'agent-new',
         profileName: opts.plan.profileName,
@@ -1548,7 +1359,7 @@ function agentHandle(
         if (serviceId === IAgentLoopService) {
           return {
             _serviceBrand: undefined,
-            status: () => ({ state: 'idle', pendingTurnIds: [], hasPendingRequests: false }),
+            status: () => ({ state: 'idle', pendingPromptIds: [], hasPendingRequests: false }),
           } as unknown as IAgentLoopService;
         }
         if (serviceId === IAgentUserToolService) return userToolServiceStub();

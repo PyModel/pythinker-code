@@ -144,11 +144,14 @@ describe('AgentActivityViewer', () => {
     expect(text).toContain('── step 0 ──');
     expect(text).toContain('Looking for the event bus definition.');
     expect(text).toContain('Used Grep (IEventBus) · 2 matches across 2 files');
-    // grep glance renderer: path samples below the header (`path:line` form)
+    // The grep glance (path samples in `path:line` form) is the collapsed
+    // card's outcome row.
     expect(text).toContain('src/a.ts:1, src/b.ts:2');
+    viewer.handleInput(CTRL_O);
+    expect(renderPlain(viewer)).toContain('src/a.ts:1, src/b.ts:2');
   });
 
-  it('collapses long output by default and expands it with ctrl+o', () => {
+  it('hides successful output by default and reveals it with ctrl+o', () => {
     const longOutput = Array.from({ length: 10 }, (_, i) => `line ${String(i + 1)}`).join('\n');
     const makeRecord = (): SubagentActivityRecord =>
       record({
@@ -173,12 +176,13 @@ describe('AgentActivityViewer', () => {
 
     const collapsed = makeViewer({ record: makeRecord() });
     const collapsedText = renderPlain(collapsed);
+    // Collapsed: the last output line is the outcome row, nothing else.
+    expect(collapsedText).toContain('Bash');
     expect(collapsedText).toContain('line 10');
-    expect(collapsedText).not.toContain('line 1\n');
+    expect(collapsedText).not.toContain('line 9');
 
     collapsed.handleInput(CTRL_O);
     const expandedText = renderPlain(collapsed);
-    expect(expandedText).toContain('line 1');
     expect(expandedText).toContain('line 10');
   });
 

@@ -23,10 +23,8 @@ import { fileHistoryKey } from '#/features/fileHistory/fileHistoryOps';
 import { planKey } from '#/features/plan/planOps';
 import { dynamicWorkflowKey } from '#/features/dynamic_workflow/dynamicWorkflowOps';
 import { towerBaseKey, towerKey, towerOwnerKey } from '#/features/tower/towerOps';
-import { subagentBindingProvenanceKey } from '#/session/subagent/bindingProvenance';
 
 export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] = [
-  subagentBindingProvenanceKey,
   contextMemoryKey,
   fullCompactionKey,
   fullCompactionWireRangesKey,

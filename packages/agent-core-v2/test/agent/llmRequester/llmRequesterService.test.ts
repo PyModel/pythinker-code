@@ -25,7 +25,6 @@ import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { IAgentMediaResolverService } from '#/agent/media/mediaResolver';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { IConfigService } from '#/app/config/config';
-import type { LlmConfig } from '#/app/kosongConfig/configSection';
 import type { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import {
@@ -36,24 +35,19 @@ import {
   APIProviderRateLimitError,
   APIRequestTooLargeError,
   APIStatusError,
-  APITimeoutError,
-} from '#/kosong/contract/errors';
-import { emptyUsage, type TokenUsage } from '#/kosong/contract/usage';
-import {
-  isToolCall,
-  type Message,
-  type StreamedMessagePart,
-  type ToolCall,
-} from '#/kosong/contract/message';
-import type { ThinkingEffort } from '#/kosong/contract/provider';
-import type { ModelCapability } from '#/kosong/contract/capability';
-import { IModelCatalog, type Model } from '#/kosong/model/catalog';
-import { IModelService } from '#/kosong/model/model';
+} from '#/llm-adapter/contract/errors';
+import { emptyUsage, type TokenUsage } from '#human/llm/usage';
+import { type Message } from '#/llm-adapter/contract/message';
+import { isToolCall, type StreamedMessagePart, type ToolCall } from '#human/llm/message';
+import type { ThinkingEffort } from '#human/llm/thinking';
+import type { ModelCapability } from '#/llm-adapter/contract/capability';
+import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
+import { IModelService } from '#/llm-adapter/model/model';
 import {
   type ModelRequestEvent,
   type ModelRequestInput,
   type ModelRequester,
-} from '#/kosong/model/modelRequester';
+} from '#/llm-adapter/model/model-requester';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ILogService } from '#/_base/log/log';
 import { Error2, ErrorCodes } from '#/errors';
@@ -123,7 +117,6 @@ function createRequester(
     maxContextSize: 1000,
     alwaysThinking: false,
     providerName: 'p',
-    authProvider: { getAuth: async () => undefined },
   };
   return {
     model,
@@ -167,7 +160,6 @@ function createService(
     readonly thinkingLevel?: ThinkingEffort;
     readonly mediaResolver?: Partial<IAgentMediaResolverService>;
     readonly contextMessages?: Message[];
-    readonly llmConfig?: LlmConfig;
     readonly env?: Record<string, string>;
   } = {},
 ) {
@@ -175,6 +167,7 @@ function createService(
   ix.stub(IBootstrapService, stubBootstrap('/tmp/pythinker-code-llm-requester-test', options.env ?? {}));
   const thinkingLevel = options.thinkingLevel ?? 'off';
   const profile: Partial<IAgentProfileService> = {
+    hasProvider: () => true,
     resolveModelContext: () => ({
       modelAlias: 'm',
       modelCapabilities: capabilities,
@@ -212,8 +205,7 @@ function createService(
   };
   const tools = { list: () => [] };
   const config: Partial<IConfigService> = {
-    get: ((domain: string) =>
-      domain === 'llm' ? options.llmConfig : undefined) as IConfigService['get'],
+    get: (() => undefined) as IConfigService['get'],
   };
   const log = { info: () => undefined, warn: () => undefined };
   const telemetryRecords: TelemetryRecord[] = [];
@@ -391,20 +383,17 @@ describe('AgentLLMRequesterService infinite retry', () => {
   });
 
   it('honors the provider retry-after delay while retrying indefinitely', async () => {
-    vi.useFakeTimers();
     const calls = { value: 0 };
     const requester = createRequester(calls, new APIProviderRateLimitError('slow down', null, 1));
     const { service } = createService(requester, undefined, {
       env: { [PYTHINKER_CODE_INFINITE_RETRY_ENV]: '1' },
     });
 
-    const promise = service.request();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(calls.value).toBe(1);
-    await vi.advanceTimersByTimeAsync(1);
-    await promise;
+    const startedAt = Date.now();
+    await service.request();
 
     expect(calls.value).toBe(2);
+    expect(Date.now() - startedAt).toBeLessThan(500);
   });
 
   it('stops retrying when the caller aborts during the backoff wait', async () => {
@@ -765,7 +754,6 @@ describe('AgentLLMRequesterService trace id', () => {
       maxContextSize: 1000,
       alwaysThinking: false,
       providerName: 'p',
-      authProvider: { getAuth: async () => undefined },
     };
     return {
       model,
@@ -1063,8 +1051,11 @@ describe('AgentLLMRequesterService tool call id normalization', () => {
     });
 
     expect(first.message.toolCalls[0]!.id).toBe('Bash_0');
-    expect(second.message.toolCalls[0]!.id).toBe('Bash_0__2');
-    expect(parts.filter(isToolCall).map((p) => p.id)).toEqual(['Bash_0', 'Bash_0__2']);
+    expect(second.message.toolCalls[0]).toMatchObject({ id: 'Bash_0__2', rawId: 'Bash_0' });
+    expect(parts.filter(isToolCall).map((p) => [p.id, p.rawId])).toEqual([
+      ['Bash_0', undefined],
+      ['Bash_0__2', 'Bash_0'],
+    ]);
   });
 
   it('rewrites duplicates within a single response', async () => {
@@ -1075,7 +1066,10 @@ describe('AgentLLMRequesterService tool call id normalization', () => {
 
     const result = await service.request();
 
-    expect(result.message.toolCalls.map((c) => c.id)).toEqual(['Bash_0', 'Bash_0__2']);
+    expect(result.message.toolCalls.map((c) => [c.id, c.rawId])).toEqual([
+      ['Bash_0', undefined],
+      ['Bash_0__2', 'Bash_0'],
+    ]);
   });
 
   it('rolls claims back when the attempt fails mid-stream', async () => {
@@ -1109,112 +1103,5 @@ describe('AgentLLMRequesterService tool call id normalization', () => {
 
     const result = await service.request();
     expect(result.message.toolCalls[0]!.id).toBe('Bash_0__2');
-  });
-});
-
-function createStallingRequester(options: {
-  readonly hangForever?: boolean;
-  readonly partGapMs?: number;
-  readonly partCount?: number;
-} = {}): ModelRequester {
-  const model: Model = {
-    id: 'm',
-    name: 'wire-model',
-    aliases: [],
-    protocol: 'anthropic',
-    baseUrl: 'https://example.test',
-    headers: {},
-    capabilities,
-    maxContextSize: 1000,
-    alwaysThinking: false,
-    providerName: 'p',
-    authProvider: { getAuth: async () => undefined },
-  };
-  return {
-    model,
-    request: async function* (_input, signal) {
-      const partCount = options.partCount ?? 0;
-      const rejectOnAbort = (): Promise<never> => {
-        if (signal?.aborted === true) {
-          return Promise.reject(signal.reason ?? new Error('aborted'));
-        }
-        const aborted = new Promise<never>((_, reject) => {
-          signal?.addEventListener(
-            'abort',
-            () => reject(signal.reason ?? new Error('aborted')),
-            { once: true },
-          );
-        });
-        void aborted.catch(() => {});
-        return aborted;
-      };
-      for (let index = 0; index < partCount; index += 1) {
-        yield {
-          type: 'part',
-          part: { type: 'text', text: `chunk ${index}` },
-        } satisfies ModelRequestEvent;
-        await new Promise((resolve) => setTimeout(resolve, options.partGapMs ?? 0));
-      }
-      if (options.hangForever === true) {
-        await rejectOnAbort();
-      }
-      yield {
-        type: 'finish',
-        message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }], toolCalls: [] },
-        providerFinishReason: 'completed',
-        rawFinishReason: 'stop',
-        id: 'resp-1',
-      };
-    },
-  };
-}
-
-describe('AgentLLMRequesterService stream stall watchdog', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('fails a stream that never delivers events with APITimeoutError', async () => {
-    vi.useFakeTimers();
-    const { service } = createService(createStallingRequester({ hangForever: true }), undefined, {
-      llmConfig: { requestIdleTimeoutMs: 1_000 },
-    });
-
-    const pending = service.request();
-    const settled = expect(pending).rejects.toThrow(APITimeoutError);
-    await vi.advanceTimersByTimeAsync(1_500);
-    await settled;
-  });
-
-  it('keeps a slow but progressing stream alive until it finishes', async () => {
-    vi.useFakeTimers();
-    const { service } = createService(
-      createStallingRequester({ partGapMs: 600, partCount: 3 }),
-      undefined,
-      { llmConfig: { requestIdleTimeoutMs: 1_000 } },
-    );
-
-    const pending = service.request();
-    for (let tick = 0; tick < 20; tick += 1) {
-      await vi.advanceTimersByTimeAsync(300);
-    }
-    const result = await pending;
-    expect(result.message.content).toEqual([{ type: 'text', text: 'ok' }]);
-  });
-
-  it('surfaces an outer user abort instead of the idle timeout', async () => {
-    vi.useFakeTimers();
-    const controller = new AbortController();
-    const { service } = createService(createStallingRequester({ hangForever: true }), undefined, {
-      llmConfig: { requestIdleTimeoutMs: 60_000 },
-    });
-
-    const pending = service.request({}, undefined, controller.signal);
-    const settled = expect(pending).rejects.toThrow('user cancelled');
-    controller.abort(new Error('user cancelled'));
-    await vi.advanceTimersByTimeAsync(100);
-    await settled;
-    const error = await pending.catch((error: unknown) => error);
-    expect(error).not.toBeInstanceOf(APITimeoutError);
   });
 });

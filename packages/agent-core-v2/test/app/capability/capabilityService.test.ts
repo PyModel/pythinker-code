@@ -37,7 +37,14 @@ function fakeService(
   entries: readonly CapabilityEntry[],
   log: ILogService = stubLog(),
 ): CapabilityService {
-  return new CapabilityService(log, entries);
+  return new CapabilityService(
+    undefined as never,
+    undefined as never,
+    undefined as never,
+    log,
+    undefined as never,
+    entries,
+  );
 }
 
 function expectErrorCode(error: unknown, code: string): void {

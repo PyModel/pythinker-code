@@ -21,9 +21,11 @@ import type {
   ConfigInspectValue,
   ConfigTarget,
 } from '@pymodel/agent-core-v2/app/config/config';
-import type { ProviderConfig } from '@pymodel/agent-core-v2/kosong/provider/provider';
+import type { ProviderConfig } from '@pymodel/agent-core-v2/llm-adapter/provider/provider';
 import type {
   AuthStatus,
+  IOAuthService,
+  OAuthLoginOptions,
 } from '@pymodel/agent-core-v2/app/auth/auth';
 import type { ExperimentalFeatureState } from '@pymodel/agent-core-v2/app/flag/flag';
 import type {
@@ -31,8 +33,8 @@ import type {
   FsHomeResponse,
 } from '@pymodel/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
 import type { FileMeta } from '@pymodel/agent-core-v2/app/file/fileService';
-import type { ModelRecord } from '@pymodel/agent-core-v2/kosong/model/model';
-import type { IModelCatalog } from '@pymodel/agent-core-v2/kosong/model/catalog';
+import type { ModelRecord } from '@pymodel/agent-core-v2/llm-adapter/model/model';
+import type { IModelCatalog } from '@pymodel/agent-core-v2/llm-adapter/model/catalog';
 import type { IProviderDiscoveryService } from '@pymodel/agent-core-v2/app/kosongConfig/discovery';
 
 import type { McpServerConfig } from '../../contract/mcp.js';
@@ -83,13 +85,17 @@ export type ScopedStreamCaller = (
 ) => AsyncIterable<unknown>;
 
 // ---------------------------------------------------------------------------
-// Wire-type aliases for shapes the engine sources from `@pymodel/protocol`
-// (not a direct klient dependency) — derived through the service interfaces.
+// Wire-type aliases for engine-sourced shapes (not direct klient
+// dependencies) — derived through the service interfaces.
 // ---------------------------------------------------------------------------
 
 export type RefreshProviderModelsResponse = Awaited<
-  ReturnType<IProviderDiscoveryService['refreshProviderModels']>
+  ReturnType<IOAuthService['refreshOAuthProviderModels']>
 >;
+export type OAuthFlowStart = Awaited<ReturnType<IOAuthService['startLogin']>>;
+export type OAuthFlowSnapshot = NonNullable<Awaited<ReturnType<IOAuthService['getFlow']>>>;
+export type OAuthLoginCancelResponse = Awaited<ReturnType<IOAuthService['cancelLogin']>>;
+export type OAuthLogoutResponse = Awaited<ReturnType<IOAuthService['logout']>>;
 
 export type ModelCatalogItem = Awaited<ReturnType<IModelCatalog['listModels']>>[number];
 export type ProviderCatalogItem = Awaited<
@@ -182,6 +188,7 @@ export interface GlobalKosongFacade {
 }
 
 export interface GlobalAuthFacade {
+  status(provider?: string): Promise<AuthStatus>;
   summarize(): Promise<readonly AuthStatus[]>;
   /**
    * The engine's own auth-readiness probe for a model (the default model when
@@ -190,6 +197,16 @@ export interface GlobalAuthFacade {
    * model usage does not depend on the OAuth-only {@link summarize} view.
    */
   ensureReady(modelOverride?: string): Promise<void>;
+  startLogin(provider?: string, options?: OAuthLoginOptions): Promise<OAuthFlowStart>;
+  flow(provider?: string): Promise<OAuthFlowSnapshot | undefined>;
+  cancelLogin(provider?: string): Promise<OAuthLoginCancelResponse>;
+  logout(provider?: string): Promise<OAuthLogoutResponse>;
+  /**
+   * @deprecated Use `kosong.refreshProviders({ scope: 'oauth' })` — the
+   * kosong facade owns provider-model refresh; this alias remains for one
+   * release cycle.
+   */
+  refreshProviderModels(): Promise<RefreshProviderModelsResponse>;
 }
 
 export interface GlobalFlagsFacade {
@@ -369,7 +386,7 @@ export function createGlobalFacade(scoped: ScopedCaller, scopedStream: ScopedStr
       const scalars = Object.fromEntries(
         ENV_SCALAR_PROPERTIES.map((prop, index) => [prop, values[index]]),
       );
-      const identity = values.at(-1) as { version: string };
+      const identity = values[values.length - 1] as { version: string };
       return { ...scalars, clientVersion: identity.version } as unknown as KlientEnvInfo;
     });
     return envPromise;
@@ -493,9 +510,20 @@ export function createGlobalFacade(scoped: ScopedCaller, scopedStream: ScopedStr
     },
 
     auth: {
+      status: (provider) => call('oauthService', 'status', [provider]) as Promise<AuthStatus>,
       summarize: () => call('authSummaryService', 'summarize', []) as Promise<readonly AuthStatus[]>,
       ensureReady: (modelOverride) =>
         call('authSummaryService', 'ensureReady', [modelOverride]) as Promise<void>,
+      startLogin: (provider, options) =>
+        call('oauthService', 'startLogin', [provider, options]) as Promise<OAuthFlowStart>,
+      flow: (provider) =>
+        call('oauthService', 'getFlow', [provider]) as Promise<OAuthFlowSnapshot | undefined>,
+      cancelLogin: (provider) =>
+        call('oauthService', 'cancelLogin', [provider]) as Promise<OAuthLoginCancelResponse>,
+      logout: (provider) =>
+        call('oauthService', 'logout', [provider]) as Promise<OAuthLogoutResponse>,
+      refreshProviderModels: () =>
+        call('oauthService', 'refreshOAuthProviderModels', []) as Promise<RefreshProviderModelsResponse>,
     },
 
     flags: {

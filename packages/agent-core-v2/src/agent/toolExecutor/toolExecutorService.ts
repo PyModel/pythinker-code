@@ -3,8 +3,8 @@ import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { AsyncEmitter, type Event } from '#/_base/event';
 import { defineState } from '#/state/state';
-import type { ContentPart, ToolCall } from '#/kosong/contract/message';
-import type { ToolInputDisplay } from '@pymodel/protocol';
+import type { ContentPart, ToolCall } from '#human/llm/message';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 import {
   compileToolArgsValidator,
@@ -52,7 +52,7 @@ import {
   type UnavailableToolDescriber,
 } from './toolExecutor';
 import { ToolCallStarted, ToolProgress, ToolResultEvent } from './toolExecutorEvents';
-import { ToolScheduler, type OutstandingEffect } from './toolScheduler';
+import { ToolScheduler } from './toolScheduler';
 
 const ABORT_GRACE_MS = 2_000;
 const TOOL_OUTPUT_EMPTY = 'Tool output is empty.';
@@ -71,15 +71,12 @@ export interface ToolExecutionTask {
 export interface ToolExecutionRunResult {
   readonly result: ToolResult;
   readonly outcome: ToolExecutionOutcome;
-  readonly cancelled?: boolean;
-  readonly effectsSettled?: Promise<void>;
 }
 
 interface TimedToolResult {
   readonly index: number;
   readonly result: ToolResult;
   readonly outcome: ToolExecutionOutcome;
-  readonly cancelled: boolean;
   readonly durationMs: number;
 }
 
@@ -114,7 +111,6 @@ export const toolExecutorDupTypeTurnIdKey = defineState<number | undefined>(
 export class AgentToolExecutorService implements IAgentToolExecutorService {
   declare readonly _serviceBrand: undefined;
 
-  private readonly outstandingEffects = new Set<OutstandingEffect>();
   private readonly beforeExecuteEmitter = new BeforeToolExecuteEmitter();
   readonly onBeforeExecuteTool: Event<BeforeToolExecuteEvent> = this.beforeExecuteEmitter.event;
   private readonly willExecuteEmitter = new AsyncEmitter<WillExecuteToolEvent>();
@@ -240,7 +236,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
           candidates.push(
             nextTimed.then(
               (result): ToolExecutionStreamEvent => ({ type: 'timed', result }),
-              (error): ToolExecutionStreamEvent => ({ type: 'timedRejected', reason: error }),
+              (reason): ToolExecutionStreamEvent => ({ type: 'timedRejected', reason }),
             ),
           );
         }
@@ -270,7 +266,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
             options,
           ).then(
             (value): SettledToolExecutionResult => ({ status: 'fulfilled', value }),
-            (error): SettledToolExecutionResult => ({ status: 'rejected', reason: error }),
+            (reason): SettledToolExecutionResult => ({ status: 'rejected', reason }),
           );
           finalizations.add(finalization);
           nextTimed = timedResults.next();
@@ -306,13 +302,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     );
 
     this.dispatchToolResult(call, finalized, options);
-    this.trackToolCall(
-      call,
-      finalized,
-      timedResult.durationMs,
-      options,
-      timedResult.cancelled || timedResult.outcome === 'aborted',
-    );
+    this.trackToolCall(call, finalized, timedResult.durationMs, options);
 
     return {
       toolCallId: call.toolCall.id,
@@ -326,9 +316,8 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     result: ToolResult,
     durationMs: number,
     options: ToolExecutorExecuteOptions,
-    cancelled: boolean,
   ): void {
-    const outcome = toolTelemetryOutcome(result, cancelled);
+    const outcome = toolTelemetryOutcome(result);
     const toolCallId = call.toolCall.id;
     const dupType = this.toolCallDupTypes.get(toolCallId) ?? 'normal';
     this.toolCallDupTypes.delete(toolCallId);
@@ -396,10 +385,6 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       return settleError(call.args, call.output, 'preflight-rejected');
     }
 
-    if (options.signal.aborted) {
-      return settleError(call.args, abortedToolOutput(call.toolName, options.signal), 'aborted');
-    }
-
     let execution: ToolExecution;
     try {
       execution = await call.tool.resolveExecution(call.args);
@@ -416,7 +401,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     if (options.signal.aborted) {
       return settleError(
         call.args,
-        abortedToolOutput(call.toolName, options.signal),
+        abortedToolOutput(call.toolName, options.signal.reason),
         'aborted',
         displayFields,
       );
@@ -473,7 +458,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     tasks: ToolExecutionTask[],
     signal: AbortSignal,
   ): AsyncIterable<TimedToolResult> {
-    const scheduler = new ToolScheduler<TimedToolResult>(this.outstandingEffects);
+    const scheduler = new ToolScheduler<TimedToolResult>();
     const allResults: Array<Promise<TimedToolResult>> = [];
     const pendingResults = new Map<number, Promise<SettledTimedToolResult>>();
 
@@ -483,24 +468,13 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         accesses: task.accesses,
         start: async () => {
           const startedAt = Date.now();
-          const run = task.execute(signal);
           return {
-            result: run.then(({ result, outcome, cancelled, effectsSettled }) => {
-              if (effectsSettled !== undefined) {
-                this.trackOutstandingEffect(task.accesses, effectsSettled);
-              }
-              return {
-                index,
-                result,
-                outcome,
-                cancelled: cancelled === true,
-                durationMs: Math.max(0, Date.now() - startedAt),
-              };
-            }),
-            effectsSettled: run.then(
-              (value) => value.effectsSettled,
-              () => undefined,
-            ),
+            result: task.execute(signal).then(({ result, outcome }) => ({
+              index,
+              result,
+              outcome,
+              durationMs: Math.max(0, Date.now() - startedAt),
+            })),
           };
         },
       });
@@ -509,7 +483,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         index,
         pendingResult.then(
           (value): SettledTimedToolResult => ({ status: 'fulfilled', value }),
-          (error): SettledTimedToolResult => ({ status: 'rejected', index, reason: error }),
+          (reason): SettledTimedToolResult => ({ status: 'rejected', index, reason }),
         ),
       );
     }
@@ -527,14 +501,6 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     }
   }
 
-  private trackOutstandingEffect(accesses: ToolAccesses, settled: Promise<void>): void {
-    const effect: OutstandingEffect = { accesses, settled };
-    this.outstandingEffects.add(effect);
-    void settled.finally(() => {
-      this.outstandingEffects.delete(effect);
-    });
-  }
-
   private async runSingleExecution(
     call: RunnableToolCall,
     execution: RunnableToolExecution,
@@ -547,50 +513,35 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         result: makeErrorToolResult(
           call,
           call.args,
-          abortedToolOutput(call.toolName, signal),
+          abortedToolOutput(call.toolName, signal.reason),
         ).result,
         outcome: 'aborted',
-        cancelled: true,
       };
     }
 
     let rawResult: ExecutableToolResult;
-    let executePromise: Promise<ExecutableToolResult>;
     try {
-      executePromise = execution.execute({
+      const executePromise = execution.execute({
         turnId: options.turnId,
         toolCallId: call.toolCall.id,
         trace: options.trace,
         metadata,
         signal,
+        steerSignal: options.steerSignal,
         onUpdate: (update) => {
           if (signal.aborted) return;
           this.dispatchToolProgress(call, update, options);
         },
       });
-      const raced = await raceWithAbortGrace(executePromise, signal);
-      if (raced.graceExpired) {
-        return {
-          result: makeErrorToolResult(call, call.args, abortedToolOutput(call.toolName, signal))
-            .result,
-          outcome: 'executed',
-          cancelled: true,
-          effectsSettled: executePromise.then(
-            () => undefined,
-            () => undefined,
-          ),
-        };
-      }
-      rawResult = raced.value;
+      rawResult = await raceWithAbortGrace(executePromise, signal, call.toolName);
     } catch (error) {
       const aborted = isAbortError(error) || signal.aborted;
       const output = aborted
-        ? abortedToolOutput(call.toolName, signal)
+        ? abortedToolOutput(call.toolName, signal.reason)
         : `Tool "${call.toolName}" failed: ${errorMessage(error)}`;
       return {
         result: makeErrorToolResult(call, call.args, output).result,
         outcome: 'executed',
-        cancelled: aborted,
       };
     }
 
@@ -638,6 +589,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       toolCallId: call.toolCall.id,
       name: call.toolName,
       args,
+      display: displayFields?.display,
     });
   }
 
@@ -933,6 +885,7 @@ function normalizeToolResult(result: ExecutableToolResult): ToolResult {
   const base: {
     output: ToolResult['output'];
     stopTurn?: boolean;
+    stopTurnReason?: string;
     truncated?: true;
     note?: string;
     spill?: ToolResultSpill;
@@ -943,6 +896,7 @@ function normalizeToolResult(result: ExecutableToolResult): ToolResult {
     spill: result.spill,
     spillExempt: result.spillExempt,
   };
+  if (result.stopTurnReason !== undefined) base.stopTurnReason = result.stopTurnReason;
   if (result.truncated === true) base.truncated = true;
   if (typeof result.note === 'string' && result.note.length > 0) base.note = result.note;
   if (result.isError === true) {
@@ -954,12 +908,14 @@ function normalizeToolResult(result: ExecutableToolResult): ToolResult {
   return base;
 }
 
-function toolTelemetryOutcome(
-  result: ToolResult,
-  cancelled: boolean,
-): 'success' | 'error' | 'cancelled' {
-  if (cancelled) return 'cancelled';
-  return result.isError === true ? 'error' : 'success';
+function toolTelemetryOutcome(result: ToolResult): 'success' | 'error' | 'cancelled' {
+  if (result.isError !== true) return 'success';
+  const text = toolOutputText(result.output).toLowerCase();
+  return text.includes('aborted') ||
+    text.includes('cancelled') ||
+    text.includes('manually interrupted')
+    ? 'cancelled'
+    : 'error';
 }
 
 function toolTelemetryErrorType(outcome: 'success' | 'error' | 'cancelled'): 'cancelled' | 'error' {
@@ -967,33 +923,40 @@ function toolTelemetryErrorType(outcome: 'success' | 'error' | 'cancelled'): 'ca
   return 'error';
 }
 
+function toolOutputText(output: ToolResult['output']): string {
+  if (typeof output === 'string') return output;
+  return output
+    .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
+    .map((part) => part.text)
+    .join('');
+}
 
 function isMediaContentPart(part: ContentPart): boolean {
   return part.type === 'image_url' || part.type === 'audio_url' || part.type === 'video_url';
 }
 
-function abortedToolOutput(toolName: string, signal: AbortSignal): string {
-  if (isUserCancellation(signal.reason)) {
+export function abortedToolOutput(toolName: string, reason: unknown): string {
+  if (isUserCancellation(reason)) {
     return `The user manually interrupted "${toolName}" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause — wait for the user's next instruction.`;
   }
   return `Tool "${toolName}" was aborted`;
 }
 
-type AbortGraceOutcome<Result> =
-  | { readonly graceExpired: false; readonly value: Result }
-  | { readonly graceExpired: true };
-
 async function raceWithAbortGrace<Result>(
   executePromise: Promise<Result>,
   signal: AbortSignal,
-): Promise<AbortGraceOutcome<Result>> {
+  toolName: string,
+): Promise<Result> {
   let graceTimer: ReturnType<typeof setTimeout> | undefined;
   let onAbort: (() => void) | undefined;
 
-  const graceSentinel: Promise<AbortGraceOutcome<Result>> = new Promise((resolve) => {
+  const graceSentinel: Promise<Result> = new Promise((resolve) => {
     const armTimer = (): void => {
       graceTimer = setTimeout(() => {
-        resolve({ graceExpired: true });
+        resolve({
+          output: abortedToolOutput(toolName, signal.reason),
+          isError: true,
+        } as unknown as Result);
       }, ABORT_GRACE_MS);
     };
     if (signal.aborted) {
@@ -1005,10 +968,7 @@ async function raceWithAbortGrace<Result>(
   });
 
   try {
-    return await Promise.race([
-      executePromise.then((value) => ({ graceExpired: false, value }) as const),
-      graceSentinel,
-    ]);
+    return await Promise.race([executePromise, graceSentinel]);
   } finally {
     if (graceTimer !== undefined) clearTimeout(graceTimer);
     if (onAbort !== undefined) {

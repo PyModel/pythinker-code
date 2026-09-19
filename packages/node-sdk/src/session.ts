@@ -1,10 +1,7 @@
-import {
-  ErrorCodes,
-  PythinkerError,
-  type AgentContextData,
-  type PythinkerErrorCode,
-  type DynamicWorkflowModeTrigger,
-} from '@pymodel/agent-core';
+import type { DynamicWorkflowModeTrigger } from '@pymodel/agent-core-v2/features/dynamic_workflow/agent/dynamic_workflow';
+
+import type { AgentContextData } from '#/context';
+import { ErrorCodes, PythinkerError, type PythinkerErrorCode } from '#/errors';
 
 import { type ApprovalHandler, type Event, type QuestionHandler } from '#/events';
 import type { SDKRpcClientBase } from '#/rpc';

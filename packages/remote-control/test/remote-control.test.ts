@@ -1,11 +1,17 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
+import {
+  FileTokenStorage,
+  PYTHINKER_CODE_PROVIDER_NAME,
+  resolvePythinkerTokenStorageName,
+  type TokenInfo,
+} from '@pymodel/pythinker-code-oauth';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 
@@ -13,14 +19,23 @@ import {
   buildRemoteControlUrl,
   filterForwardRequestHeaders,
   parseRawHttpRequest,
+  resolveRemoteControlRelayOrigin,
   rewriteRemoteControlResponse,
   startRemoteControl,
   type RemoteControlHandle,
-} from '#/remote-control';
-import { remoteControlLockPath } from '#/lock';
+} from '../src/remote-control';
+import { remoteControlLockPath } from '../src/lock';
 
-const RELAY_TOKEN = 'relay-token';
-const CLIENT_VERSION = 'pythinker-code/0.0.0-test';
+const CLIENT_VERSION = 'pythinker-code/test';
+
+const TOKEN: TokenInfo = {
+  accessToken: 'access-token',
+  refreshToken: 'refresh-token',
+  expiresAt: 0,
+  scope: '',
+  tokenType: 'Bearer',
+  expiresIn: 0,
+};
 
 const cleanups: Array<() => Promise<void> | void> = [];
 
@@ -33,18 +48,32 @@ describe('Remote Control URLs', () => {
   it('builds the public device entry without a local token', () => {
     const url = buildRemoteControlUrl('device/one');
     expect(url).toBe(
-      'https://code-rc.pythinker.com/devices/device%2Fone/?rc=1&from=pythinker_code_cli',
+      'https://code-rc.kimi.com/devices/device%2Fone/?rc=1&from=pythinker_code_cli',
     );
     expect(url).not.toContain('token');
   });
 
   it('builds an encoded session deep link before the query', () => {
     expect(buildRemoteControlUrl('device-1', 'session/a b')).toBe(
-      'https://code-rc.pythinker.com/devices/device-1/sessions/session%2Fa%20b?rc=1&from=pythinker_code_cli',
+      'https://code-rc.kimi.com/devices/device-1/sessions/session%2Fa%20b?rc=1&from=pythinker_code_cli',
+    );
+  });
+
+  it('falls back to the default relay origin when the env is unset or blank', () => {
+    expect(resolveRemoteControlRelayOrigin({})).toBe('https://code-rc.kimi.com');
+    expect(
+      resolveRemoteControlRelayOrigin({ PYTHINKER_CODE_REMOTE_CONTROL_RELAY_URL: '  ' }),
+    ).toBe('https://code-rc.kimi.com');
+  });
+
+  it('builds device URLs from the relay origin env override', () => {
+    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_URL', 'https://rc.example.test/coding-relay/');
+    expect(resolveRemoteControlRelayOrigin()).toBe('https://rc.example.test/coding-relay/');
+    expect(buildRemoteControlUrl('device-1')).toBe(
+      'https://rc.example.test/coding-relay/devices/device-1/?rc=1&from=pythinker_code_cli',
     );
   });
 });
-
 
 describe('Remote Control HTTP forwarding', () => {
   it('parses raw requests and replaces relay credentials with local bearer auth', () => {
@@ -55,36 +84,14 @@ describe('Remote Control HTTP forwarding', () => {
     );
     expect(parsed).toMatchObject({ method: 'POST', path: '/api/v1/messages?q=1' });
     expect(parsed.body.toString()).toBe('data');
-    // Content-Length is dropped here and re-derived from the body that is
-    // actually forwarded, so a relay cannot desync the local server with a
-    // length that disagrees with the bytes.
     expect(filterForwardRequestHeaders(parsed.headers, 'local-token')).toEqual([
       'X-Keep',
       'yes',
+      'Content-Length',
+      '4',
       'Authorization',
       'Bearer local-token',
     ]);
-  });
-
-  it('refuses a chunked request body instead of forwarding its framing as data', () => {
-    expect(() =>
-      parseRawHttpRequest(
-        Buffer.from(
-          'POST /api/v1/messages HTTP/1.1\r\nHost: relay.example\r\nTransfer-Encoding: chunked\r\n\r\n4\r\ndata\r\n0\r\n\r\n',
-        ),
-      ),
-    ).toThrow(SyntaxError);
-  });
-
-  it('escapes the injected prefix so it cannot close the script element', () => {
-    const html = rewriteRemoteControlResponse(
-      'text/html',
-      Buffer.from('<html><head></head><body></body></html>'),
-      '/relay</script><script>alert(1)</script>/devices/d1',
-    ).toString();
-    expect(html).not.toContain('</script><script>alert(1)');
-    expect(html).toContain('\\u003c/script\\u003e');
-    expect(html.match(/<script\b/gi)).toHaveLength(1);
   });
 
   it('rejects absolute-form and malformed request targets', () => {
@@ -128,90 +135,14 @@ describe('Remote Control HTTP forwarding', () => {
   });
 });
 
-describe('resolveRelayOrigin', () => {
-  it('prefers the explicit value, then the env var, then the built-in default', async () => {
-    const { resolveRelayOrigin, REMOTE_CONTROL_RELAY_ORIGIN } = await import(
-      '#/remote-control'
-    );
-    expect(resolveRelayOrigin('https://relay.example.test', {})).toBe('https://relay.example.test');
-    expect(
-      resolveRelayOrigin(undefined, {
-        PYTHINKER_CODE_REMOTE_CONTROL_RELAY: 'https://env.example.test',
-      }),
-    ).toBe('https://env.example.test');
-    expect(resolveRelayOrigin(undefined, {})).toBe(REMOTE_CONTROL_RELAY_ORIGIN);
-    expect(resolveRelayOrigin('  ', { PYTHINKER_CODE_REMOTE_CONTROL_RELAY: '  ' })).toBe(
-      REMOTE_CONTROL_RELAY_ORIGIN,
-    );
-    expect(
-      resolveRelayOrigin('   ', {
-        PYTHINKER_CODE_REMOTE_CONTROL_RELAY: 'https://env.example.test',
-      }),
-    ).toBe('https://env.example.test');
-  });
-
-  it('rejects a relay that is not http(s)', async () => {
-    const { resolveRelayOrigin } = await import('#/remote-control');
-    expect(() => resolveRelayOrigin('ws://relay.example.test', {})).toThrow(
-      'Remote Control relay must be an http(s) URL',
-    );
-    expect(() => resolveRelayOrigin('not-a-url', {})).toThrow();
-  });
-});
-
-describe('resolveRelayKey', () => {
-  it('prefers the explicit key, then the environment', async () => {
-    const { resolveRelayKey } = await import('#/remote-control');
-    expect(resolveRelayKey('explicit-key', {})).toBe('explicit-key');
-    expect(
-      resolveRelayKey(undefined, { PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY: 'env-key' }),
-    ).toBe('env-key');
-    expect(resolveRelayKey('  spaced-key  ', {})).toBe('spaced-key');
-    expect(
-      resolveRelayKey('   ', { PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY: 'env-key' }),
-    ).toBe('env-key');
-  });
-
-  it('refuses to fall back to another credential when no key is given', async () => {
-    const { resolveRelayKey } = await import('#/remote-control');
-    expect(() => resolveRelayKey(undefined, {})).toThrow(
-      'PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY',
-    );
-    expect(() => resolveRelayKey('   ', { PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY: ' ' })).toThrow(
-      'Remote Control needs a relay key',
-    );
-  });
-});
-
-describe('relay credential separation', () => {
-  it('never sends the local server token to the relay', async () => {
-    const homeDir = createRemoteControlHome();
-    const relay = await startAuthRelay();
-    let handle: RemoteControlHandle | undefined;
-    cleanups.push(async () => handle?.close());
-
-    handle = await startRemoteControl({
-      homeDir,
-      localOrigin: 'http://127.0.0.1:1',
-      localServerToken: 'local-server-token',
-      clientVersion: CLIENT_VERSION,
-      relayKey: RELAY_TOKEN,
-      relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
-      stderr: { write: () => true },
-    });
-
-    expect(relay.requests).toHaveLength(2);
-    for (const request of relay.requests) {
-      expect(JSON.stringify(request)).not.toContain('local-server-token');
-      expect(request.protocol).toBe(`pythinker-code.bearer.${RELAY_TOKEN}`);
-    }
-  });
-});
-
 describe('Remote Control tunnel', () => {
   it('surfaces register_nak details', async () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'pythinker-rc-nak-'));
     cleanups.push(() => rmSync(homeDir, { recursive: true, force: true }));
+    await new FileTokenStorage(join(homeDir, 'credentials')).save(
+      resolvePythinkerTokenStorageName({ providerName: PYTHINKER_CODE_PROVIDER_NAME }),
+      TOKEN,
+    );
     const managementServer = new WebSocketServer({ noServer: true });
     const relayServer = createServer();
     managementServer.on('connection', (ws) => {
@@ -241,16 +172,14 @@ describe('Remote Control tunnel', () => {
         localOrigin: 'http://127.0.0.1:1',
         localServerToken: 'local-server-token',
         clientVersion: CLIENT_VERSION,
-        relayKey: RELAY_TOKEN,
         relayOrigin: `http://127.0.0.1:${relayPort}/coding-relay`,
         stderr: { write: () => true },
       }),
     ).rejects.toThrow(/DEVICE_LIMIT_EXCEEDED.*membership allows 3 devices/);
   });
 
-  it('uses only Authorization when the relay token is not a valid subprotocol token', async () => {
-    const homeDir = createRemoteControlHome();
-    const relayToken = 'invalid/token=';
+  it('uses only Authorization when the refresh token is not a valid subprotocol token', async () => {
+    const homeDir = await createRemoteControlHome('invalid/token=');
     const relay = await startAuthRelay();
     let handle: RemoteControlHandle | undefined;
     cleanups.push(async () => handle?.close());
@@ -260,7 +189,6 @@ describe('Remote Control tunnel', () => {
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
       clientVersion: CLIENT_VERSION,
-      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
     });
@@ -273,8 +201,7 @@ describe('Remote Control tunnel', () => {
   });
 
   it('retries with only Authorization when the server does not echo the subprotocol', async () => {
-    const homeDir = createRemoteControlHome();
-    const relayToken = RELAY_TOKEN;
+    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
     const relay = await startAuthRelay({ echoProtocol: false });
     let handle: RemoteControlHandle | undefined;
     cleanups.push(async () => handle?.close());
@@ -284,7 +211,6 @@ describe('Remote Control tunnel', () => {
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
       clientVersion: CLIENT_VERSION,
-      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
     });
@@ -296,14 +222,13 @@ describe('Remote Control tunnel', () => {
       relay.requests.some(
         (request) =>
           request.protocol === undefined &&
-          request.authorization === `Bearer ${relayToken}`,
+          request.authorization === `Bearer ${TOKEN.refreshToken}`,
       ),
     ).toBe(true);
   });
 
   it('keeps the initial start pending through transient failures and recovers', async () => {
-    const homeDir = createRemoteControlHome();
-    const relayToken = RELAY_TOKEN;
+    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
     const relay = await startAuthRelay({ rejectUpgrades: 2 });
     let handle: RemoteControlHandle | undefined;
     cleanups.push(async () => handle?.close());
@@ -313,7 +238,6 @@ describe('Remote Control tunnel', () => {
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
       clientVersion: CLIENT_VERSION,
-      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
     });
@@ -323,8 +247,7 @@ describe('Remote Control tunnel', () => {
   }, 6000);
 
   it('reconnects when management closes during the HTTP tunnel handshake', async () => {
-    const homeDir = createRemoteControlHome();
-    const relayToken = RELAY_TOKEN;
+    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
     const relay = await startAuthRelay({ closeManagementDuringFirstHttpHandshake: true });
     let handle: RemoteControlHandle | undefined;
     cleanups.push(async () => handle?.close());
@@ -334,7 +257,6 @@ describe('Remote Control tunnel', () => {
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
       clientVersion: CLIENT_VERSION,
-      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
     });
@@ -345,6 +267,10 @@ describe('Remote Control tunnel', () => {
   it('registers, forwards HTTP and WS with local auth, then reconnects the pair', async () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'pythinker-rc-'));
     cleanups.push(() => rmSync(homeDir, { recursive: true, force: true }));
+    await new FileTokenStorage(join(homeDir, 'credentials')).save(
+      resolvePythinkerTokenStorageName({ providerName: PYTHINKER_CODE_PROVIDER_NAME }),
+      TOKEN,
+    );
 
     let localHttpRequest: IncomingMessage | undefined;
     let localWsRequest: IncomingMessage | undefined;
@@ -442,12 +368,12 @@ describe('Remote Control tunnel', () => {
 
     let handle: RemoteControlHandle | undefined;
     cleanups.push(async () => handle?.close());
+    let currentToken = 'local-server-token';
     handle = await startRemoteControl({
       homeDir,
       localOrigin: `http://127.0.0.1:${localPort}`,
-      localServerToken: 'local-server-token',
+      localServerToken: () => currentToken,
       clientVersion: CLIENT_VERSION,
-      relayKey: RELAY_TOKEN,
       relayOrigin: `http://127.0.0.1:${relayPort}/coding-relay`,
       stderr: { write: () => true },
     });
@@ -456,7 +382,6 @@ describe('Remote Control tunnel', () => {
     expect(handle.url).toContain('/coding-relay/devices/');
     expect(handle.url).toContain('?rc=1&from=pythinker_code_cli');
 
-    let forwardCounter = 1;
     const rawRequest = Buffer.from(
       'GET / HTTP/1.1\r\nHost: relay.test\r\nAuthorization: Bearer relay-token\r\nCookie: sid=1\r\nOrigin: https://relay.test\r\nAccept-Encoding: gzip\r\nConnection: X-Hop\r\nX-Hop: remove\r\nX-Keep: yes\r\n\r\n',
     );
@@ -496,75 +421,131 @@ describe('Remote Control tunnel', () => {
     expect(response).toContain('Cache-Control: no-cache');
     expect(response).toContain(`/coding-relay/devices/${handle.deviceId}/boot.js`);
 
-    const prefix = `/coding-relay/devices/${handle.deviceId}`;
-    const forward = async (request: string): Promise<Buffer> => {
-      const pending = nextJsonMessage(httpConnections[0]!);
-      httpConnections[0]!.send(
-        JSON.stringify({
-          request_id: `request-${++forwardCounter}`,
-          type: 'request',
-          is_last: true,
-          body_base64: Buffer.from(request).toString('base64'),
-        }),
-      );
-      return Buffer.from((await pending)['body_base64'] as string, 'base64');
-    };
-    const split = (raw: Buffer): [string, Buffer] => {
-      const at = raw.indexOf('\r\n\r\n');
-      return [raw.subarray(0, at).toString('latin1'), raw.subarray(at + 4)];
-    };
-
-    const [gzipHead, gzipBody] = split(
-      await forward(
-        'GET /assets/index.js HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: br, gzip\r\n\r\n',
-      ),
+    currentToken = 'rotated-server-token';
+    const rotatedResponsePromise = nextJsonMessage(httpConnections[0]!);
+    httpConnections[0]!.send(
+      JSON.stringify({
+        request_id: 'request-2',
+        type: 'request',
+        is_last: true,
+        body_base64: rawRequest.toString('base64'),
+      }),
     );
+    await rotatedResponsePromise;
+    await waitFor(() => localHttpRequest?.headers.authorization === 'Bearer rotated-server-token');
+
+    const gzipResponsePromise = nextJsonMessage(httpConnections[0]!);
+    httpConnections[0]!.send(
+      JSON.stringify({
+        request_id: 'request-3',
+        type: 'request',
+        is_last: true,
+        body_base64: Buffer.from(
+          'GET /assets/index.js HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: br, gzip\r\n\r\n',
+        ).toString('base64'),
+      }),
+    );
+    const gzipResponse = Buffer.from(
+      (await gzipResponsePromise)['body_base64'] as string,
+      'base64',
+    );
+    const gzipSeparator = gzipResponse.indexOf('\r\n\r\n');
+    const gzipHead = gzipResponse.subarray(0, gzipSeparator).toString('latin1');
+    const gzipBody = gzipResponse.subarray(gzipSeparator + 4);
     expect(gzipHead).toContain('HTTP/1.1 200 OK');
     expect(gzipHead).toContain('Content-Encoding: gzip');
     expect(gzipHead).toContain('Vary: Accept-Encoding');
     expect(gzipHead).not.toContain('ETag');
     expect(gzipHead).toContain(`Content-Length: ${gzipBody.length}`);
     expect(gunzipSync(gzipBody).toString()).toBe(
-      assetJs.replaceAll('"/assets/', `"${prefix}/assets/`),
+      assetJs.replaceAll('"/assets/', `"/coding-relay/devices/${handle.deviceId}/assets/`),
     );
 
-    const [binaryHead, binaryBody] = split(
-      await forward(
-        'GET /assets/logo.png HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: gzip\r\n\r\n',
-      ),
+    const binaryResponsePromise = nextJsonMessage(httpConnections[0]!);
+    httpConnections[0]!.send(
+      JSON.stringify({
+        request_id: 'request-4',
+        type: 'request',
+        is_last: true,
+        body_base64: Buffer.from(
+          'GET /assets/logo.png HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: gzip\r\n\r\n',
+        ).toString('base64'),
+      }),
     );
-    expect(binaryHead).not.toContain('Content-Encoding');
-    expect(binaryBody.equals(assetPng)).toBe(true);
+    const binaryResponse = Buffer.from(
+      (await binaryResponsePromise)['body_base64'] as string,
+      'base64',
+    );
+    const binarySeparator = binaryResponse.indexOf('\r\n\r\n');
+    expect(binaryResponse.subarray(0, binarySeparator).toString('latin1')).not.toContain(
+      'Content-Encoding',
+    );
+    expect(binaryResponse.subarray(binarySeparator + 4).equals(assetPng)).toBe(true);
 
-    const [excludedHead, excludedBody] = split(
-      await forward(
-        'GET /assets/index.js HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: gzip;q=0, *;q=1\r\n\r\n',
-      ),
+    const excludedResponsePromise = nextJsonMessage(httpConnections[0]!);
+    httpConnections[0]!.send(
+      JSON.stringify({
+        request_id: 'request-5',
+        type: 'request',
+        is_last: true,
+        body_base64: Buffer.from(
+          'GET /assets/index.js HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: gzip;q=0, *;q=1\r\n\r\n',
+        ).toString('base64'),
+      }),
     );
+    const excludedResponse = Buffer.from(
+      (await excludedResponsePromise)['body_base64'] as string,
+      'base64',
+    );
+    const excludedSeparator = excludedResponse.indexOf('\r\n\r\n');
+    const excludedHead = excludedResponse.subarray(0, excludedSeparator).toString('latin1');
     expect(excludedHead).not.toContain('Content-Encoding');
     expect(excludedHead).toContain('Vary: Accept-Encoding');
     expect(excludedHead).toContain('ETag: "v1"');
-    expect(excludedBody.toString()).toBe(assetJs.replaceAll('"/assets/', `"${prefix}/assets/`));
-
-    const [svgHead, svgBody] = split(
-      await forward(
-        'GET /assets/logo.svg HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: gzip\r\n\r\n',
-      ),
+    expect(excludedResponse.subarray(excludedSeparator + 4).toString()).toBe(
+      assetJs.replaceAll('"/assets/', `"/coding-relay/devices/${handle.deviceId}/assets/`),
     );
+
+    const svgResponsePromise = nextJsonMessage(httpConnections[0]!);
+    httpConnections[0]!.send(
+      JSON.stringify({
+        request_id: 'request-6',
+        type: 'request',
+        is_last: true,
+        body_base64: Buffer.from(
+          'GET /assets/logo.svg HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: gzip\r\n\r\n',
+        ).toString('base64'),
+      }),
+    );
+    const svgResponse = Buffer.from((await svgResponsePromise)['body_base64'] as string, 'base64');
+    const svgSeparator = svgResponse.indexOf('\r\n\r\n');
+    const svgHead = svgResponse.subarray(0, svgSeparator).toString('latin1');
     expect(svgHead).toContain('Content-Encoding: gzip');
     expect(svgHead).toContain('Vary: Accept-Encoding');
     expect(svgHead).toContain('immutable');
-    expect(gunzipSync(svgBody).toString()).toBe(assetSvg);
+    expect(gunzipSync(svgResponse.subarray(svgSeparator + 4)).toString()).toBe(assetSvg);
 
-    const [rangeHead, rangeBody] = split(
-      await forward(
-        'GET /assets/partial.txt HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: gzip\r\nRange: bytes=0-2047\r\n\r\n',
-      ),
+    const rangeResponsePromise = nextJsonMessage(httpConnections[0]!);
+    httpConnections[0]!.send(
+      JSON.stringify({
+        request_id: 'request-7',
+        type: 'request',
+        is_last: true,
+        body_base64: Buffer.from(
+          'GET /assets/partial.txt HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: gzip\r\nRange: bytes=0-2047\r\n\r\n',
+        ).toString('base64'),
+      }),
     );
+    const rangeResponse = Buffer.from(
+      (await rangeResponsePromise)['body_base64'] as string,
+      'base64',
+    );
+    const rangeSeparator = rangeResponse.indexOf('\r\n\r\n');
+    const rangeHead = rangeResponse.subarray(0, rangeSeparator).toString('latin1');
     expect(rangeHead).toContain('206');
     expect(rangeHead).toContain('Content-Range: bytes 0-2047/4096');
     expect(rangeHead).not.toContain('Content-Encoding');
-    expect(rangeBody.toString()).toBe(assetText);
+    expect(rangeResponse.subarray(rangeSeparator + 4).toString()).toBe(assetText);
 
     managementConnections[0]!.send(
       JSON.stringify({
@@ -578,7 +559,7 @@ describe('Remote Control tunnel', () => {
     );
     await waitFor(() => streamConnections.length === 1 && localWs !== undefined);
     expect(localWsRequest?.headers['sec-websocket-protocol']).toBe(
-      'pythinker-code.bearer.local-server-token',
+      'pythinker-code.bearer.rotated-server-token',
     );
     expect(localWsRequest?.headers.authorization).toBeUndefined();
     expect(localWsRequest?.headers.cookie).toBeUndefined();
@@ -617,8 +598,7 @@ describe('Remote Control tunnel', () => {
   });
 
   it('reconnects when the relay goes silent without closing the sockets', async () => {
-    const homeDir = createRemoteControlHome();
-    const relayToken = RELAY_TOKEN;
+    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
     const relay = await startAuthRelay();
     let handle: RemoteControlHandle | undefined;
     cleanups.push(async () => handle?.close());
@@ -629,7 +609,6 @@ describe('Remote Control tunnel', () => {
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
       clientVersion: CLIENT_VERSION,
-      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: (text) => ((logs += String(text)), true) },
       pingIntervalMs: 50,
@@ -647,8 +626,7 @@ describe('Remote Control tunnel', () => {
   }, 15_000);
 
   it('retries when registration is rejected after a reconnect', async () => {
-    const homeDir = createRemoteControlHome();
-    const relayToken = RELAY_TOKEN;
+    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
     const relay = await startAuthRelay({ nakRegistrationsAfterFirst: 1 });
     let handle: RemoteControlHandle | undefined;
     cleanups.push(async () => handle?.close());
@@ -659,7 +637,6 @@ describe('Remote Control tunnel', () => {
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
       clientVersion: CLIENT_VERSION,
-      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: (text) => ((logs += String(text)), true) },
     });
@@ -676,58 +653,6 @@ describe('Remote Control tunnel', () => {
     expect(logs).toContain('DEPLOYING');
     expect(handle.url).toContain('?rc=1&from=pythinker_code_cli');
   }, 15_000);
-  it('re-reads the local server token on every forwarded request', async () => {
-    const homeDir = createRemoteControlHome();
-    const relayToken = RELAY_TOKEN;
-    const relay = await startAuthRelay();
-    let handle: RemoteControlHandle | undefined;
-    cleanups.push(async () => handle?.close());
-
-    const authorizationHeaders: string[] = [];
-    const localServer = createServer((_request, response) => {
-      authorizationHeaders.push(String(_request.headers.authorization));
-      response.writeHead(200, { 'Content-Type': 'text/plain' });
-      response.end('ok');
-    });
-    const localPort = await listen(localServer);
-    cleanups.push(() => closeServer(localServer));
-
-    let currentToken = 'local-server-token';
-    handle = await startRemoteControl({
-      homeDir,
-      localOrigin: `http://127.0.0.1:${localPort}`,
-      localServerToken: () => currentToken,
-      clientVersion: CLIENT_VERSION,
-      relayKey: relayToken,
-      relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
-      stderr: { write: () => true },
-    });
-
-    const rawRequest = Buffer.from('GET / HTTP/1.1\r\nHost: relay.test\r\n\r\n');
-    const forward = async (): Promise<void> => {
-      const responsePromise = nextJsonMessage(relay.httpSockets.at(-1)!);
-      relay.httpSockets.at(-1)!.send(
-        JSON.stringify({
-          request_id: `request-${String(authorizationHeaders.length)}`,
-          type: 'request',
-          is_last: true,
-          body_base64: rawRequest.toString('base64'),
-        }),
-      );
-      await responsePromise;
-    };
-
-    await forward();
-    expect(authorizationHeaders).toEqual(['Bearer local-server-token']);
-
-    currentToken = 'rotated-server-token';
-    await forward();
-    expect(authorizationHeaders).toEqual([
-      'Bearer local-server-token',
-      'Bearer rotated-server-token',
-    ]);
-  });
-
 });
 
 describe('Remote Control single-instance lock', () => {
@@ -738,8 +663,7 @@ describe('Remote Control single-instance lock', () => {
   }
 
   it('refuses a second instance on the same home and reports the running link', async () => {
-    const homeDir = createRemoteControlHome();
-    const relayToken = RELAY_TOKEN;
+    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
     const relay = await startAuthRelay();
     let first: RemoteControlHandle | undefined;
     cleanups.push(async () => first?.close());
@@ -748,7 +672,6 @@ describe('Remote Control single-instance lock', () => {
       localOrigin: 'http://127.0.0.1:58627',
       localServerToken: 'local-server-token',
       clientVersion: CLIENT_VERSION,
-      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },
     });
@@ -759,7 +682,6 @@ describe('Remote Control single-instance lock', () => {
         localOrigin: 'http://127.0.0.1:58628',
         localServerToken: 'local-server-token',
         clientVersion: CLIENT_VERSION,
-        relayKey: relayToken,
         relayOrigin: `http://127.0.0.1:${relay.port}`,
         stderr: { write: () => true },
       }),
@@ -768,8 +690,7 @@ describe('Remote Control single-instance lock', () => {
   });
 
   it('reaps a stale lock left by a dead process', async () => {
-    const homeDir = createRemoteControlHome();
-    const relayToken = RELAY_TOKEN;
+    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
     await mkdir(join(homeDir, 'server'), { recursive: true });
     await writeFile(
       remoteControlLockPath(homeDir),
@@ -778,7 +699,7 @@ describe('Remote Control single-instance lock', () => {
         nonce: 'stale',
         local_origin: 'http://127.0.0.1:1',
         device_id: 'dead-device',
-        url: 'https://code-rc.pythinker.com/devices/dead-device/',
+        url: 'https://code-rc.kimi.com/devices/dead-device/',
         started_at: 0,
       }),
     );
@@ -791,7 +712,6 @@ describe('Remote Control single-instance lock', () => {
       localOrigin: 'http://127.0.0.1:58627',
       localServerToken: 'local-server-token',
       clientVersion: CLIENT_VERSION,
-      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },
     });
@@ -802,16 +722,14 @@ describe('Remote Control single-instance lock', () => {
     expect(lock.pid).toBe(process.pid);
   });
 
-  it('releases the lock on close so a new instance can start', async () => {
-    const homeDir = createRemoteControlHome();
-    const relayToken = RELAY_TOKEN;
+  it('releases the lock on close and on relay-initiated shutdown', async () => {
+    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
     const relay = await startAuthRelay();
     const options = {
       homeDir,
       localOrigin: 'http://127.0.0.1:58627',
       localServerToken: 'local-server-token',
       clientVersion: CLIENT_VERSION,
-      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },
     };
@@ -822,41 +740,22 @@ describe('Remote Control single-instance lock', () => {
     cleanups.push(async () => second?.close());
     second = await startRemoteControl(options);
     expect(second.url).toContain('/devices/');
-  });
 
-  it('releases the lock before the handle reports closed', async () => {
-    const homeDir = createRemoteControlHome();
-    const relay = await startAuthRelay();
-    const handle = await startRemoteControl({
-      homeDir,
-      localOrigin: 'http://127.0.0.1:58627',
-      localServerToken: 'local-server-token',
-      clientVersion: CLIENT_VERSION,
-      relayKey: RELAY_TOKEN,
-      relayOrigin: `http://127.0.0.1:${relay.port}`,
-      stderr: { write: () => true },
-    });
-    await waitFor(() => relay.managementSockets.length === 1);
-    relay.managementSockets[0]!.send(
+    relay.managementSockets[relay.managementSockets.length - 1]!.send(
       JSON.stringify({ type: 'disconnect', payload: { reason: 'user_requested' } }),
     );
-
-    await handle.closed;
-    await expect(readFile(remoteControlLockPath(homeDir), 'utf8')).rejects.toMatchObject({
-      code: 'ENOENT',
-    });
+    await second.closed;
+    expect(existsSync(remoteControlLockPath(homeDir))).toBe(false);
   });
 
   it('does not remove a successor lock when closing', async () => {
-    const homeDir = createRemoteControlHome();
-    const relayToken = RELAY_TOKEN;
+    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
     const relay = await startAuthRelay();
     const handle = await startRemoteControl({
       homeDir,
       localOrigin: 'http://127.0.0.1:58627',
       localServerToken: 'local-server-token',
       clientVersion: CLIENT_VERSION,
-      relayKey: relayToken,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },
     });
@@ -868,7 +767,7 @@ describe('Remote Control single-instance lock', () => {
         nonce: 'successor',
         local_origin: 'http://127.0.0.1:58628',
         device_id: 'device-2',
-        url: 'https://code-rc.pythinker.com/devices/device-2/',
+        url: 'https://code-rc.kimi.com/devices/device-2/',
         started_at: Date.now(),
       }),
     );
@@ -882,9 +781,16 @@ describe('Remote Control single-instance lock', () => {
   });
 });
 
-function createRemoteControlHome(): string {
+async function createRemoteControlHome(refreshToken: string): Promise<string> {
   const homeDir = mkdtempSync(join(tmpdir(), 'pythinker-rc-auth-'));
   cleanups.push(() => rmSync(homeDir, { recursive: true, force: true }));
+  await new FileTokenStorage(join(homeDir, 'credentials')).save(
+    resolvePythinkerTokenStorageName({ providerName: PYTHINKER_CODE_PROVIDER_NAME }),
+    {
+      ...TOKEN,
+      refreshToken,
+    },
+  );
   return homeDir;
 }
 

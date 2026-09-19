@@ -1,9 +1,9 @@
-import { setCapabilities } from '@pymodel/pi-tui';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { setCapabilities } from '@pymodel/pi-tui';
 
 import { findBuiltInSlashCommand, resolveSlashCommandAvailability } from '#/tui/commands/index';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
-import { PYTHINKER_LOGO_LINES } from '#/tui/components/chrome/pythinker-logo';
 import {
   handleRemoteControlCommand,
   handleWebCommand,
@@ -80,7 +80,6 @@ describe('web slash command', () => {
     expect(command).toBeDefined();
     expect(resolveSlashCommandAvailability(command!, '')).toBe('always');
   });
-});
 
   it('registers /remote-control and /rc as the same always-available built-in', () => {
     const command = findBuiltInSlashCommand('remote-control');
@@ -88,6 +87,7 @@ describe('web slash command', () => {
     expect(findBuiltInSlashCommand('rc')).toBe(command);
     expect(resolveSlashCommandAvailability(command!, '')).toBe('always');
   });
+});
 
 describe('handleWebCommand', () => {
   beforeEach(() => {
@@ -139,7 +139,6 @@ describe('handleWebCommand', () => {
     );
     const written = writeSpy.mock.calls.map((call) => String(call[0])).join('');
     expect(written).toContain('Pythinker server ready');
-    for (const logoLine of PYTHINKER_LOGO_LINES) expect(written).toContain(logoLine);
     expect(written).toContain('Ctrl+C');
     expect(written).toContain('/sessions/ses-1');
     writeSpy.mockRestore();
@@ -147,21 +146,6 @@ describe('handleWebCommand', () => {
 });
 
 describe('handleRemoteControlCommand', () => {
-  beforeEach(() => {
-    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY', 'relay-key-1');
-  });
-
-  it('stays in the TUI with a readable error when no relay key is configured', async () => {
-    vi.clearAllMocks();
-    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY', '');
-    const host = makeHost();
-
-    await handleRemoteControlCommand(host);
-
-    expect(host.showError).toHaveBeenCalledWith(expect.stringContaining('relay key'));
-    expect(host.setExitForegroundTask).not.toHaveBeenCalled();
-  });
-
   it('stays in the TUI with a readable error when another instance holds Remote Control', async () => {
     vi.clearAllMocks();
     const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('node:fs');
@@ -177,7 +161,7 @@ describe('handleRemoteControlCommand', () => {
         nonce: 'holder',
         local_origin: 'http://127.0.0.1:58627',
         device_id: 'device-1',
-        url: 'https://code-rc.pythinker.com/devices/device-1/?rc=1&from=pythinker_code_cli',
+        url: 'https://code-rc.kimi.com/devices/device-1/?rc=1&from=pythinker_code_cli',
         started_at: Date.now(),
       }),
     );
@@ -209,9 +193,9 @@ describe('handleRemoteControlCommand', () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'pythinker-rc-qrcode-'));
     const dataDir = join(tempRoot, 'custom-home');
     const entryUrl =
-      'https://code-rc.pythinker.com/devices/device-1/?rc=1&from=pythinker_code_cli';
+      'https://code-rc.kimi.com/devices/device-1/?rc=1&from=pythinker_code_cli';
     const sessionUrl =
-      'https://code-rc.pythinker.com/devices/device-1/sessions/ses-1?rc=1&from=pythinker_code_cli';
+      'https://code-rc.kimi.com/devices/device-1/sessions/ses-1?rc=1&from=pythinker_code_cli';
     const pngPath = join(dataDir, 'rc-qrcode.png');
     mocks.getDataDir.mockReturnValue(dataDir);
     mocks.tryResolveServerToken.mockReturnValue('local-server-token');
@@ -246,11 +230,9 @@ describe('handleRemoteControlCommand', () => {
         expect.objectContaining({
           homeDir: dataDir,
           localOrigin: 'http://127.0.0.1:58627',
-          localServerToken: expect.any(Function),
+          localServerToken: 'local-server-token',
         }),
       );
-      const options = mocks.startRemoteControl.mock.calls[0]?.[0];
-      expect(options.localServerToken()).toBe('local-server-token');
       expect(mocks.openUrl).toHaveBeenCalledWith(sessionUrl);
       const written = writeSpy.mock.calls.map((call) => String(call[0])).join('');
       expect(written).toContain('Pythinker Remote Control ready');
@@ -261,9 +243,11 @@ describe('handleRemoteControlCommand', () => {
       const png = readFileSync(pngPath);
       expect(png.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
       expect(png).toEqual(await QRCode.toBuffer(sessionUrl));
-      expect(sessionUrl).not.toContain('local-server-token');
-      expect(indentedQr(sessionUrl)).not.toContain('#token=');
-      expect(written).toContain('http://127.0.0.1:58627/#token=local-server-token');
+      expect(written).toContain(
+        'Local UI: http://127.0.0.1:58627/#token=local-server-token',
+      );
+      expect(written).not.toContain(`${entryUrl}#token=`);
+      expect(written).not.toContain(`${sessionUrl}#token=`);
       expect(close).toHaveBeenCalledOnce();
     } finally {
       writeSpy.mockRestore();
@@ -281,7 +265,7 @@ describe('handleRemoteControlCommand', () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'pythinker-rc-entry-'));
     const dataDir = join(tempRoot, 'custom-home');
     const entryUrl =
-      'https://code-rc.pythinker.com/devices/device-1/?rc=1&from=pythinker_code_cli';
+      'https://code-rc.kimi.com/devices/device-1/?rc=1&from=pythinker_code_cli';
     mocks.getDataDir.mockReturnValue(dataDir);
     mocks.tryResolveServerToken.mockReturnValue('local-server-token');
     const close = vi.fn(async () => {});

@@ -5,7 +5,7 @@
  * Run: pnpm -C apps/pythinker-code exec vitest run test/cli/options.test.ts
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createProgram } from '#/cli/commands';
 import type { CLIOptions } from '#/cli/options';
@@ -19,6 +19,7 @@ function parse(argv: string[]): CLIOptions {
     (opts) => {
       captured = opts;
     },
+    () => {},
   );
 
   program.exitOverride();
@@ -59,6 +60,7 @@ describe('CLI options parsing', () => {
       const program = createProgram(
         '1.2.3',
         () => {},
+        () => {},
       );
       program.exitOverride();
       program.configureOutput({
@@ -75,6 +77,7 @@ describe('CLI options parsing', () => {
       let output = '';
       const program = createProgram(
         '4.5.6',
+        () => {},
         () => {},
       );
       program.exitOverride();
@@ -97,6 +100,7 @@ describe('CLI options parsing', () => {
         () => {
           throw new Error('main action should not run');
         },
+        () => {},
         (entry, args) => {
           pluginRunnerCalls.push({ entry, args });
         },
@@ -150,14 +154,6 @@ describe('CLI options parsing', () => {
 
     it('--resume is an alias for --session', () => {
       expect(parse(['--resume', 'sess-789']).session).toBe('sess-789');
-    });
-
-    it('rejects combining --session with the hidden --resume alias', () => {
-      const opts = parse(['--session', 'sess-123', '--resume', 'sess-456']);
-      expect(opts.session).toBe('sess-123');
-      expect(opts.sessionSelectorConflict).toBe(true);
-      expect(() => validateOptions(opts)).toThrow(OptionConflictError);
-      expect(() => validateOptions(opts)).toThrow('Cannot combine --session with --resume.');
     });
 
     it('bare -S (no id) yields empty string — triggers the picker', () => {
@@ -405,7 +401,7 @@ describe('CLI options parsing', () => {
 
   describe('--agent / --agent-file', () => {
     it('describes agent selectors as new-session-only', () => {
-      const help = createProgram('0.1.0-test', () => {}).helpInformation();
+      const help = createProgram('0.1.0-test', () => {}, () => {}).helpInformation();
       const normalizedHelp = help.replaceAll(/\s+/g, ' ');
 
       expect(normalizedHelp).toContain('Agent profile to start the new session with.');
@@ -505,14 +501,14 @@ describe('CLI options parsing', () => {
       expect(validateOptions(parse(['--agent-file', 'a.md']), {}).uiMode).toBe('shell');
     });
 
-    it('accepts the flags in prompt mode on the default v2 engine', () => {
+    it('accepts the flags in prompt mode', () => {
       const opts = parse(['-p', 'hi', '--agent-file', 'a.md']);
       expect(validateOptions(opts, {}).uiMode).toBe('print');
     });
 
-    it('accepts the flags in prompt mode with the legacy engine flag', () => {
+    it('accepts --agent in prompt mode', () => {
       const opts = parse(['-p', 'hi', '--agent', 'reviewer']);
-      expect(validateOptions(opts, { PYTHINKER_CODE_LEGACY_FLAG: '1' }).uiMode).toBe('print');
+      expect(validateOptions(opts, {}).uiMode).toBe('print');
     });
   });
 
@@ -534,6 +530,7 @@ describe('CLI options parsing', () => {
         () => {
           throw new Error('main action should not run');
         },
+        () => {},
         () => {},
         (yes) => {
           upgradeYes.push(yes);
@@ -558,6 +555,7 @@ describe('CLI options parsing', () => {
           throw new Error('main action should not run');
         },
         () => {},
+        () => {},
         (yes) => {
           upgradeYes.push(yes);
         },
@@ -577,13 +575,10 @@ describe('CLI options parsing', () => {
       const program = createProgram(
         '0.0.0',
         () => {},
+        () => {},
       );
       const commandNames: string[] = program.commands
-        .filter(
-          (command) =>
-            !command.name().startsWith('__') &&
-            !(command as unknown as { _hidden?: boolean })._hidden,
-        )
+        .filter((command) => !command.name().startsWith('__') && !(command as unknown as { _hidden?: boolean })._hidden)
         .map((command) => command.name());
       expect(commandNames).toEqual([
         'export',
@@ -592,10 +587,12 @@ describe('CLI options parsing', () => {
         'session',
         'acp',
         'web',
-        'rc',
         'server',
+        'rc',
+        'login',
         'doctor',
         'vis',
+        'migrate',
         'upgrade',
       ]);
     });

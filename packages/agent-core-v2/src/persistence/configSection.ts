@@ -21,10 +21,13 @@ export const DatabaseConfigSchema = z.object({
 
 export type DatabaseConfig = z.infer<typeof DatabaseConfigSchema>;
 
-export const databaseEnvBindings: EnvBindings<DatabaseConfig> = envBindings(DatabaseConfigSchema, {
-  base: { env: PERSISTENCE_MINIDB_READMODEL_ENV, parse: parseBooleanEnv },
-  search: { env: SEARCH_WORKER_ENV, parse: parseBooleanEnv },
-});
+export const databaseEnvBindings: EnvBindings<DatabaseConfig> = envBindings(
+  DatabaseConfigSchema,
+  {
+    base: { env: PERSISTENCE_MINIDB_READMODEL_ENV, parse: parseBooleanEnv },
+    search: { env: SEARCH_WORKER_ENV, parse: parseBooleanEnv },
+  },
+);
 
 export const stripDatabaseEnv = stripEnvBoundFields(databaseEnvBindings);
 

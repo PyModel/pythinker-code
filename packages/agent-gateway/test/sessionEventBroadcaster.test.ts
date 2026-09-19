@@ -3,15 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type {
-  AgentActivityState,
   AgentContext,
-  AgentRuntimeDefinition,
-  RuntimeOf,
-  Interaction,
-  InteractionKind,
-  InteractionPendingChangedEvent,
-  InteractionRequest,
-  InteractionResolution,
   IScopeHandle,
   Scope,
   SessionActivityCause,
@@ -19,10 +11,10 @@ import type {
   SessionActivityState,
 } from '@pymodel/agent-core-v2';
 import {
-  AgentInteraction,
-  IAgentActivityView,
+  INTERACTION_TAG_SESSION_ID,
   LifecycleScope,
   IAgentLifecycleService,
+  IAgentLoopService,
   IAgentProfileService,
   IAgentScopeContext,
   IEventBus,
@@ -30,7 +22,6 @@ import {
   IModelCatalog,
   IModelService,
   ISessionActivityView,
-  ISessionExpertTalkService,
   ISessionMetadata,
   ISessionLifecycleService,
   ISessionManager,
@@ -39,22 +30,21 @@ import {
   IWorkspaceInstanceManager,
   IWorkspaceSessions,
   MAIN_AGENT_ID,
+  interactions,
   makeAgentScopeContext,
-  type ExpertTalkChangedEvent,
-  type ExpertTalkStatusV1,
-  type ISessionExpertTalkService as SessionExpertTalkService,
 } from '@pymodel/agent-core-v2';
-import { Emitter } from '@pymodel/agent-core-v2/_base/event';
 import { TurnStarted } from '@pymodel/agent-core-v2/agent/loop/turnEvents';
+import type { AgentActivitySnapshot } from '@pymodel/agent-core-v2/agent/loop/loop';
 import type { AgentEvent } from '../src/transport/ws/v1/events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { sessionEventMessageSchema } from '../src/protocol/ws-control';
 import {
   type BroadcastDelivery,
   type BroadcastTarget,
   SessionEventBroadcaster,
 } from '../src/transport/ws/v1/sessionEventBroadcaster';
-import type { EventEnvelope } from '../src/transport/ws/v1/sessionEventJournal';
+import { SessionEventJournal, type EventEnvelope } from '../src/transport/ws/v1/sessionEventJournal';
 import { TranscriptService } from '../src/services/transcript/transcriptService';
 
 type FakeBusEvent = { type: string };
@@ -111,6 +101,7 @@ class FakeAgentHandle {
   readonly bus = new FakeAgentBus();
   readonly accessor;
   readonly context: AgentContext;
+  activity: AgentActivitySnapshot = {};
   private readonly services = new Map<unknown, unknown>();
   constructor(readonly id: string) {
     const scope = makeAgentScopeContext({
@@ -121,6 +112,10 @@ class FakeAgentHandle {
     this.context = scope.agentContext;
     this.services.set(IAgentScopeContext, scope);
     this.services.set(IEventBus, this.bus);
+    this.services.set(IAgentLoopService, {
+      status: () => ({ state: this.activity.turn === undefined ? 'idle' : 'running' }),
+      activitySnapshot: () => this.activity,
+    });
     this.accessor = {
       get: (token: unknown) => this.services.get(token),
     };
@@ -131,137 +126,14 @@ class FakeAgentHandle {
   dispose(): void {}
 }
 
-class FakeInteractionKernel {
-  private readonly pending = new Map<string, Interaction>();
-  private readonly changeEmitter = new Emitter<InteractionPendingChangedEvent>();
-  private readonly resolveEmitter = new Emitter<InteractionResolution>();
-  readonly onDidChangePending = this.changeEmitter.event;
-  readonly onDidResolve = this.resolveEmitter.event;
-
-  request<TPayload, TResponse>(req: InteractionRequest<TPayload>): Promise<TResponse> {
-    return new Promise<TResponse>((resolve) => {
-      this.park(req, (response) => resolve(response as TResponse));
-    });
-  }
-
-  enqueue<TPayload>(req: InteractionRequest<TPayload>): Interaction {
-    return this.park(req, () => {});
-  }
-
-  respond(id: string, response: unknown): boolean {
-    if (!this.pending.delete(id)) return false;
-    this.changeEmitter.fire({ pending: [...this.pending.keys()] });
-    this.resolveEmitter.fire({ id, response });
-    return true;
-  }
-
-  listPending(kind?: InteractionKind): readonly Interaction[] {
-    const all = [...this.pending.values()];
-    return kind === undefined ? all : all.filter((i) => i.kind === kind);
-  }
-
-  isRecentlyResolved(): boolean {
-    return false;
-  }
-
-  cancelPendingForTurn(_turnId: number): void {}
-
-  private park<TPayload>(
-    req: InteractionRequest<TPayload>,
-    resolve: (response: unknown) => void,
-  ): Interaction {
-    void resolve;
-    const interaction: Interaction = {
-      id: req.id ?? `interaction-${this.pending.size}`,
-      kind: req.kind,
-      payload: req.payload,
-      origin: req.origin ?? {},
-      createdAt: Date.now(),
-    };
-    this.pending.set(interaction.id, interaction);
-    this.changeEmitter.fire({ pending: [...this.pending.keys()] });
-    return interaction;
-  }
-}
-
-class FakeInteractionHub {
-  private readonly changeEmitter = new Emitter<InteractionPendingChangedEvent>();
-  private readonly resolveEmitter = new Emitter<InteractionResolution>();
-  readonly onDidChangePending = this.changeEmitter.event;
-  readonly onDidResolve = this.resolveEmitter.event;
-  private readonly watched = new Set<FakeInteractionKernel>();
-
-  constructor(
-    private readonly kernelFor: (agentId: string) => FakeInteractionKernel,
-    private readonly allKernels: () => Iterable<FakeInteractionKernel>,
-  ) {}
-
-  watch(kernel: FakeInteractionKernel): void {
-    if (this.watched.has(kernel)) return;
-    this.watched.add(kernel);
-    kernel.onDidChangePending((e: InteractionPendingChangedEvent) => this.changeEmitter.fire(e));
-    kernel.onDidResolve((e: InteractionResolution) => this.resolveEmitter.fire(e));
-  }
-
-  request<TPayload, TResponse>(req: InteractionRequest<TPayload>): Promise<TResponse> {
-    return this.kernelFor(req.origin?.agentId ?? 'main').request(req);
-  }
-
-  enqueue<TPayload>(req: InteractionRequest<TPayload>): Interaction {
-    return this.kernelFor(req.origin?.agentId ?? 'main').enqueue(req);
-  }
-
-  respond(id: string, response: unknown): boolean {
-    for (const kernel of this.allKernels()) {
-      if (kernel.respond(id, response)) return true;
-    }
-    return false;
-  }
-
-  listPending(kind?: InteractionKind): readonly Interaction[] {
-    return [...this.allKernels()].flatMap((kernel) => kernel.listPending(kind));
-  }
-
-  isRecentlyResolved(): boolean {
-    return false;
-  }
-
-  cancelPendingForTurn(turnId: number): void {
-    for (const kernel of this.allKernels()) kernel.cancelPendingForTurn(turnId);
-  }
-}
-
 class FakeLifecycle {
   readonly handles: FakeAgentHandle[] = [];
-  private readonly kernels = new Map<string, FakeInteractionKernel>();
-  readonly interactions: FakeInteractionHub;
   readonly workView: FakeSessionActivityView;
 
-  constructor() {
-    this.interactions = new FakeInteractionHub(
-      (agentId) => this.kernelFor(agentId),
-      () => this.kernels.values(),
-    );
+  constructor(readonly sessionId = 's1') {
     this.workView = new FakeSessionActivityView(this);
   }
 
-  kernelFor(agentId: string): FakeInteractionKernel {
-    let kernel = this.kernels.get(agentId);
-    if (kernel === undefined) {
-      kernel = new FakeInteractionKernel();
-      this.kernels.set(agentId, kernel);
-      this.interactions.watch(kernel);
-    }
-    return kernel;
-  }
-
-  resolve<Definition extends AgentRuntimeDefinition<any, any>>(
-    context: AgentContext,
-    definition: Definition,
-  ): RuntimeOf<Definition> {
-    if (definition !== AgentInteraction) throw new Error('unsupported runtime');
-    return this.kernelFor(context.agentId) as RuntimeOf<Definition>;
-  }
   private readonly turnCounters = new Map<string, { dispose(): void }>();
   private createHandlers: Array<(context: AgentContext) => void> = [];
   private disposeHandlers: Array<(context: AgentContext) => void> = [];
@@ -287,35 +159,22 @@ class FakeLifecycle {
   }
   addAgent(id: string): FakeAgentHandle {
     const handle = new FakeAgentHandle(id);
-    handle.set(IAgentActivityView, {
-      state: () => ({ lifecycle: 'ready', background: [] }),
+    const onTurnStarted = handle.bus.subscribe((e) => {
+      if (e.type !== 'turn.started') return;
+      handle.activity = {
+        turn: {
+          turnId: (e as { turnId?: number }).turnId ?? 0,
+          phase: 'running',
+          step: 1,
+          ending: false,
+          activeToolCalls: [],
+          since: 0,
+        },
+      };
     });
-    const onTurnStarted = handle.bus.subscribe('turn.started', (e) => {
-      handle.bus.emit(
-        agentEvent('agent.activity.updated', {
-          lifecycle: 'ready',
-          turn: {
-            turnId: (e as { turnId?: number }).turnId,
-            phase: 'running',
-            step: 0,
-            ending: false,
-            pendingApprovals: [],
-            activeToolCalls: [],
-            since: 0,
-          },
-          background: [],
-        }),
-      );
-    });
-    const onTurnEnded = handle.bus.subscribe('turn.ended', (e) => {
-      const ended = e as { turnId?: number; reason?: string };
-      handle.bus.emit(
-        agentEvent('agent.activity.updated', {
-          lifecycle: 'ready',
-          lastTurn: { turnId: ended.turnId, reason: ended.reason },
-          background: [],
-        }),
-      );
+    const onTurnEnded = handle.bus.subscribe((e) => {
+      if (e.type !== 'turn.ended') return;
+      handle.activity = {};
     });
     this.turnCounters.set(id, {
       dispose: () => {
@@ -338,6 +197,11 @@ class FakeLifecycle {
   }
 }
 
+function mapReason(reason: string | undefined): 'completed' | 'cancelled' | 'failed' | undefined {
+  if (reason === undefined) return undefined;
+  return reason === 'completed' ? 'completed' : reason === 'cancelled' ? 'cancelled' : 'failed';
+}
+
 class FakeSessionActivityView {
   private readonly listeners = new Set<(change: SessionActivityChangedEvent) => void>();
   private readonly folds = new Map<
@@ -345,11 +209,11 @@ class FakeSessionActivityView {
     { turnActive: boolean; background: number; lastTurnReason?: 'completed' | 'cancelled' | 'failed' }
   >();
   private readonly busSubscriptions = new Map<string, { dispose(): void }>();
-  private readonly interactions: FakeInteractionHub;
+  private readonly lifecycle: FakeLifecycle;
   private current: SessionActivityState;
 
   constructor(lifecycle: FakeLifecycle) {
-    this.interactions = lifecycle.interactions;
+    this.lifecycle = lifecycle;
     for (const handle of lifecycle.list()) this.attach(handle as unknown as FakeAgentHandle);
     lifecycle.onDidCreate((context) => {
       const handle = lifecycle.get(context);
@@ -362,7 +226,7 @@ class FakeSessionActivityView {
       this.busSubscriptions.delete(agentId);
       if (this.folds.delete(agentId)) this.recompute('agent_lifecycle');
     });
-    this.interactions.onDidChangePending(() => this.recompute('interaction'));
+    interactions.onDidChangePending(() => this.recompute('interaction'));
     this.current = this.aggregate();
   }
 
@@ -377,26 +241,65 @@ class FakeSessionActivityView {
 
   private attach(handle: FakeAgentHandle): void {
     if (this.folds.has(handle.id)) return;
-    const view = handle.accessor.get(IAgentActivityView) as
-      | { state(): AgentActivityState }
-      | undefined;
-    this.folds.set(handle.id, this.foldOf(handle.id, view?.state()));
-    this.busSubscriptions.set(
-      handle.id,
-      handle.bus.subscribe('agent.activity.updated', (event) => {
-        this.onActivity(handle.id, event as unknown as AgentActivityState);
-      }),
-    );
+    this.folds.set(handle.id, {
+      turnActive: handle.activity.turn !== undefined,
+      background: 0,
+    });
+    const subscriptions = [
+      handle.bus.subscribe('turn.started', () =>
+        this.patchFold(handle.id, (f) => ({
+          ...f,
+          turnActive: true,
+          lastTurnReason: handle.id === MAIN_AGENT_ID ? undefined : f.lastTurnReason,
+        })),
+      ),
+      handle.bus.subscribe('turn.ended', (e) =>
+        this.patchFold(handle.id, (f) => ({
+          ...f,
+          turnActive: false,
+          lastTurnReason:
+            handle.id === MAIN_AGENT_ID
+              ? mapReason((e as { reason?: string }).reason)
+              : f.lastTurnReason,
+        })),
+      ),
+      handle.bus.subscribe('task.started', () =>
+        this.patchFold(handle.id, (f) => ({ ...f, background: f.background + 1 })),
+      ),
+      handle.bus.subscribe('task.terminated', () =>
+        this.patchFold(handle.id, (f) => ({ ...f, background: f.background - 1 })),
+      ),
+      handle.bus.subscribe('compaction.started', () =>
+        this.patchFold(handle.id, (f) => ({ ...f, background: f.background + 1 })),
+      ),
+      handle.bus.subscribe('compaction.completed', () =>
+        this.patchFold(handle.id, (f) => ({ ...f, background: f.background - 1 })),
+      ),
+      handle.bus.subscribe('compaction.cancelled', () =>
+        this.patchFold(handle.id, (f) => ({ ...f, background: f.background - 1 })),
+      ),
+    ];
+    this.busSubscriptions.set(handle.id, {
+      dispose: () => subscriptions.forEach((s) => s.dispose()),
+    });
   }
 
-  private onActivity(agentId: string, snapshot: AgentActivityState): void {
+  private patchFold(
+    agentId: string,
+    patch: (fold: {
+      turnActive: boolean;
+      background: number;
+      lastTurnReason?: 'completed' | 'cancelled' | 'failed';
+    }) => {
+      turnActive: boolean;
+      background: number;
+      lastTurnReason?: 'completed' | 'cancelled' | 'failed';
+    },
+  ): void {
     const previous = this.folds.get(agentId);
-    const next = this.foldOf(agentId, snapshot, previous);
+    if (previous === undefined) return;
+    const next = patch(previous);
     this.folds.set(agentId, next);
-    if (previous === undefined) {
-      this.recompute('agent_lifecycle');
-      return;
-    }
     let cause: SessionActivityCause | undefined;
     if (!previous.turnActive && next.turnActive) cause = 'turn_started';
     else if (previous.turnActive && !next.turnActive) cause = 'turn_ended';
@@ -405,28 +308,6 @@ class FakeSessionActivityView {
       cause = 'turn_ended';
     }
     if (cause !== undefined) this.recompute(cause);
-  }
-
-  private foldOf(
-    agentId: string,
-    activity: AgentActivityState | undefined,
-    previous?: { lastTurnReason?: 'completed' | 'cancelled' | 'failed' },
-  ) {
-    const reason = activity?.lastTurn?.reason;
-    return {
-      turnActive: activity?.turn !== undefined,
-      background: activity?.background?.length ?? 0,
-      lastTurnReason:
-        agentId === MAIN_AGENT_ID
-          ? reason === undefined
-            ? undefined
-            : reason === 'completed'
-              ? 'completed'
-              : reason === 'cancelled'
-                ? 'cancelled'
-                : 'failed'
-          : previous?.lastTurnReason,
-    };
   }
 
   private recompute(cause: SessionActivityCause): void {
@@ -451,7 +332,10 @@ class FakeSessionActivityView {
         break;
       }
     }
-    const pending = this.interactions.listPending();
+    const pending = interactions.findAll({
+      resolved: false,
+      tags: { [INTERACTION_TAG_SESSION_ID]: this.lifecycle.sessionId },
+    });
     return {
       busy,
       mainTurnActive: this.folds.get(MAIN_AGENT_ID)?.turnActive ?? false,
@@ -469,7 +353,6 @@ function makeCore(
   sessions: Map<string, FakeLifecycle>,
   eventBus = new FakeEventBus(),
   metaAgents: Record<string, { type?: string; parentAgentId?: string }> = {},
-  expertTalk = new Map<string, SessionExpertTalkService>(),
 ): Scope {
   const handles = new WeakMap<FakeLifecycle, IScopeHandle>();
   const sessionFor = (sid: string) => {
@@ -482,16 +365,10 @@ function makeCore(
         if (t === IAgentLifecycleService) return lifecycle;
         if (t === ISessionActivityView) return lifecycle.workView;
         if (t === ISessionMetadata) return { read: async () => ({ agents: metaAgents }) };
-        if (t === ISessionExpertTalkService) return expertTalk.get(sid);
         return undefined;
       },
     };
-    const handle = {
-      id: sid,
-      kind: LifecycleScope.Session,
-      accessor: sessionAccessor,
-      dispose: () => {},
-    } as unknown as IScopeHandle;
+    const handle = { id: sid, kind: LifecycleScope.Session, accessor: sessionAccessor, dispose: () => {} } as unknown as IScopeHandle;
     handles.set(lifecycle, handle);
     return handle;
   };
@@ -536,7 +413,7 @@ function agentEvent(type: string, extra: Record<string, unknown> = {}): AgentEve
   return { type, ...extra } as unknown as AgentEvent;
 }
 
-function collectingTarget(supportsExpertTalkEvents = false): {
+function collectingTarget(): {
   target: BroadcastTarget;
   envelopes: EventEnvelope[];
   deliveries: BroadcastDelivery[];
@@ -545,7 +422,6 @@ function collectingTarget(supportsExpertTalkEvents = false): {
   const deliveries: BroadcastDelivery[] = [];
   return {
     target: {
-      supportsExpertTalkEvents,
       send: (envelope, delivery = 'subscription') => {
         envelopes.push(envelope);
         deliveries.push(delivery);
@@ -560,24 +436,50 @@ describe('SessionEventBroadcaster', () => {
   let dir: string;
   let sessions: Map<string, FakeLifecycle>;
   let eventBus: FakeEventBus;
-  let expertTalk: Map<string, SessionExpertTalkService>;
   let bc: SessionEventBroadcaster;
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'pythinker-broadcaster-test-'));
     sessions = new Map();
     eventBus = new FakeEventBus();
-    expertTalk = new Map();
     bc = new SessionEventBroadcaster({
       eventsDir: dir,
-      core: makeCore(sessions, eventBus, {}, expertTalk),
+      core: makeCore(sessions, eventBus),
       maxBufferSize: 3,
     });
   });
 
   afterEach(async () => {
     await bc.close();
+    for (const sessionId of sessions.keys()) interactions.purgeSession(sessionId);
     await rm(dir, { recursive: true, force: true });
+  });
+
+  it('does not install a pending state after its session disappears', async () => {
+    const lifecycle = new FakeLifecycle();
+    lifecycle.addAgent('main');
+    sessions.set('s1', lifecycle);
+    const journal = await SessionEventJournal.open(join(dir, 's1.jsonl'));
+    let enter!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => { enter = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const opening = vi.spyOn(SessionEventJournal, 'open').mockImplementation(async () => {
+      enter();
+      await gate;
+      return journal;
+    });
+    try {
+      const subscription = bc.subscribe('s1', collectingTarget().target);
+      await entered;
+      sessions.delete('s1');
+      release();
+      expect(await subscription).toBe(false);
+      expect(await bc.subscribe('s1', collectingTarget().target)).toBe(false);
+    } finally {
+      release();
+      opening.mockRestore();
+    }
   });
 
   it('preserves a real Event2 time in payload and derives the envelope timestamp from it', async () => {
@@ -852,27 +754,8 @@ describe('SessionEventBroadcaster', () => {
     const { target, envelopes } = collectingTarget();
     await bc.subscribe('s1', target);
 
-    main.bus.emit(
-      agentEvent('agent.activity.updated', {
-        lifecycle: 'ready',
-        turn: {
-          turnId: 1,
-          origin: { kind: 'user' },
-          phase: 'running',
-          step: 1,
-          ending: false,
-          pendingApprovals: [],
-          activeToolCalls: [],
-          since: 100,
-        },
-      }),
-    );
-    main.bus.emit(
-      agentEvent('agent.activity.updated', {
-        lifecycle: 'ready',
-        lastTurn: { turnId: 1, reason: 'completed', at: 200 },
-      }),
-    );
+    main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
+    main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
     await bc.getCursor('s1');
 
     const statuses = envelopes.filter((envelope) => envelope.type === 'agent.status.updated');
@@ -1061,51 +944,6 @@ describe('SessionEventBroadcaster', () => {
     expect((envelopes[0]!.payload as { agentId: string }).agentId).toBe('main');
   });
 
-  it('does not publish ephemeral Expert Talk participants as ordinary agents', async () => {
-    const lc = new FakeLifecycle();
-    sessions.set('s1', lc);
-    const { target, envelopes } = collectingTarget();
-    await bc.subscribe('s1', target);
-
-    const participant = lc.addAgent('expert-talk-12345678-lead-abcdef12');
-    participant.bus.emit(agentEvent('turn.started', { turnId: 7 }));
-    await bc.getCursor('s1');
-
-    expect(envelopes.filter(
-      (event) => (event.payload as { agentId?: string }).agentId === participant.id,
-    )).toEqual([]);
-  });
-
-  it('sends Expert Talk snapshots only to opted-in clients', async () => {
-    const lc = new FakeLifecycle();
-    lc.addAgent('main');
-    sessions.set('s1', lc);
-    const changes = new Emitter<ExpertTalkChangedEvent>();
-    const status: ExpertTalkStatusV1 = {
-      version: 'expert_talk/v1',
-      enabled: true,
-      featureSource: 'config',
-      config: { version: 'expert_talk/v1', resourceVersion: 'v1' },
-      pairValidation: { state: 'unknown' },
-    };
-    expertTalk.set('s1', {
-      _serviceBrand: undefined,
-      ready: Promise.resolve(),
-      onDidChange: changes.event,
-      status: () => status,
-    } as SessionExpertTalkService);
-    const legacy = collectingTarget();
-    const supported = collectingTarget(true);
-
-    await bc.subscribe('s1', legacy.target);
-    await bc.subscribe('s1', supported.target);
-    changes.fire({ status: { ...status, config: { ...status.config, resourceVersion: 'v2' } } });
-    await bc.getCursor('s1');
-
-    expect(legacy.envelopes.filter((event) => event.type === 'expert_talk.changed')).toEqual([]);
-    expect(supported.envelopes.filter((event) => event.type === 'expert_talk.changed')).toHaveLength(2);
-  });
-
   it('broadcasts agent.disposed only for agents this state attached', async () => {
     const lc = new FakeLifecycle();
     lc.addAgent('main');
@@ -1243,8 +1081,8 @@ describe('SessionEventBroadcaster', () => {
       payload: {
         agentId: 'main',
         sessionId: 's1',
-        title: '\u6D4B\u8BD5',
-        patch: { title: '\u6D4B\u8BD5', isCustomTitle: false, lastPrompt: '\u6D4B\u8BD5' },
+        title: '测试',
+        patch: { title: '测试', isCustomTitle: false, lastPrompt: '测试' },
       },
     });
 
@@ -1258,8 +1096,8 @@ describe('SessionEventBroadcaster', () => {
         type: 'session.meta.updated',
         agentId: 'main',
         sessionId: 's1',
-        title: '\u6D4B\u8BD5',
-        patch: { title: '\u6D4B\u8BD5', lastPrompt: '\u6D4B\u8BD5' },
+        title: '测试',
+        patch: { title: '测试', lastPrompt: '测试' },
       },
     });
     expect(s1View.envelopes[0]!.session_id).not.toBe('__global__');
@@ -1315,6 +1153,29 @@ describe('SessionEventBroadcaster', () => {
       session_id: '__global__',
       payload: {
         type: 'event.session.archived',
+        agentId: 'main',
+        sessionId: 'cold-1',
+        workspace_id: 'wd_cold',
+      },
+    });
+    expect(globalView.deliveries).toEqual(['immediate']);
+  });
+
+  it('fans out event.session.deleted to every connection, including for cold sessions', async () => {
+    const globalView = collectingTarget();
+    bc.addGlobalTarget(globalView.target);
+
+    eventBus.emit({
+      type: 'event.session.deleted',
+      payload: { sessionId: 'cold-1', workspaceId: 'wd_cold' },
+    });
+
+    await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+    expect(globalView.envelopes[0]).toMatchObject({
+      type: 'event.session.deleted',
+      session_id: '__global__',
+      payload: {
+        type: 'event.session.deleted',
         agentId: 'main',
         sessionId: 'cold-1',
         workspace_id: 'wd_cold',
@@ -1536,39 +1397,6 @@ describe('SessionEventBroadcaster', () => {
       expect(both.envelopes).toHaveLength(1);
     });
 
-    it('delivers event.session.deleted to a subscribed session before tearing it down', async () => {
-      const lc = new FakeLifecycle();
-      lc.addAgent('main');
-      sessions.set('s1', lc);
-
-      const { target, envelopes } = collectingTarget();
-      await bc.subscribe('s1', target);
-
-      eventBus.emit({
-        type: 'event.config.changed',
-        payload: { changedFields: ['defaultModel'], config: {} },
-      });
-      eventBus.emit({
-        type: 'event.session.deleted',
-        payload: { sessionId: 's1', workspaceId: 'wd_1' },
-      });
-
-      await vi.waitFor(() => {
-        expect(envelopes.some((e) => e.type === 'event.session.deleted')).toBe(true);
-      });
-      const deleted = envelopes.find((e) => e.type === 'event.session.deleted');
-      expect(deleted).toMatchObject({
-        type: 'event.session.deleted',
-        session_id: '__global__',
-        payload: {
-          type: 'event.session.deleted',
-          agentId: 'main',
-          sessionId: 's1',
-          workspace_id: 'wd_1',
-        },
-      });
-    });
-
     it('delivers event.config.warning to a global-only target that never subscribed', async () => {
       const globalView = collectingTarget();
       bc.addGlobalTarget(globalView.target);
@@ -1590,70 +1418,6 @@ describe('SessionEventBroadcaster', () => {
         payload: { warnings },
       });
       expect(globalView.deliveries).toEqual(['immediate']);
-    });
-
-    it('delivers validated config and model-catalog changes to global targets', async () => {
-      const globalView = collectingTarget();
-      bc.addGlobalTarget(globalView.target);
-
-      eventBus.emit({
-        type: 'event.config.changed',
-        payload: {
-          changedFields: ['defaultModel'],
-          config: { providers: {}, default_model: 'example-model' },
-        },
-      });
-      eventBus.emit({
-        type: 'event.model_catalog.changed',
-        payload: {
-          changed: [
-            {
-              provider_id: 'example',
-              provider_name: 'Example',
-              added: 2,
-              removed: 1,
-            },
-          ],
-          unchanged: ['stable'],
-          failed: [{ provider: 'broken', reason: 'offline' }],
-        },
-      });
-
-      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(2));
-      expect(globalView.envelopes[0]).toMatchObject({
-        type: 'event.config.changed',
-        session_id: '__global__',
-        payload: {
-          changed_fields: ['defaultModel'],
-          config: { providers: {}, default_model: 'example-model' },
-        },
-      });
-      expect(globalView.envelopes[1]).toMatchObject({
-        type: 'event.model_catalog.changed',
-        session_id: '__global__',
-        payload: {
-          changed: [{ provider_id: 'example', added: 2, removed: 1 }],
-          unchanged: ['stable'],
-          failed: [{ provider: 'broken', reason: 'offline' }],
-        },
-      });
-    });
-
-    it('drops malformed config and model-catalog changes', async () => {
-      const globalView = collectingTarget();
-      bc.addGlobalTarget(globalView.target);
-
-      eventBus.emit({
-        type: 'event.config.changed',
-        payload: { changedFields: [''], config: { providers: {} } },
-      });
-      eventBus.emit({
-        type: 'event.model_catalog.changed',
-        payload: { changed: [{ provider_id: '', added: -1 }], unchanged: [], failed: [] },
-      });
-      await new Promise((resolve) => setTimeout(resolve, 20));
-
-      expect(globalView.envelopes).toHaveLength(0);
     });
 
     it('fans out event.plugin.changed and event.capability.changed to global targets', async () => {
@@ -1727,6 +1491,170 @@ describe('SessionEventBroadcaster', () => {
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.config.warning',
         payload: { warnings },
+      });
+    });
+
+    it('delivers event.config.changed to a global-only target that never subscribed', async () => {
+      const globalView = collectingTarget();
+      bc.addGlobalTarget(globalView.target);
+
+      const config = { default_model: 'k2', providers: {} };
+      eventBus.emit({
+        type: 'event.config.changed',
+        payload: { changedFields: ['defaultModel'], config },
+      });
+
+      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+      expect(globalView.envelopes[0]).toMatchObject({
+        type: 'event.config.changed',
+        session_id: '__global__',
+        payload: { changedFields: ['defaultModel'], config },
+      });
+      expect(globalView.deliveries).toEqual(['immediate']);
+    });
+
+    it('preserves unlisted config domains through event validation', async () => {
+      const globalView = collectingTarget();
+      bc.addGlobalTarget(globalView.target);
+
+      const config = { default_model: 'k2', providers: {}, mcp: { servers: { fs: { command: 'npx' } } } };
+      eventBus.emit({
+        type: 'event.config.changed',
+        payload: { changedFields: ['mcp'], config },
+      });
+
+      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+      expect(globalView.envelopes[0]).toMatchObject({
+        type: 'event.config.changed',
+        session_id: '__global__',
+        payload: { changedFields: ['mcp'], config },
+      });
+    });
+
+    it('drops malformed event.config.changed payloads', async () => {
+      const globalView = collectingTarget();
+      bc.addGlobalTarget(globalView.target);
+
+      eventBus.emit({ type: 'event.config.changed', payload: null });
+      eventBus.emit({ type: 'event.config.changed', payload: { changedFields: 'defaultModel' } });
+      eventBus.emit({
+        type: 'event.config.changed',
+        payload: { changedFields: ['defaultModel', 7], config: {} },
+      });
+      eventBus.emit({
+        type: 'event.config.changed',
+        payload: { changedFields: ['defaultModel'], config: null },
+      });
+      eventBus.emit({
+        type: 'event.config.changed',
+        payload: { changedFields: ['defaultModel'], config: [] },
+      });
+      eventBus.emit({
+        type: 'event.config.changed',
+        payload: { changedFields: [''], config: {} },
+      });
+
+      eventBus.emit({
+        type: 'event.config.changed',
+        payload: { changedFields: ['models'], config: { models: {} } },
+      });
+
+      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+      expect(globalView.envelopes[0]).toMatchObject({
+        type: 'event.config.changed',
+        payload: { changedFields: ['models'], config: { models: {} } },
+      });
+    });
+
+    it('delivers event.model_catalog.changed to a global-only target that never subscribed', async () => {
+      const globalView = collectingTarget();
+      bc.addGlobalTarget(globalView.target);
+
+      const changed = [
+        { provider_id: 'managed:pythinker-code', provider_name: 'Pythinker Code', added: 2, removed: 1 },
+      ];
+      const failed = [{ provider: 'managed:pythinker-code', reason: 'network disabled' }];
+      eventBus.emit({
+        type: 'event.model_catalog.changed',
+        payload: { changed, unchanged: ['openai-main'], failed },
+      });
+
+      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+      expect(globalView.envelopes[0]).toMatchObject({
+        type: 'event.model_catalog.changed',
+        session_id: '__global__',
+        payload: { changed, unchanged: ['openai-main'], failed },
+      });
+      expect(globalView.deliveries).toEqual(['immediate']);
+    });
+
+    it('drops malformed event.model_catalog.changed payloads', async () => {
+      const globalView = collectingTarget();
+      bc.addGlobalTarget(globalView.target);
+
+      eventBus.emit({ type: 'event.model_catalog.changed', payload: null });
+      eventBus.emit({ type: 'event.model_catalog.changed', payload: { changed: [] } });
+      eventBus.emit({
+        type: 'event.model_catalog.changed',
+        payload: {
+          changed: [{ provider_id: 'p', provider_name: 'P', added: '1', removed: 0 }],
+          unchanged: [],
+          failed: [],
+        },
+      });
+      eventBus.emit({
+        type: 'event.model_catalog.changed',
+        payload: {
+          changed: [{ provider_id: 'p', provider_name: 'P', added: -1, removed: 0 }],
+          unchanged: [],
+          failed: [],
+        },
+      });
+      eventBus.emit({
+        type: 'event.model_catalog.changed',
+        payload: {
+          changed: [{ provider_id: 'p', provider_name: 'P', added: 0.5, removed: 0 }],
+          unchanged: [],
+          failed: [],
+        },
+      });
+      eventBus.emit({
+        type: 'event.model_catalog.changed',
+        payload: {
+          changed: [{ provider_id: '', provider_name: 'P', added: 1, removed: 0 }],
+          unchanged: [],
+          failed: [],
+        },
+      });
+      eventBus.emit({
+        type: 'event.model_catalog.changed',
+        payload: { changed: [], unchanged: ['ok', 7], failed: [] },
+      });
+      eventBus.emit({
+        type: 'event.model_catalog.changed',
+        payload: { changed: [], unchanged: ['ok', ''], failed: [] },
+      });
+      eventBus.emit({
+        type: 'event.model_catalog.changed',
+        payload: { changed: [], unchanged: [], failed: [{ provider: 'p' }] },
+      });
+      eventBus.emit({
+        type: 'event.model_catalog.changed',
+        payload: { changed: [], unchanged: [], failed: [{ provider: 'p', reason: '' }] },
+      });
+
+      const changed = [
+        { provider_id: 'managed:pythinker-code', provider_name: 'Pythinker Code', added: 1, removed: 0 },
+      ];
+      eventBus.emit({
+        type: 'event.model_catalog.changed',
+        payload: { changed, unchanged: [], failed: [] },
+      });
+
+      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+      expect(globalView.envelopes[0]).toMatchObject({
+        type: 'event.model_catalog.changed',
+        payload: { changed, unchanged: [], failed: [] },
       });
     });
   });
@@ -1828,13 +1756,13 @@ describe('SessionEventBroadcaster', () => {
     await bc.subscribe('s1', target);
 
     main.bus.emit(
-      agentEvent('agent.activity.updated', {
-        lifecycle: 'ready',
-        background: [{ kind: 'process', id: 'bash-1', since: 100 }],
+      agentEvent('task.started', {
+        agentId: 'main',
+        info: { taskId: 'bash-1', kind: 'process', description: 'bash-1', status: 'running', startedAt: 100 },
       }),
     );
     await bc.getCursor('s1');
-    main.bus.emit(agentEvent('agent.activity.updated', { lifecycle: 'ready', background: [] }));
+    main.bus.emit(agentEvent('task.terminated', { agentId: 'main', taskId: 'bash-1' }));
     await bc.getCursor('s1');
 
     const workChanged = envelopes.filter((e) => e.type === 'event.session.work_changed');
@@ -1842,8 +1770,7 @@ describe('SessionEventBroadcaster', () => {
       { busy: true, last_turn_reason: undefined },
       { busy: false, last_turn_reason: undefined },
     ]);
-    expect(envelopes.filter((e) => e.type === 'agent.status.updated').map((e) => e.payload))
-      .toMatchObject([{ phase: { kind: 'idle' } }, { phase: { kind: 'idle' } }]);
+    expect(envelopes.filter((e) => e.type === 'agent.status.updated')).toHaveLength(0);
   });
 
   it('emits the first background-work change from an agent created after activation', async () => {
@@ -1855,9 +1782,9 @@ describe('SessionEventBroadcaster', () => {
 
     const late = lc.addAgent('agent-0');
     late.bus.emit(
-      agentEvent('agent.activity.updated', {
-        lifecycle: 'ready',
-        background: [{ kind: 'process', id: 'bash-1', since: 100 }],
+      agentEvent('task.started', {
+        agentId: 'agent-0',
+        info: { taskId: 'bash-1', kind: 'process', description: 'bash-1', status: 'running', startedAt: 100 },
       }),
     );
     await bc.getCursor('s1');
@@ -1876,9 +1803,9 @@ describe('SessionEventBroadcaster', () => {
     await bc.subscribe('s1', target);
 
     sub.bus.emit(
-      agentEvent('agent.activity.updated', {
-        lifecycle: 'ready',
-        background: [{ kind: 'process', id: 'bash-1', since: 100 }],
+      agentEvent('task.started', {
+        agentId: 'agent-0',
+        info: { taskId: 'bash-1', kind: 'process', description: 'bash-1', status: 'running', startedAt: 100 },
       }),
     );
     await bc.getCursor('s1');
@@ -1943,13 +1870,14 @@ describe('SessionEventBroadcaster', () => {
     const { target, envelopes } = collectingTarget();
     await bc.subscribe('s1', target);
 
-    lc.interactions.enqueue({
+    interactions.enqueue({
       id: 'q1',
       kind: 'question',
       payload: {
         toolCallId: 'call_1',
         questions: [{ question: 'Pick one', options: [{ label: 'A' }, { label: 'B' }] }],
       },
+      tags: { sessionId: 's1' },
     });
     await bc.getCursor('s1');
 
@@ -1975,25 +1903,25 @@ describe('SessionEventBroadcaster', () => {
     });
     expect(envelopes[1]!.volatile).toBeUndefined();
 
-    lc.interactions.respond('q1', { answers: { q_0: 'opt_0_0' }, method: 'enter' });
+    interactions.respond('q1', { answers: { q_0: 'opt_0_0' }, method: 'enter' });
     await bc.getCursor('s1');
 
     expect(envelopes).toHaveLength(4);
     expect(envelopes[2]).toMatchObject({
-      type: 'event.session.work_changed',
-      seq: 3,
-      payload: { pending_interaction: 'none' },
-    });
-    expect(envelopes[3]).toMatchObject({
       type: 'event.question.answered',
-      seq: 4,
+      seq: 3,
       session_id: 's1',
       payload: {
         question_id: 'q1',
         answers: { q_0: 'opt_0_0' },
       },
     });
-    expect((envelopes[3]!.payload as { resolved_at?: string }).resolved_at).toBeTypeOf('string');
+    expect((envelopes[2]!.payload as { resolved_at?: string }).resolved_at).toBeTypeOf('string');
+    expect(envelopes[3]).toMatchObject({
+      type: 'event.session.work_changed',
+      seq: 4,
+      payload: { pending_interaction: 'none' },
+    });
   });
 
   it('broadcasts question dismissed when resolved with null', async () => {
@@ -2003,24 +1931,25 @@ describe('SessionEventBroadcaster', () => {
     const { target, envelopes } = collectingTarget();
     await bc.subscribe('s1', target);
 
-    lc.interactions.enqueue({
+    interactions.enqueue({
       id: 'q1',
       kind: 'question',
       payload: { questions: [{ question: 'Pick', options: [{ label: 'A' }] }] },
+      tags: { sessionId: 's1' },
     });
-    lc.interactions.respond('q1', null);
+    interactions.respond('q1', null);
     await bc.getCursor('s1');
 
     expect(envelopes.map((e) => e.type)).toEqual([
       'event.session.work_changed',
       'event.question.requested',
-      'event.session.work_changed',
       'event.question.dismissed',
+      'event.session.work_changed',
     ]);
     expect(envelopes[0]!.payload).toMatchObject({ pending_interaction: 'question' });
-    expect(envelopes[2]!.payload).toMatchObject({ pending_interaction: 'none' });
-    expect(envelopes[3]!.payload).toMatchObject({ question_id: 'q1' });
-    expect((envelopes[3]!.payload as { dismissed_at?: string }).dismissed_at).toBeTypeOf('string');
+    expect(envelopes[2]!.payload).toMatchObject({ question_id: 'q1' });
+    expect((envelopes[2]!.payload as { dismissed_at?: string }).dismissed_at).toBeTypeOf('string');
+    expect(envelopes[3]!.payload).toMatchObject({ pending_interaction: 'none' });
   });
 
   it('carries the requesting agent onto resolved interaction events', async () => {
@@ -2031,21 +1960,21 @@ describe('SessionEventBroadcaster', () => {
     const { target, envelopes } = collectingTarget();
     await bc.subscribe('s1', target);
 
-    lc.interactions.enqueue({
+    interactions.enqueue({
       id: 'q-sub',
       kind: 'question',
       payload: {
         toolCallId: 'call_q',
         questions: [{ question: 'Pick', options: [{ label: 'A' }] }],
       },
-      origin: { agentId: 'sub-1' },
+      tags: { agentId: 'sub-1', sessionId: 's1' },
     });
     await bc.getCursor('s1');
     expect(
       envelopes.find((e) => e.type === 'event.question.requested')?.payload,
     ).toMatchObject({ agentId: 'sub-1', question_id: 'q-sub' });
 
-    lc.interactions.respond('q-sub', { answers: { q_0: 'opt_0_0' } });
+    interactions.respond('q-sub', { answers: { q_0: 'opt_0_0' } });
     await bc.getCursor('s1');
     expect(
       envelopes.find((e) => e.type === 'event.question.answered')?.payload,
@@ -2059,7 +1988,7 @@ describe('SessionEventBroadcaster', () => {
     const { target, envelopes } = collectingTarget();
     await bc.subscribe('s1', target);
 
-    lc.interactions.enqueue({
+    interactions.enqueue({
       id: 'a1',
       kind: 'approval',
       payload: {
@@ -2068,7 +1997,7 @@ describe('SessionEventBroadcaster', () => {
         action: 'run',
         display: { kind: 'command', command: 'ls' },
       },
-      origin: { turnId: 3 },
+      tags: { sessionId: 's1', turnId: 3 },
     });
     await bc.getCursor('s1');
 
@@ -2094,18 +2023,13 @@ describe('SessionEventBroadcaster', () => {
     });
     expect(envelopes[1]!.volatile).toBeUndefined();
 
-    lc.interactions.respond('a1', { decision: 'approved', scope: 'session' });
+    interactions.respond('a1', { decision: 'approved', scope: 'session' });
     await bc.getCursor('s1');
 
     expect(envelopes).toHaveLength(4);
     expect(envelopes[2]).toMatchObject({
-      type: 'event.session.work_changed',
-      seq: 3,
-      payload: { pending_interaction: 'none' },
-    });
-    expect(envelopes[3]).toMatchObject({
       type: 'event.approval.resolved',
-      seq: 4,
+      seq: 3,
       session_id: 's1',
       payload: {
         approval_id: 'a1',
@@ -2113,7 +2037,12 @@ describe('SessionEventBroadcaster', () => {
         scope: 'session',
       },
     });
-    expect((envelopes[3]!.payload as { resolved_at?: string }).resolved_at).toBeTypeOf('string');
+    expect((envelopes[2]!.payload as { resolved_at?: string }).resolved_at).toBeTypeOf('string');
+    expect(envelopes[3]).toMatchObject({
+      type: 'event.session.work_changed',
+      seq: 4,
+      payload: { pending_interaction: 'none' },
+    });
   });
 
   it('fans event.session.work_changed out to every connection, bypassing agent filters', async () => {
@@ -2150,10 +2079,11 @@ describe('SessionEventBroadcaster', () => {
     const lc = new FakeLifecycle();
     lc.addAgent('main');
     sessions.set('s1', lc);
-    lc.interactions.enqueue({
+    interactions.enqueue({
       id: 'q0',
       kind: 'question',
       payload: { questions: [{ question: 'Early', options: [{ label: 'A' }] }] },
+      tags: { sessionId: 's1' },
     });
 
     const { target, envelopes } = collectingTarget();
@@ -2161,14 +2091,14 @@ describe('SessionEventBroadcaster', () => {
     await bc.getCursor('s1');
     expect(envelopes).toHaveLength(0);
 
-    lc.interactions.respond('q0', { answers: { q_0: 'opt_0_0' } });
+    interactions.respond('q0', { answers: { q_0: 'opt_0_0' } });
     await bc.getCursor('s1');
     expect(envelopes.map((e) => e.type)).toEqual([
-      'event.session.work_changed',
       'event.question.answered',
+      'event.session.work_changed',
     ]);
-    expect(envelopes[0]!.payload).toMatchObject({ pending_interaction: 'none' });
-    expect(envelopes[1]!.payload).toMatchObject({ question_id: 'q0' });
+    expect(envelopes[0]!.payload).toMatchObject({ question_id: 'q0' });
+    expect(envelopes[1]!.payload).toMatchObject({ pending_interaction: 'none' });
   });
 
   it('fans out the legacy background.task.* alias alongside native task.* for v1 clients', async () => {
@@ -2186,8 +2116,10 @@ describe('SessionEventBroadcaster', () => {
     expect(envelopes.map((e) => e.type)).toEqual([
       'task.started',
       'background.task.started',
+      'event.session.work_changed',
       'task.terminated',
       'background.task.terminated',
+      'event.session.work_changed',
     ]);
     expect(envelopes[1]!.payload).toMatchObject({
       type: 'background.task.started',
@@ -2195,13 +2127,13 @@ describe('SessionEventBroadcaster', () => {
       agentId: 'main',
       sessionId: 's1',
     });
-    expect(envelopes[3]!.payload).toMatchObject({
+    expect(envelopes[4]!.payload).toMatchObject({
       type: 'background.task.terminated',
       agentId: 'main',
       sessionId: 's1',
     });
     expect(envelopes.every((e) => e.volatile === undefined)).toBe(true);
-    expect(envelopes.map((e) => e.seq)).toEqual([1, 2, 3, 4]);
+    expect(envelopes.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
   it('delivers only the allowlisted agent events on live fan-out', async () => {
@@ -2261,8 +2193,8 @@ describe('SessionEventBroadcaster', () => {
       payload: {
         agentId: 'main',
         sessionId: 's1',
-        title: '\u6D4B\u8BD5',
-        patch: { title: '\u6D4B\u8BD5' },
+        title: '测试',
+        patch: { title: '测试' },
       },
     });
 
@@ -2401,14 +2333,13 @@ describe('SessionEventBroadcaster', () => {
 
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
       for (const view of [deltaView, blockView, turnView]) {
-        const batches = transcriptEnvelopes(view.envelopes).slice(-2);
+        const batches = transcriptEnvelopes(view.envelopes).slice(-1);
         for (const ops of batches) {
           expect(ops.type).toBe('transcript.ops');
           expect(ops.volatile).toBe(true);
         }
         expect(batches.map((ops) => (ops.payload as OpsPayload).ops.map((o) => o.op))).toEqual([
-          ['turn.upsert', 'meta.merge'],
-          ['meta.merge'],
+          ['turn.upsert', 'meta.merge', 'meta.merge'],
         ]);
       }
       expect(transcriptEnvelopes(plainView.envelopes)).toHaveLength(0);
@@ -2548,7 +2479,7 @@ describe('SessionEventBroadcaster', () => {
       const ids = transcriptEnvelopes(view.envelopes)
         .filter((e) => e.type === 'transcript.reset')
         .map((e) => (e.payload as { agent_id: string }).agent_id)
-        .toSorted();
+        .sort();
       expect(ids).toEqual(['main', 'sub-1']);
     });
 
@@ -2687,20 +2618,16 @@ describe('SessionEventBroadcaster', () => {
       expect(transcriptEnvelopes(view.envelopes)).toHaveLength(1);
 
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
-      expect(transcriptEnvelopes(view.envelopes)).toHaveLength(3);
+      expect(transcriptEnvelopes(view.envelopes)).toHaveLength(2);
 
       const sub = lc.addAgent('sub-1');
       sub.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
       const frames = transcriptEnvelopes(view.envelopes);
-      expect(frames).toHaveLength(6);
+      expect(frames).toHaveLength(4);
       const subFrames = frames.filter(
         (e) => (e.payload as { agent_id?: string }).agent_id === 'sub-1',
       );
-      expect(subFrames.map((e) => e.type)).toEqual([
-        'transcript.reset',
-        'transcript.ops',
-        'transcript.ops',
-      ]);
+      expect(subFrames.map((e) => e.type)).toEqual(['transcript.reset', 'transcript.ops']);
     });
 
     it('sends an items-empty baseline reset marking older history, with global state and the watermark', async () => {
@@ -2759,9 +2686,9 @@ describe('SessionEventBroadcaster', () => {
       expect(transcriptEnvelopes(view.envelopes).at(-1)!.type).toBe('transcript.ops');
 
       const late = lc.addAgent('agent-0');
-      expect(transcriptEnvelopes(view.envelopes)).toHaveLength(3);
+      expect(transcriptEnvelopes(view.envelopes)).toHaveLength(2);
       late.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
-      expect(transcriptEnvelopes(view.envelopes)).toHaveLength(3);
+      expect(transcriptEnvelopes(view.envelopes)).toHaveLength(2);
     });
 
     it('stamps ops payloads with the batch seq and resets with the watermark', async () => {
@@ -2899,57 +2826,6 @@ describe('SessionEventBroadcaster', () => {
       expect(legacyTypes).toContain('assistant.delta');
       expect(legacyTypes).toContain('tool.result');
       expect(transcriptEnvelopes(legacy.envelopes)).toHaveLength(0);
-    });
-
-    it('delivers terminal subagent lifecycle events after a running snapshot', async () => {
-      const lc = new FakeLifecycle();
-      const main = lc.addAgent('main');
-      sessions.set('s1', lc);
-      bc = makeBroadcasterWithTranscript();
-
-      const view = collectingTarget();
-      await bc.subscribe('s1', view.target, undefined, { main: 'delta' });
-
-      main.bus.emit(agentEvent('subagent.spawned', {
-        subagentId: 'agent-0',
-        subagentName: 'explore',
-        description: 'Compare final UI screenshots',
-        runInBackground: false,
-      }));
-      main.bus.emit(agentEvent('subagent.started', { subagentId: 'agent-0' }));
-      await bc.getCursor('s1');
-      expect((await bc.getSnapshotState('s1')).subagents).toEqual([
-        expect.objectContaining({
-          id: 'agent-0',
-          status: 'running',
-          subagent_phase: 'working',
-        }),
-      ]);
-
-      main.bus.emit(agentEvent('subagent.suspended', { subagentId: 'agent-0', reason: 'rate limit' }));
-      main.bus.emit(agentEvent('subagent.started', { subagentId: 'agent-0' }));
-      main.bus.emit(agentEvent('subagent.completed', { subagentId: 'agent-0', resultSummary: 'done' }));
-      main.bus.emit(agentEvent('subagent.spawned', {
-        subagentId: 'agent-1',
-        subagentName: 'review',
-        description: 'Review final UI',
-        runInBackground: false,
-      }));
-      main.bus.emit(agentEvent('subagent.failed', { subagentId: 'agent-1', error: 'failed' }));
-      await bc.getCursor('s1');
-
-      const lifecycleTypes = view.envelopes
-        .map((e) => e.type)
-        .filter((type) => type.startsWith('subagent.'));
-      expect(lifecycleTypes).toEqual([
-        'subagent.spawned',
-        'subagent.started',
-        'subagent.suspended',
-        'subagent.started',
-        'subagent.completed',
-        'subagent.spawned',
-        'subagent.failed',
-      ]);
     });
 
     it('keeps delivering lifecycle and global events to graded connections', async () => {
@@ -3105,5 +2981,94 @@ describe('SessionEventBroadcaster', () => {
 
       expect(transcriptEnvelopes(view.envelopes)).toHaveLength(0);
     });
+  });
+});
+
+describe('sessionEventMessageSchema', () => {
+  const timestamp = '2026-08-27T00:00:00.000Z';
+
+  function envelope(payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      type: payload['type'],
+      seq: 3,
+      session_id: '__global__',
+      timestamp,
+      payload: { agentId: 'main', sessionId: '__global__', ...payload },
+    };
+  }
+
+  it('accepts config changed, config warning, and model catalog changed envelopes', () => {
+    expect(
+      sessionEventMessageSchema.safeParse(
+        envelope({
+          type: 'event.config.changed',
+          changedFields: ['defaultModel'],
+          config: { default_model: 'k2', providers: {} },
+        }),
+      ).success,
+    ).toBe(true);
+
+    expect(
+      sessionEventMessageSchema.safeParse(
+        envelope({
+          type: 'event.config.warning',
+          warnings: [{ domain: 'loopControl', message: 'deprecated key' }, { message: 'other' }],
+        }),
+      ).success,
+    ).toBe(true);
+
+    expect(
+      sessionEventMessageSchema.safeParse(
+        envelope({
+          type: 'event.model_catalog.changed',
+          changed: [
+            { provider_id: 'managed:pythinker-code', provider_name: 'Pythinker Code', added: 2, removed: 1 },
+          ],
+          unchanged: ['openai-main'],
+          failed: [{ provider: 'managed:pythinker-code', reason: 'network disabled' }],
+        }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it('rejects malformed config and model catalog event envelopes', () => {
+    expect(
+      sessionEventMessageSchema.safeParse(
+        envelope({ type: 'event.config.changed', changedFields: 'defaultModel', config: {} }),
+      ).success,
+    ).toBe(false);
+
+    expect(
+      sessionEventMessageSchema.safeParse(
+        envelope({ type: 'event.config.changed', changedFields: [], config: [] }),
+      ).success,
+    ).toBe(false);
+
+    expect(
+      sessionEventMessageSchema.safeParse(
+        envelope({ type: 'event.config.warning', warnings: [{ domain: 'loopControl' }] }),
+      ).success,
+    ).toBe(false);
+
+    expect(
+      sessionEventMessageSchema.safeParse(
+        envelope({
+          type: 'event.model_catalog.changed',
+          changed: [],
+          failed: [],
+        }),
+      ).success,
+    ).toBe(false);
+
+    expect(
+      sessionEventMessageSchema.safeParse(
+        envelope({
+          type: 'event.model_catalog.changed',
+          changed: [],
+          unchanged: [],
+          failed: [{ provider: 'managed:pythinker-code', reason: 42 }],
+        }),
+      ).success,
+    ).toBe(false);
   });
 });

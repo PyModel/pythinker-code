@@ -28,7 +28,7 @@ function messageText(message: ContextMessage): string {
   return message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 }
 
-describe('NotifyUser nudge runtime', () => {
+describe('AgentNotifyUserNudgeService', () => {
   let ctx: TestAgentContext;
   let context: IAgentContextMemoryService;
   let loop: IAgentLoopService;
@@ -63,13 +63,13 @@ describe('NotifyUser nudge runtime', () => {
     flags.setConfigOverrides({ [NOTIFY_USER_FLAG_ID]: true });
     const registry = ctx.get(IAgentToolRegistryService);
     if (registry.resolve(NOTIFY_USER_TOOL_NAME) === undefined) registry.register(notifyToolStub);
-    await ctx.restorePersisted();
     context.append({
       role: 'user',
       content: [{ type: 'text', text: 'do the thing' }],
       toolCalls: [],
       origin: { kind: 'user' },
     });
+    await ctx.restorePersisted();
     ctx.configure();
   });
 

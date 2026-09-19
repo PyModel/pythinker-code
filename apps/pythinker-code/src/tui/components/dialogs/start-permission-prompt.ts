@@ -101,7 +101,7 @@ function styleModeNames(text: string, baseToken: 'text' | 'textMuted'): string {
   return text
     .split(/(\b(?:Always Ask|Ask When Needed|Never Ask)\b)/g)
     .map((part) => {
-      if (part === 'Always Ask' || part === 'Never Ask' || part === 'Ask When Needed') return currentTheme.boldFg('textStrong', part);
+      if (part === 'Always Ask' || part === 'Ask When Needed' || part === 'Never Ask') return currentTheme.boldFg('textStrong', part);
       return currentTheme.fg(baseToken, part);
     })
     .join('');

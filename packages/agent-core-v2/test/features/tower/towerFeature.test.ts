@@ -28,7 +28,6 @@ import { FlagRegistryService } from '#/app/flag/flagRegistryService';
 import { FlagService, MASTER_ENV } from '#/app/flag/flagService';
 import { LifecycleScope } from '#/app/scopes';
 import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
-import { isTowerFeatureAssembled } from '#/features/tower/towerFeature';
 import { IFeatureAssemblyService } from '#/features/featureAssembly';
 import { FeatureAssemblyService } from '#/features/featureAssemblyService';
 import {
@@ -38,7 +37,10 @@ import {
 import { TOWER_FLAG_ENV } from '#/features/tower/flag';
 import { TOWER_FLAG_ID } from '#/features/tower/tower';
 import { ITowerRateLimitService } from '#/features/tower/towerRateLimit';
-import { TowerFeature } from '#/features/tower/towerFeature';
+import {
+  TowerFeature,
+  isTowerFeatureAssembled,
+} from '#/features/tower/towerFeature';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
@@ -118,6 +120,18 @@ describe('TowerFeature — experimental flag gating', () => {
         'TowerTeardown',
       ].toSorted(),
     );
+    host.dispose();
+  });
+
+  it('clears the assembly marker when the feature unit unloads', async () => {
+    const flags = stubFlag((id) => id === TOWER_FLAG_ID);
+    const host = createScopedTestHost([[IFlagService, flags]]);
+    const manager = host.app.accessor.get(IFeatureManager);
+    expect(isTowerFeatureAssembled(flags)).toBe(true);
+
+    await manager.unprovideUnit('tower');
+
+    expect(isTowerFeatureAssembled(flags)).toBe(false);
     host.dispose();
   });
 });

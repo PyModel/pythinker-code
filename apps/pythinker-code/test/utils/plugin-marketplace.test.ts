@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV } from '#/constant/app';
+import {
+  PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV,
+  pythinkerCodePluginMarketplaceUrl,
+} from '#/constant/app';
 import {
   computeUpdateStatus,
   loadPluginMarketplace,
@@ -14,7 +17,7 @@ import {
   type PluginMarketplaceEntry,
 } from '#/utils/plugin-marketplace';
 
-const REPO_ROOT = join(import.meta.dirname, '../../../..');
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 describe('computeUpdateStatus', () => {
   it('reports not-installed when the plugin is absent', () => {
@@ -74,12 +77,12 @@ describe('loadPluginMarketplace', () => {
         version: '1',
         plugins: [
           {
-            id: 'example-data',
+            id: 'pythinker-datasource',
             tier: 'official',
-            displayName: 'Example Data',
+            displayName: 'Pythinker Datasource',
             version: '1.0.0',
             description: 'Datasource tools',
-            source: './example-data',
+            source: './pythinker-datasource',
             keywords: ['data'],
           },
           {
@@ -106,12 +109,12 @@ describe('loadPluginMarketplace', () => {
     expect(marketplace.version).toBe('1');
     expect(marketplace.plugins.slice(0, 2)).toEqual([
       {
-        id: 'example-data',
-        displayName: 'Example Data',
+        id: 'pythinker-datasource',
+        displayName: 'Pythinker Datasource',
         tier: 'official',
         version: '1.0.0',
         description: 'Datasource tools',
-        source: join(dir, 'example-data'),
+        source: join(dir, 'pythinker-datasource'),
         keywords: ['data'],
         homepage: undefined,
       },
@@ -224,10 +227,16 @@ describe('loadPluginMarketplace', () => {
         version: '6.0.3',
       }),
     );
+    expect(marketplace.plugins).toContainEqual(
+      expect.objectContaining({
+        id: 'pythinker-datasource',
+        tier: 'official',
+        source: join(REPO_ROOT, 'plugins/official/pythinker-datasource'),
+      }),
+    );
   });
 
-  it('loads an explicitly configured remote marketplace with injectable fetch', async () => {
-    const source = 'https://example.test/marketplace.json';
+  it('loads the default CDN marketplace with injectable fetch', async () => {
     const fetchImpl = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -235,9 +244,9 @@ describe('loadPluginMarketplace', () => {
         JSON.stringify({
           plugins: [
             {
-              id: 'example-data',
-              displayName: 'Example Data',
-              source: './official/example-data.zip',
+              id: 'pythinker-datasource',
+              displayName: 'Pythinker Datasource',
+              source: './official/pythinker-datasource.zip',
             },
           ],
         }),
@@ -245,37 +254,41 @@ describe('loadPluginMarketplace', () => {
 
     const marketplace = await loadPluginMarketplace({
       workDir: '/tmp/work',
-      source,
+      source: pythinkerCodePluginMarketplaceUrl(),
       fetchImpl,
     });
 
-    expect(fetchImpl).toHaveBeenCalledWith(source);
+    expect(fetchImpl).toHaveBeenCalledWith(pythinkerCodePluginMarketplaceUrl());
     expect(marketplace.plugins[0]).toEqual(
       expect.objectContaining({
-        id: 'example-data',
-        displayName: 'Example Data',
+        id: 'pythinker-datasource',
+        displayName: 'Pythinker Datasource',
         source: new URL(
-          './official/example-data.zip',
-          source,
+          './official/pythinker-datasource.zip',
+          pythinkerCodePluginMarketplaceUrl(),
         ).toString(),
       }),
     );
   });
 
-  it('returns only built-in entries without reading when no source is configured', async () => {
+  it('falls back to the source checkout marketplace when the default CDN cannot be fetched', async () => {
     const previous = process.env[PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV];
     delete process.env[PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV];
-    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('fetch failed');
+    }) as unknown as typeof fetch;
 
     try {
-      const marketplace = await loadPluginMarketplace({
-        workDir: '/tmp/work',
-        fetchImpl,
-        builtInEntries,
-      });
+      const marketplace = await loadPluginMarketplace({ workDir: '/tmp/work', fetchImpl });
 
-      expect(fetchImpl).not.toHaveBeenCalled();
-      expect(marketplace).toEqual({ source: '', plugins: builtInEntries });
+      expect(fetchImpl).toHaveBeenCalledWith(pythinkerCodePluginMarketplaceUrl());
+      expect(marketplace.source).toBe(join(REPO_ROOT, 'plugins/marketplace.json'));
+      expect(marketplace.plugins).toContainEqual(
+        expect.objectContaining({
+          id: 'superpowers',
+          source: 'https://github.com/obra/superpowers',
+        }),
+      );
     } finally {
       if (previous === undefined) {
         delete process.env[PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV];
@@ -285,14 +298,14 @@ describe('loadPluginMarketplace', () => {
     }
   });
 
-  it('reports failures from explicit marketplace sources', async () => {
+  it('does not use the source checkout fallback for explicit marketplace sources', async () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error('fetch failed');
     }) as unknown as typeof fetch;
 
     await expect(loadPluginMarketplace({
       workDir: '/tmp/work',
-      source: 'https://example.test/marketplace.json',
+      source: pythinkerCodePluginMarketplaceUrl(),
       fetchImpl,
     })).rejects.toThrow(/fetch failed/);
   });
@@ -357,7 +370,7 @@ describe('loadPluginMarketplace', () => {
     });
 
     it('does not derive a version from a non-GitHub URL', async () => {
-      const entry = await loadEntry('https://example.test/plugins/superpowers.zip');
+      const entry = await loadEntry('https://code.kimi.com/pythinker-code/plugins/curated/superpowers.zip');
       expect(entry.version).toBeUndefined();
     });
 

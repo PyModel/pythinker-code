@@ -7,12 +7,7 @@
 import { ChatProviderError } from '#/errors';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
 import { AnthropicChatProvider, resolveDefaultMaxTokens } from '#/providers/anthropic';
-import {
-  LATEST_OPUS_PROFILE,
-  matchKnownAnthropicModelProfile,
-  matchUnknownClaudeProfile,
-  parseAnthropicModelVersion,
-} from '#/providers/anthropic-profile';
+import { matchKnownAnthropicModelProfile, matchUnknownClaudeProfile, LATEST_OPUS_PROFILE } from '#/providers/anthropic-profile';
 import type { GenerateOptions } from '#/provider';
 import type { Tool } from '#/tool';
 import { describe, it, expect, vi } from 'vitest';
@@ -104,12 +99,15 @@ describe('Anthropic model profile matching', () => {
     },
   );
 
+  // A malformed config entry (e.g. an unquoted dotted TOML key like
+  // `[models.kimi-k2.7-code]`) parses into a nested object that lacks the
+  // top-level `model` field. The v2 config schema marks `model` optional, so
+  // the entry reaches profile matching with `undefined` — the matcher must
+  // degrade to "no profile" instead of crashing the whole getModels call.
   it('tolerates an undefined model name from a malformed config entry', () => {
-    expect(matchKnownAnthropicModelProfile(undefined)).toBeUndefined();
-    expect(matchUnknownClaudeProfile(undefined)).toBeUndefined();
-    expect(parseAnthropicModelVersion(undefined)).toBeNull();
+    expect(matchKnownAnthropicModelProfile(undefined as unknown as string)).toBeUndefined();
+    expect(matchUnknownClaudeProfile(undefined as unknown as string)).toBeUndefined();
   });
-
 });
 
 type AnthropicGenerationState = {

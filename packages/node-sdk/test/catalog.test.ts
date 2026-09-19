@@ -1,4 +1,4 @@
-import type { PythinkerConfig } from '@pymodel/agent-core';
+import type { PythinkerConfig } from '#/index';
 import { describe, expect, it, vi } from 'vitest';
 
 import {

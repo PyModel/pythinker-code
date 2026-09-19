@@ -10,7 +10,7 @@ import { Emitter } from '#/_base/event';
 import { IBashParserService } from '#/app/bashParser/bashParser';
 import { BashParserService } from '#/app/bashParser/bashParserService';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { ToolCall } from '#/kosong/contract/message';
+import type { ToolCall } from '#human/llm/message';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSystem';
@@ -18,7 +18,7 @@ import type { RuntimeLease } from '#/runtime/runtime';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
-import type { HostFsChange } from '#/os/interface/hostFsWatch';
+import type { WatchChange } from '#human/utils/watch';
 import {
   ToolAccesses,
   type ToolAccesses as ToolAccessesType,
@@ -43,12 +43,12 @@ import { IAgentStateService } from '#/agent/state/agentState';
 import { profileKey } from '#/agent/profile/profileOps';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentToolDedupeService } from '#/agent/toolDedupe/toolDedupe';
 import { AgentToolDedupeService } from '#/agent/toolDedupe/toolDedupeService';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { createReminderHarness, lifecycleWithReminder } from '../../features/reminder/stubs';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { createReminderHarness } from '../../features/reminder/stubs';
 import { OrderedHookSlot } from '#/hooks';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
@@ -93,7 +93,7 @@ interface Harness {
   readonly context: StubContextMemory;
   readonly telemetryEvents: TelemetryRecord[];
   readonly reminders: CapturedReminder[];
-  readonly instructionsChange: Emitter<readonly HostFsChange[]>;
+  readonly instructionsChange: Emitter<readonly WatchChange[]>;
   step(): Promise<void>;
 }
 
@@ -114,13 +114,12 @@ function createHarness(
   const telemetryEvents: TelemetryRecord[] = [];
   const reminders: CapturedReminder[] = [];
   const events = stubToolExecutorEvents();
-  const instructionsChange = disposables.add(new Emitter<readonly HostFsChange[]>());
+  const instructionsChange = disposables.add(new Emitter<readonly WatchChange[]>());
   const loop = stubLoopWithHooks();
   const context = stubContextMemory();
   const reminderRuntime = createReminderHarness(loop, context);
   const ix = createServices(disposables, {
     additionalServices: (reg) => {
-      registerLogServices(reg);
       if (options.withRealExecutor === true) {
         reg.defineInstance(IEventBus, {
           _serviceBrand: undefined,
@@ -133,6 +132,7 @@ function createHarness(
           write: async () => {},
         });
         reg.define(IAgentToolResultTruncationService, ToolResultTruncationService);
+        registerLogServices(reg);
       } else {
         reg.defineInstance(IAgentToolExecutorService, events.executor);
       }
@@ -158,18 +158,16 @@ function createHarness(
         agentsMdPaths: options.restoredProfile?.agentsMdPaths,
       });
       reg.defineInstance(IAgentStateService, agentState);
+      reg.defineInstance(
+        IAgentReminderService,
+        Object.assign(reminderRuntime, {
+          notify: (content: string, notification: { variant: string }) => {
+            reminders.push({ content, origin: { kind: 'injection', ...notification } });
+          },
+        }),
+      );
       reg.defineInstance(IAgentLoopService, loop);
       reg.defineInstance(IAgentContextMemoryService, context);
-      reg.defineInstance(
-        IAgentLifecycleService,
-        lifecycleWithReminder(
-          Object.assign(reminderRuntime, {
-            notify: (content: string, notification: { variant: string }) => {
-              reminders.push({ content, origin: { kind: 'injection', ...notification } });
-            },
-          }),
-        ),
-      );
       reg.defineInstance(ISessionContext, {
         _serviceBrand: undefined,
         sessionId: 'session-1',
@@ -204,7 +202,7 @@ function createHarness(
         acquire: (): RuntimeLease => ({
           runtime: {
             identity: { workspaceId: 'workspace-1', runtimeId: 'local', generation: 'test' },
-            capabilities: new Set(['fs', 'watch', 'process', 'terminal']),
+            capabilities: new Set(['fs', 'process', 'terminal']),
             environment: hostEnvironment,
             path: {
               separator: options.pathClass === 'win32' ? '\\' : '/',
@@ -1174,35 +1172,27 @@ describe('agentsMdReminder round-2 hardening', () => {
     expect(reminderText(second)).toContain(subAgentsMd);
   });
 
-  it('keeps attaching reminders when telemetry fails and records later reminders', async () => {
+  it('releases the claim when attaching the reminder fails, so the next touch retries', async () => {
     let shouldThrow = true;
-    const shown: number[] = [];
     const telemetry = {
       ...recordingTelemetry([]),
       track2: (event: string, properties?: unknown) => {
         if (shouldThrow) throw new Error('telemetry boom');
-        if (event !== 'agents_md_reminder_shown') return;
-        if (typeof properties !== 'object' || properties === null || !('reminded_count' in properties)) return;
-        shown.push(Number(properties.reminded_count));
       },
     } satisfies ITelemetryService;
     const h = createHarness({ telemetry });
     const subDir = join(workDir, 'packages', 'agent-gateway');
     const subAgentsMd = await writeAgentsMd(subDir);
-    const otherDir = join(workDir, 'packages', 'nested');
-    const otherAgentsMd = await writeAgentsMd(otherDir);
 
     const failed = await fire(h, didCtx('Read', { path: join(subDir, 'a.ts') }));
     expect(outputText(failed)).toBe('original result');
-    expect(agentsMdMessages(h)).toHaveLength(1);
-    expect(reminderText(h)).toContain(subAgentsMd);
+    expect(agentsMdMessages(h)).toHaveLength(0);
 
     shouldThrow = false;
-    const retried = await fire(h, didCtx('Read', { path: join(otherDir, 'b.ts') }));
+    const retried = await fire(h, didCtx('Read', { path: join(subDir, 'b.ts') }));
     expect(outputText(retried)).toBe('original result');
-    expect(agentsMdMessages(h)).toHaveLength(2);
-    expect(reminderText(h)).toContain(otherAgentsMd);
-    expect(shown).toEqual([1]);
+    expect(agentsMdMessages(h)).toHaveLength(1);
+    expect(reminderText(h)).toContain(subAgentsMd);
   });
 
   it('leaves oversized results to the truncation pipeline and enqueues the reminder instead', async () => {

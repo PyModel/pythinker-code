@@ -21,8 +21,8 @@ import { IAppStateService } from '#/app/state/appState';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { LifecycleScope } from '#/app/scopes';
 import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
-import { IModelService } from '#/kosong/model/model';
-import { IProviderService } from '#/kosong/provider/provider';
+import { IModelService } from '#/llm-adapter/model/model';
+import { IProviderService } from '#/llm-adapter/provider/provider';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
@@ -153,7 +153,7 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
     this.instances.delete(workspaceId);
     const attachments = this.attachments.get(workspaceId);
     this.attachments.delete(workspaceId);
-    if (attachments !== undefined) for (const attachment of [...attachments.values()].toReversed()) await attachment.dispose();
+    if (attachments !== undefined) for (const attachment of [...attachments.values()].reverse()) await attachment.dispose();
     await instance.dispose();
     this.changeEmitter.fire({ workspaceId });
   }
@@ -169,18 +169,18 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
       }
     } catch (error) {
       this.providers.delete(factory.id);
-      for (const instance of attached.toReversed()) await this.detach(instance.id, factory.id);
+      for (const instance of attached.reverse()) await this.detach(instance.id, factory.id);
       throw error;
     }
     return { dispose: async () => {
       if (this.providers.get(factory.id) !== factory) return;
       this.providers.delete(factory.id);
-      for (const workspaceId of [...this.attachments.keys()].toReversed()) await this.detach(workspaceId, factory.id);
+      for (const workspaceId of [...this.attachments.keys()].reverse()) await this.detach(workspaceId, factory.id);
     } };
   }
 
   async dispose(): Promise<void> {
-    for (const workspaceId of [...this.instances.keys()].toReversed()) await this.close(workspaceId);
+    for (const workspaceId of [...this.instances.keys()].reverse()) await this.close(workspaceId);
     this.changeEmitter.dispose();
   }
 
@@ -257,7 +257,7 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
       const attachments = this.attachments.get(instance.id);
       this.attachments.delete(instance.id);
       if (attachments !== undefined) {
-        for (const attachment of [...attachments.values()].toReversed()) await attachment.dispose();
+        for (const attachment of [...attachments.values()].reverse()) await attachment.dispose();
       }
       await instance.dispose();
       throw error;

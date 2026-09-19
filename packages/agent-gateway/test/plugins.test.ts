@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WebSocket } from 'ws';
 
@@ -83,10 +83,28 @@ describe('server-v2 /api/v1 plugins', () => {
   let server: RunningServer | undefined;
   let home: string | undefined;
   let base: string;
+  let custom = false;
   const createdDirs: string[] = [];
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-plugins-'));
+    await bootDefault();
+  });
+
+  async function bootDefault(): Promise<void> {
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home!,
+      logLevel: 'silent',
+      pluginMarketplaceUrl: CATALOG_URL,
+    });
+    base = `http://127.0.0.1:${server.port}`;
+    custom = false;
+  }
+
+  beforeEach(async () => {
     const realFetch = globalThis.fetch;
     vi.stubGlobal(
       'fetch',
@@ -106,26 +124,25 @@ describe('server-v2 /api/v1 plugins', () => {
         return realFetch(url as never, init);
       }),
     );
-    server = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logLevel: 'silent',
-      pluginMarketplaceUrl: CATALOG_URL,
-    });
-    base = `http://127.0.0.1:${server.port}`;
   });
 
   afterEach(async () => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
-    if (server !== undefined) {
-      await server.close();
+    if (custom) {
+      await server?.close();
       server = undefined;
+      await bootDefault();
     }
     for (const dir of createdDirs.splice(0)) {
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  afterAll(async () => {
+    if (server !== undefined) {
+      await server.close();
+      server = undefined;
     }
     if (home !== undefined) {
       await rm(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 } as never);
@@ -365,14 +382,46 @@ describe('server-v2 /api/v1 plugins', () => {
       logLevel: 'silent',
     });
     base = `http://127.0.0.1:${server.port}`;
+    custom = true;
 
     const { body } = await call<{ entries: { id: string; capabilityId?: string }[] }>(
       'GET',
       '/api/v1/plugins/marketplace',
     );
     expect(body.code).toBe(0);
-    expect(body.data.entries.find((e) => e.id === 'pythinker-webbridge')?.capabilityId).toBeUndefined();
-    expect(body.data.entries.find((e) => e.id === 'pythinker-cu')?.capabilityId).toBeUndefined();
+    expect(body.data.entries.find((e) => e.id === 'pythinker-webbridge')?.capabilityId).toBe(
+      'pythinker-webbridge',
+    );
+
+    const cuSupported = process.platform === 'darwin' || (process.platform === 'win32' && process.arch === 'x64');
+    const after0 = await call<{
+      entries: { id: string; capabilityId?: string; installed?: { version?: string } }[];
+    }>('GET', '/api/v1/plugins/marketplace');
+    if (!cuSupported) {
+      expect(after0.body.data.entries.find((e) => e.id === 'pythinker-cu')).toBeUndefined();
+      return;
+    }
+
+    const winSource = await makePluginDir('pythinker-cu-win', '0.5.4');
+    await call('POST', '/api/v1/plugins', { source: winSource });
+    const after = await call<{
+      entries: { id: string; capabilityId?: string; installed?: { version?: string } }[];
+    }>('GET', '/api/v1/plugins/marketplace');
+    const cu = after.body.data.entries.find((e) => e.id === 'pythinker-cu');
+    expect(cu?.capabilityId).toBe('pythinker-cu');
+    expect(cu?.installed?.version).toBe('0.5.4');
+
+    const staleSource = await makePluginDir('pythinker-cu', '0.1.0');
+    await call('POST', '/api/v1/plugins', { source: staleSource });
+    const both = await call<{
+      entries: { id: string; installed?: { version?: string } }[];
+    }>('GET', '/api/v1/plugins/marketplace');
+    const expected = process.platform === 'win32' && process.arch === 'x64' ? '0.5.4' : '0.1.0';
+    expect(both.body.data.entries.find((e) => e.id === 'pythinker-cu')?.installed?.version).toBe(
+      expected,
+    );
+    await call('POST', '/api/v1/plugins/pythinker-cu-win:remove');
+    await call('POST', '/api/v1/plugins/pythinker-cu:remove');
   });
 
   it('maps an unreachable marketplace to 50001', async () => {
@@ -414,6 +463,7 @@ describe('server-v2 /api/v1 plugins', () => {
       pluginMarketplaceUrl: join(catalogDir, 'marketplace.json'),
     });
     base = `http://127.0.0.1:${server.port}`;
+    custom = true;
 
     const { body } = await call<{ entries: { id: string; source: string }[] }>(
       'GET',
@@ -436,8 +486,21 @@ describe('server-v2 /api/v1 plugins', () => {
     ]);
   });
 
-  it('serves an empty marketplace when no URL is configured', async () => {
+  it('falls back to the source-checkout catalog when the remote is unreachable', async () => {
     await server?.close();
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
+        if (typeof url === 'string' && url.includes('/releases/latest')) {
+          return new Response(null, { status: 404 });
+        }
+        if (url === 'https://code.kimi.com/pythinker-code/plugins/marketplace.json') {
+          throw new Error('offline');
+        }
+        return realFetch(url as never, init);
+      }),
+    );
     vi.stubEnv('PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL', undefined as unknown as string);
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
@@ -447,18 +510,43 @@ describe('server-v2 /api/v1 plugins', () => {
       logLevel: 'silent',
     });
     base = `http://127.0.0.1:${server.port}`;
+    custom = true;
 
-    vi.mocked(globalThis.fetch).mockClear();
-    const { body } = await call<{ entries: unknown[] }>('GET', '/api/v1/plugins/marketplace');
+    const { body } = await call<{
+      entries: {
+        id: string;
+        source: string;
+        tier?: string;
+        displayName?: string;
+        capabilityId?: string;
+      }[];
+    }>('GET', '/api/v1/plugins/marketplace');
     expect(body.code).toBe(0);
-    expect(body.data.entries).toEqual([]);
-    expect(
-      vi
-        .mocked(globalThis.fetch)
-        .mock.calls.map(([url]) =>
-          typeof url === 'string' ? url : url instanceof URL ? url.href : url.url,
-        ),
-    ).toEqual([`${base}/api/v1/plugins/marketplace`]);
+    const datasource = body.data.entries.find((e) => e.id === 'pythinker-datasource');
+    expect(datasource?.source.startsWith('http')).toBe(false);
+    expect(datasource?.source.endsWith(join('plugins', 'official', 'pythinker-datasource'))).toBe(true);
+    const webbridge = body.data.entries.find((e) => e.id === 'pythinker-webbridge');
+    expect(webbridge?.capabilityId).toBe('pythinker-webbridge');
+    const cuSupported = process.platform === 'darwin' || (process.platform === 'win32' && process.arch === 'x64');
+    const cu = body.data.entries.find((e) => e.id === 'pythinker-cu');
+    if (!cuSupported) {
+      expect(cu).toBeUndefined();
+      return;
+    }
+    expect(cu?.tier).toBe('official');
+    expect(cu?.capabilityId).toBe('pythinker-cu');
+    expect(cu?.source).toBe('capability:pythinker-cu');
+    expect(cu?.displayName).toBe('Pythinker Computer Use');
+
+    const cuSource = await makePluginDir('pythinker-cu', '0.5.8');
+    await call('POST', '/api/v1/plugins', { source: cuSource });
+    const after = await call<{
+      entries: { id: string; installed?: { version?: string; enabled: boolean } }[];
+    }>('GET', '/api/v1/plugins/marketplace');
+    expect(after.body.data.entries.find((e) => e.id === 'pythinker-cu')?.installed).toEqual({
+      version: '0.5.8',
+      enabled: true,
+    });
   });
 
   it('expands ~ in local catalog paths like the CLI loader', async () => {
@@ -485,6 +573,7 @@ describe('server-v2 /api/v1 plugins', () => {
       pluginMarketplaceUrl: '~/marketplace.json',
     });
     base = `http://127.0.0.1:${server.port}`;
+    custom = true;
 
     const { body } = await call<{ entries: { id: string; source: string }[] }>(
       'GET',

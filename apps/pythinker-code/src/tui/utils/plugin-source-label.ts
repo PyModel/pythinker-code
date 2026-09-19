@@ -6,6 +6,13 @@ export const THIRD_PARTY_BADGE = 'third-party';
 
 export type PluginTrustLabel = 'official' | 'curated' | 'third-party';
 
+// Trusted plugin hosts come in .com / .ai region pairs: code.pythinker.* is the
+// per-region marketplace CDN (cdnBase), cdn.pythinker.* the content CDN. Both
+// families are trusted regardless of the current region — a zip served by
+// either deployment is still an official build.
+const CODE_CDN_HOSTS = new Set(['code.kimi.com', 'code.kimi.ai']);
+const CONTENT_CDN_HOSTS = new Set(['cdn.kimi.com', 'cdn.kimi.ai']);
+
 /**
  * Human-readable provenance label for a plugin, suitable for inline display
  * in `/plugins` overviews and lists.
@@ -26,24 +33,70 @@ export function formatPluginSourceLabel(plugin: PluginSummary): string {
 }
 
 /**
- * Returns the trust label for a plugin. URL installs are always third-party.
+ * Returns one of three trust labels for a plugin. Only Pythinker-hosted plugin zip
+ * paths receive official or curated badges. Everything else is third-party.
  */
-export function pluginTrustLabel(_plugin: PluginSummary): PluginTrustLabel {
-  return 'third-party';
+export function pluginTrustLabel(plugin: PluginSummary): PluginTrustLabel {
+  if (plugin.source !== 'zip-url' || plugin.originalSource === undefined) {
+    return 'third-party';
+  }
+  try {
+    const url = new URL(plugin.originalSource);
+    if (isOfficialPluginUrl(url)) {
+      return 'official';
+    }
+    if (
+      url.protocol === 'https:' &&
+      CODE_CDN_HOSTS.has(url.hostname) &&
+      url.pathname.startsWith('/pythinker-code/plugins/curated/')
+    ) {
+      return 'curated';
+    }
+    return 'third-party';
+  } catch {
+    return 'third-party';
+  }
 }
 
 /**
- * Returns false because no plugin URL is trusted by hostname.
+ * Returns true only for install sources that are unambiguously Pythinker-built
+ * official plugins — an https URL under the official Pythinker CDN plugin path.
+ * Everything else (local paths, GitHub repos, curated or third-party URLs)
+ * is treated as unofficial and should be confirmed before install.
  */
-export function isOfficialPluginSource(_source: string): boolean {
-  return false;
+export function isOfficialPluginSource(source: string): boolean {
+  const trimmed = source.trim();
+  if (!trimmed.startsWith('https://')) return false;
+  try {
+    return isOfficialPluginUrl(new URL(trimmed));
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Returns false because installed plugin URLs have no trusted host.
+ * Returns true when an installed plugin provably came from a trusted official
+ * source — a zip download under the official CDN plugin path. Local paths,
+ * GitHub repos, and third-party URLs do not qualify, even when their manifest
+ * id matches an official plugin.
  */
-export function isOfficialPluginInstall(_plugin: PluginSummary): boolean {
-  return false;
+export function isOfficialPluginInstall(plugin: PluginSummary): boolean {
+  return (
+    plugin.source === 'zip-url' &&
+    plugin.originalSource !== undefined &&
+    isOfficialPluginSource(plugin.originalSource)
+  );
+}
+
+function isOfficialPluginUrl(url: URL): boolean {
+  if (url.protocol !== 'https:') return false;
+  return (
+    (CODE_CDN_HOSTS.has(url.hostname) &&
+      url.pathname.startsWith('/pythinker-code/plugins/official/')) ||
+    (CONTENT_CDN_HOSTS.has(url.hostname) &&
+      (url.pathname.startsWith('/pythinker-computer-use/') ||
+        url.pathname.startsWith('/pythinker-computer-use-windows/')))
+  );
 }
 
 function hostFromUrl(raw: string): string | undefined {

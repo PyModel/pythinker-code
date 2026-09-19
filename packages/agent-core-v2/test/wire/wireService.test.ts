@@ -7,7 +7,7 @@ import { resetUnexpectedErrorHandler, setUnexpectedErrorHandler } from '#/_base/
 import { ILogService } from '#/_base/log/log';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import type { ContentPart } from '#/kosong/contract/message';
+import type { ContentPart } from '#human/llm/message';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
@@ -69,7 +69,7 @@ async function collect(journal: AsyncIterable<WireRecord>): Promise<WireRecord[]
 function wireOverLog(
   stubLog: IAppendLogStore,
   key: string,
-  dependencies: { blob?: IAgentBlobService; telemetry?: ITelemetryService } = {},
+  dependencies: { blob?: IAgentBlobService; storage?: IFileSystemStorageService; telemetry?: ITelemetryService } = {},
 ): IWireService {
   const stubIx = disposables.add(new TestInstantiationService());
   return registerTestAgentWire(stubIx, testWireScope(SCOPE, key), { log: stubLog, ...dependencies });
@@ -232,12 +232,10 @@ describe('WireService appendRecord', () => {
 describe('WireService readJournal', () => {
   it('normalizes legacy plan revision paths and rewrites them as keys', async () => {
     const telemetryRecords: { event: string; properties: unknown }[] = [];
-    const telemetry: ITelemetryService = {
+    const telemetry = {
       ...noopTelemetryService,
-      track2: (event: string, properties: unknown) => {
-        telemetryRecords.push({ event, properties });
-      },
-    };
+      track2: (event: string, properties: unknown) => telemetryRecords.push({ event, properties }),
+    } as unknown as ITelemetryService;
     const seeded: WireRecord[] = [
       { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
       { type: 'wire.test.before', value: 1, time: 2 },
@@ -297,12 +295,10 @@ describe('WireService readJournal', () => {
 
   it('skips unsafe legacy plan revision paths and reports the migration outcome', async () => {
     const telemetryRecords: { event: string; properties: unknown }[] = [];
-    const telemetry: ITelemetryService = {
+    const telemetry = {
       ...noopTelemetryService,
-      track2: (event: string, properties: unknown) => {
-        telemetryRecords.push({ event, properties });
-      },
-    };
+      track2: (event: string, properties: unknown) => telemetryRecords.push({ event, properties }),
+    } as unknown as ITelemetryService;
     const stub = wireOverLog(
       recordingWireLog([
         { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
@@ -432,36 +428,12 @@ describe('WireService readJournal', () => {
     expect(rewrites).toBe(0);
   });
 
-  it('skips a legacy plan revision path whose plan id is a dot segment', async () => {
-    const stub = wireOverLog(
-      recordingWireLog([
-        { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
-        {
-          type: 'plan.revision',
-          id: 'plan-1',
-          version: 1,
-          path: 'sessions/source/session-1/agents/test-agent/plan/../v1.md',
-          sha256: 'sha',
-          bytes: 3,
-        },
-      ]),
-      'dot-legacy-plan',
-      { telemetry: noopTelemetryService },
-    );
-
-    expect(await collect(stub.readJournal())).toEqual([
-      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
-    ]);
-  });
-
   it('leaves legacy plan revision paths untouched in a newer-version journal', async () => {
     const telemetryRecords: { event: string; properties: unknown }[] = [];
-    const telemetry: ITelemetryService = {
+    const telemetry = {
       ...noopTelemetryService,
-      track2: (event: string, properties: unknown) => {
-        telemetryRecords.push({ event, properties });
-      },
-    };
+      track2: (event: string, properties: unknown) => telemetryRecords.push({ event, properties }),
+    } as unknown as ITelemetryService;
     const seeded: WireRecord[] = [
       { type: 'metadata', protocol_version: '9.9', created_at: 1 },
       {
@@ -569,9 +541,9 @@ describe('WireService corruption repair', () => {
     };
     const telemetry: ITelemetryService = {
       ...noopTelemetryService,
-      track2: (name, payload) => {
+      track2: ((name: string, payload: unknown) => {
         capture.events.push({ name, payload });
-      },
+      }) as ITelemetryService['track2'],
     };
     const localIx = disposables.add(new TestInstantiationService());
     return registerTestAgentWire(localIx, testWireScope(SCOPE, key), {
@@ -741,27 +713,6 @@ describe('WireService corruption repair', () => {
     ]);
   });
 
-  it('counts dropped lines from the damaged line when the repair inserts metadata', async () => {
-    const capture: RepairCapture = { warnings: [], events: [] };
-    const svc = wireWithCapture(KEY, capture);
-    const raw = `${JSON.stringify({ type: 'wire.test.legacy', time: 9 })}\nGARBAGE\n`;
-    await seedCorrupt(raw);
-
-    await collect(svc.readJournal());
-
-    expect(capture.events).toEqual([
-      {
-        name: 'wire_repair',
-        payload: {
-          kind: 'corrupted',
-          outcome: 'repaired',
-          dropped_count: 1,
-          backup_created: true,
-        },
-      },
-    ]);
-  });
-
   it('reports a torn tail as truncation through the wire_repair event', async () => {
     const capture: RepairCapture = { warnings: [], events: [] };
     const svc = wireWithCapture(KEY, capture);
@@ -858,47 +809,6 @@ describe('WireService corruption repair', () => {
     ]);
   });
 
-  it('retries a pending repair on flush even when nothing was appended', async () => {
-    const capture: RepairCapture = { warnings: [], events: [] };
-    const svc = wireWithCapture(KEY, capture);
-    const prefix = `${currentMetadata()}\n`;
-    const raw = `${prefix}GARBAGE\n`;
-    await seedCorrupt(raw);
-    const originalWrite = storage.write.bind(storage);
-    storage.write = async (scope, key, data, options) => {
-      if (key === AGENT_WIRE_RECORD_KEY) throw new Error('disk full');
-      return originalWrite(scope, key, data, options);
-    };
-    await collect(svc.readJournal());
-    storage.write = originalWrite;
-
-    await svc.flush();
-
-    expect(await rawBytes()).toBe(prefix);
-    expect(await rawBytes(BACKUP_KEY)).toBe(raw);
-    expect(capture.events).toMatchObject([
-      { name: 'wire_repair', payload: { outcome: 'failed' } },
-      { name: 'wire_repair', payload: { outcome: 'repaired' } },
-    ]);
-  });
-
-  it('reports the still-broken journal from flush when nothing was appended', async () => {
-    const capture: RepairCapture = { warnings: [], events: [] };
-    const svc = wireWithCapture(KEY, capture);
-    const prefix = `${currentMetadata()}\n`;
-    const raw = `${prefix}GARBAGE\n`;
-    await seedCorrupt(raw);
-    const originalWrite = storage.write.bind(storage);
-    storage.write = async (scope, key, data, options) => {
-      if (key === AGENT_WIRE_RECORD_KEY) throw new Error('disk full');
-      return originalWrite(scope, key, data, options);
-    };
-    await collect(svc.readJournal());
-
-    await expect(svc.flush()).rejects.toThrow('Wire journal repair did not complete');
-    expect(await rawBytes()).toBe(raw);
-  });
-
   it('refuses to append behind the corrupted tail while a failed repair keeps failing', async () => {
     const capture: RepairCapture = { warnings: [], events: [] };
     const svc = wireWithCapture(KEY, capture);
@@ -921,7 +831,7 @@ describe('WireService corruption repair', () => {
       expect(await rawBytes()).toBe(raw);
       expect(unexpected).toHaveLength(1);
       expect(unexpected[0]).toBeInstanceOf(WireError);
-      expect(unexpected[0]).toMatchObject({ code: WireErrors.codes.RECORDS_WRITE_FAILED });
+      expect((unexpected[0] as WireError).code).toBe(WireErrors.codes.RECORDS_WRITE_FAILED);
       expect(capture.events).toEqual([
         {
           name: 'wire_repair',
@@ -969,7 +879,7 @@ describe('WireService corruption repair', () => {
       expect(await rawBytes()).toBe(raw);
       expect(unexpected).toHaveLength(1);
       expect(unexpected[0]).toBeInstanceOf(WireError);
-      expect(unexpected[0]).toMatchObject({ code: WireErrors.codes.RECORDS_WRITE_FAILED });
+      expect((unexpected[0] as WireError).code).toBe(WireErrors.codes.RECORDS_WRITE_FAILED);
       expect(capture.events).toEqual([
         {
           name: 'wire_repair',
@@ -1023,5 +933,71 @@ describe('WireService flush', () => {
     await flushPromise;
     expect(flushed).toBe(true);
     expect(records).toEqual([{ type: 'wire.test.gated', time: 1 }]);
+  });
+});
+
+describe('WireService journal location', () => {
+  it('counts every line written to the journal, including the metadata envelope', async () => {
+    await wire.seal();
+    wire.appendRecord({ type: 'wire.test.one', time: 1 });
+    wire.appendRecord({ type: 'wire.test.two', time: 2 });
+    await wire.flush();
+
+    expect(wire.lineCount()).toBe(3);
+  });
+
+  it('counts dehydrated appends once they land', async () => {
+    await wire.seal();
+    wire.appendRecord({ type: 'wire.test.gated', time: 1 }, async (record) => record);
+    await wire.flush();
+
+    expect(wire.lineCount()).toBe(2);
+  });
+
+  it('recounts the journal lines when a fresh service reads it back', async () => {
+    await wire.seal();
+    wire.appendRecord({ type: 'wire.test.one', time: 1 });
+    wire.appendRecord({ type: 'wire.test.two', time: 2 });
+    await wire.flush();
+
+    const reopened = wireOverLog(log, KEY);
+    expect(reopened.lineCount()).toBe(0);
+    await collect(reopened.readJournal());
+
+    expect(reopened.lineCount()).toBe(3);
+    reopened.appendRecord({ type: 'wire.test.three', time: 3 });
+    await reopened.flush();
+    expect(reopened.lineCount()).toBe(4);
+  });
+
+  it('reports no journal path when the storage has no on-disk location', () => {
+    expect(wire.journalPath()).toBeUndefined();
+  });
+
+  it('tracks the latest context.clear line across appends and reads', async () => {
+    await wire.seal();
+    wire.appendRecord({ type: 'wire.test.one', time: 1 });
+    expect(wire.lastContextClearLine()).toBeUndefined();
+    wire.appendRecord({ type: 'context.clear', time: 2 });
+    wire.appendRecord({ type: 'wire.test.two', time: 3 });
+    await wire.flush();
+
+    expect(wire.lastContextClearLine()).toBe(3);
+
+    const reopened = wireOverLog(log, KEY);
+    expect(reopened.lastContextClearLine()).toBeUndefined();
+    await collect(reopened.readJournal());
+    expect(reopened.lastContextClearLine()).toBe(3);
+  });
+
+  it('reports the on-disk journal path resolved by the storage layer', () => {
+    const locatedStorage: IFileSystemStorageService = Object.assign(Object.create(storage), {
+      pathFor: (scope: string, key: string) => `/home/user/.pythinker-code/${scope}/${key}`,
+    }) as IFileSystemStorageService;
+    const located = wireOverLog(log, 'located', { storage: locatedStorage });
+
+    expect(located.journalPath()).toBe(
+      `/home/user/.pythinker-code/${testWireScope(SCOPE, 'located')}/${AGENT_WIRE_RECORD_KEY}`,
+    );
   });
 });

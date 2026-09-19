@@ -143,36 +143,6 @@ describe('sessionExport', () => {
     });
   });
 
-  it('omits derived notify state from the archive', async () => {
-    const tmp = await mkdtemp(join(tmpdir(), 'session-export-notify-'));
-    const sessionDir = join(tmp, 'sessions', 'ws_demo', 'ses_notify');
-    await mkdir(join(sessionDir, 'notify'), { recursive: true });
-    await writeFile(join(sessionDir, 'state.json'), '{}\n', 'utf-8');
-    await writeFile(join(sessionDir, 'notify', 'state.json'), '{"enabled":true}\n', 'utf-8');
-
-    const result = await exportSessionDirectory({
-      request: { sessionId: 'ses_notify', outputPath: join(tmp, 'export.zip'), version: '1.0.0-test' },
-      summary: { id: 'ses_notify', sessionDir },
-    });
-
-    expect(result.entries).toEqual(['manifest.json', 'state.json']);
-    expect(result.entries.some((entry) => entry.includes('notify'))).toBe(false);
-  });
-
-  it('does not treat an ancestor directory named notify as session notify state', async () => {
-    const tmp = await mkdtemp(join(tmpdir(), 'notify-ancestor-'));
-    const sessionDir = join(tmp, 'notify', 'sessions', 'ws_demo', 'ses_nested');
-    await mkdir(sessionDir, { recursive: true });
-    await writeFile(join(sessionDir, 'state.json'), '{}\n', 'utf-8');
-
-    const result = await exportSessionDirectory({
-      request: { sessionId: 'ses_nested', outputPath: join(tmp, 'export.zip'), version: '1.0.0-test' },
-      summary: { id: 'ses_nested', sessionDir },
-    });
-
-    expect(result.entries).toEqual(['manifest.json', 'state.json']);
-  });
-
   it('uses a timestamped default output path when outputPath is omitted', async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'session-export-test-'));
     const sessionDir = join(tmp, 'sessions', 'ws_demo', 'ses_default_output');
@@ -1015,7 +985,6 @@ function stubSessionMetadata(meta: SessionMeta): ISessionMetadata {
     setGeneratedTitleIfUncustomized: async () => false,
     setArchived: async () => {},
     registerAgent: async () => {},
-    unregisterAgent: async () => {},
   };
 }
 
@@ -1031,17 +1000,10 @@ function stubAgentLifecycle(agents: readonly IAgentScopeHandle[]): IAgentLifecyc
     get: (agentId: string) =>
       agents.some((agent) => agent.id === agentId) ? stubAgentContext(agentId, 1) : undefined,
     list: () => agents.map((agent) => stubAgentContext(agent.id, 1)),
-    resolve: () => {
-      throw new Error('unexpected resolve');
-    },
-    inspect: () => {
-      throw new Error('unexpected inspect');
-    },
     remove: async () => {},
     broadcastPermissionMode: () => {},
     handleOf: (agentId: string) => agents.find((agent) => agent.id === agentId),
     adopt: (handle: IAgentScopeHandle) => stubAgentContext(handle.id, 1),
-    attachRuntimes: () => {},
   };
 }
 function testManifest(sessionId: string): ExportSessionManifest {

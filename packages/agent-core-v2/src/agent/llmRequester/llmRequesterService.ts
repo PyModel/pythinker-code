@@ -20,40 +20,37 @@ import {
   APIContextOverflowError,
   APIRequestTooLargeError,
   APIStatusError,
-  APITimeoutError,
   classifyApiError,
   isImageFormatError,
   isRecoverableRequestStructureError,
   isRetryableGenerateError,
-} from '#/kosong/contract/errors';
-import { isToolCall, type Message, type StreamedMessagePart } from '#/kosong/contract/message';
-import { type ThinkingEffort } from '#/kosong/contract/provider';
-import { type Tool } from '#/kosong/contract/tool';
-import { emptyUsage, inputTotal, type TokenUsage } from '#/kosong/contract/usage';
+} from '#/llm-adapter/contract/errors';
+import type { Message } from '#/llm-adapter/contract/message';
+import { type ThinkingEffort } from '#human/llm/thinking';
+import type { LlmCredentialProvider } from '#human/llm/requester/requester';
+import { isToolCall, type StreamedMessagePart, type ToolDescription as Tool } from '#human/llm/message';
+import { emptyUsage, inputTotal, type TokenUsage } from '#human/llm/usage';
 import { ILogService, type LogContext } from '#/_base/log/log';
-import { IModelCatalog, type Model } from '#/kosong/model/catalog';
+import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import {
   effectiveMaxCompletionTokens,
   type ModelRequestEvent,
   type ModelRequestParams,
   type ModelRequester,
   type ModelRequestTiming,
-} from '#/kosong/model/modelRequester';
-import type { ModelOverrides } from '#/kosong/model/model.types';
-import { IModelService } from '#/kosong/model/model';
-import { completionBudgetParams, resolveCompletionBudget } from '#/kosong/model/completionBudget';
-import { resolveThinkingKeep, type ThinkingConfig } from '#/kosong/model/thinking';
-import { THINKING_SECTION, LLM_SECTION, type LlmConfig } from '#/app/kosongConfig/configSection';
-import type { Protocol } from '#/kosong/protocol/protocol';
+} from '#/llm-adapter/model/model-requester';
+import type { ModelOverrides } from '#/llm-adapter/model/model.types';
+import { IModelService } from '#/llm-adapter/model/model';
+import { completionBudgetParams, resolveCompletionBudget } from '#/llm-adapter/model/completion-budget';
+import { resolveThinkingKeep, type ThinkingConfig } from '#/llm-adapter/model/thinking';
+import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
+import type { Protocol } from '#/llm-adapter/protocol/protocol';
 import type {
   ApiErrorEvent,
   LlmRequestProjectionFallbackEvent,
 } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import {
-  IAgentScopeContext,
-  scopedModelRequester,
-} from '#/agent/scopeContext/scopeContext';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { WarningIssued } from '#/agent/profile/profileOps';
 
@@ -67,11 +64,11 @@ import {
   type AgentLLMRequestTask,
   type PreparedTurnRequestConfig,
 } from './llmRequester';
-import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
+import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import {
   ToolCallIdNormalizer,
   type ToolCallIdResponseNormalizer,
-} from './toolCallIdNormalizer';
+} from '#human/llm/toolCallIdNormalizer';
 import {
   LlmRequest,
   llmRequestTraceKey,
@@ -79,7 +76,7 @@ import {
   type LlmRequestPayload,
   type LlmRequestToolSchema,
 } from './llmRequestOps';
-import { isAbortError, linkAbortSignal } from '#/_base/utils/abort';
+import { isAbortError } from '#/_base/utils/abort';
 import { parseBooleanEnv } from '#/_base/utils/env';
 import { ErrorCodes, Error2, unwrapErrorCause } from '#/errors';
 import {
@@ -97,9 +94,6 @@ const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
 
 const noopOnPart: AgentLLMRequestPartHandler = () => {};
 
-const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 180_000;
-
-const STREAM_STALL_REASON = { reason: 'llm-stream-idle-timeout' };
 export const PYTHINKER_CODE_INFINITE_RETRY_ENV = 'PYTHINKER_CODE_INFINITE_RETRY';
 
 interface ResolvedLLMRequest {
@@ -112,7 +106,6 @@ interface ResolvedLLMRequest {
   readonly tools: readonly Tool[];
   readonly messages: Message[];
   readonly source: AgentLLMRequestSource | undefined;
-  readonly infiniteRetry: boolean | undefined;
   readonly logFields: AgentLLMRequestLogFields;
 }
 
@@ -216,6 +209,17 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     if (!this.profile.hasProvider()) return undefined;
     const config = this.getOrCreateTurnConfig(turnId);
     return { thinkingEffort: config.resolved.thinkingLevel };
+  }
+
+  currentCredentials(): LlmCredentialProvider | undefined {
+    if (!this.profile.hasProvider()) return undefined;
+    return this.modelCatalog.get(this.profile.resolveModelContext().modelAlias).credentials;
+  }
+
+  credentialsForTurn(turnId: number): LlmCredentialProvider | undefined {
+    if (!this.profile.hasProvider()) return undefined;
+    const resolved = this.turnConfigs.get(turnId)?.resolved ?? this.profile.resolveModelContext();
+    return this.modelCatalog.get(resolved.modelAlias).credentials;
   }
 
   async request(
@@ -389,19 +393,11 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         onRequestTrace(normalized);
       };
 
-      const idleTimeoutMs =
-        this.config.get<LlmConfig>(LLM_SECTION)?.requestIdleTimeoutMs ??
-        DEFAULT_STREAM_IDLE_TIMEOUT_MS;
-      const stall = createStreamStallWatchdog(idleTimeoutMs);
-      const unlinkOuter =
-        signal === undefined ? undefined : linkAbortSignal(signal, stall.controller);
-
       try {
-        for await (const event of request.requester.request(input, stall.signal, {
+        for await (const event of request.requester.request(input, signal, {
           ...request.params,
           onTraceId: setTraceId,
         })) {
-          stall.touch();
           switch (event.type) {
             case 'part':
               await onPart(this.normalizeStreamPart(toolCallIds, event.part));
@@ -442,16 +438,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         }
       } catch (error) {
         toolCallIds.rollback();
-        if (stall.fired && signal?.aborted !== true) {
-          throw new APITimeoutError(
-            `LLM provider stream stalled: no events received for ${String(Math.round(idleTimeoutMs / 1000))}s.`,
-          );
-        }
         throw error;
-      }
-      finally {
-        stall.dispose();
-        unlinkOuter?.();
       }
 
       void this.usage.record(
@@ -495,7 +482,6 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         }
         const raw = unwrapErrorCause(error);
         if (
-          request.infiniteRetry === false ||
           !this.infiniteRetryEnabled ||
           isAbortError(error) ||
           signal?.aborted === true ||
@@ -581,13 +567,13 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     } else {
       return undefined;
     }
-    const fallback: LlmRequestProjectionFallbackEvent = {
+    const properties: LlmRequestProjectionFallbackEvent = {
       projection,
       error_type: classifyApiError(raw).kind,
       model: request.model.id,
       turn_id: request.source?.turnId,
     };
-    this.telemetry.track2('llm_request_projection_fallback', fallback);
+    this.telemetry.track2('llm_request_projection_fallback', properties);
     return nextPolicy;
   }
 
@@ -597,7 +583,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   ): StreamedMessagePart {
     if (!isToolCall(part)) return part;
     const assigned = toolCallIds.remapStreamedId(part.id, part._streamIndex);
-    return assigned === part.id ? part : { ...part, id: assigned };
+    return assigned === part.id ? part : { ...part, id: assigned, rawId: part.rawId ?? part.id };
   }
 
   private warnAboutAnthropicThinkingEffort(request: ResolvedLLMRequest): void {
@@ -683,11 +669,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
           ? this.tokenCounting.get(this.scopeContext.agentContext).measured
           : undefined,
     });
-    const requester = scopedModelRequester(
-      this.scopeContext,
-      this.modelCatalog,
-      resolved.modelAlias,
-    );
+    const requester = this.modelCatalog.getRequester(resolved.modelAlias);
 
     const messages = overrides.messages ?? this.context.get();
     return {
@@ -700,7 +682,6 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       tools: [...(overrides.tools ?? this.defaultTools())],
       messages: [...messages],
       source: overrides.source,
-      infiniteRetry: overrides.infiniteRetry,
       logFields: logFieldsForSource(overrides.source),
     };
   }
@@ -717,7 +698,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     let snapshot = this.turnConfigs.get(turnId);
     if (snapshot === undefined) {
       snapshot = {
-        resolved: this.profile.resolveModelContext(turnId),
+        resolved: this.profile.resolveModelContext(),
         params: this.profile.resolveRequestParams(),
         systemPrompt: this.profile.getSystemPrompt(),
       };
@@ -923,43 +904,6 @@ function projectionField(fields: AgentLLMRequestLogFields): LlmRequestProjection
 
 function fingerprint(content: string): string {
   return createHash('sha256').update(content).digest('hex');
-}
-
-interface StreamStallWatchdog {
-  readonly controller: AbortController;
-  readonly signal: AbortSignal;
-  readonly fired: boolean;
-  touch(): void;
-  dispose(): void;
-}
-
-function createStreamStallWatchdog(idleTimeoutMs: number): StreamStallWatchdog {
-  const controller = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let fired = false;
-  const arm = (): void => {
-    if (idleTimeoutMs <= 0) return;
-    if (timer !== undefined) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = undefined;
-      fired = true;
-      controller.abort(STREAM_STALL_REASON);
-    }, idleTimeoutMs);
-    timer.unref?.();
-  };
-  arm();
-  return {
-    controller,
-    signal: controller.signal,
-    get fired() {
-      return fired;
-    },
-    touch: arm,
-    dispose: () => {
-      if (timer !== undefined) clearTimeout(timer);
-      timer = undefined;
-    },
-  };
 }
 
 function apiStatusCode(error: unknown): number | undefined {

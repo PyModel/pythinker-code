@@ -9,7 +9,7 @@ import {
   readUpdateInstallState,
   writeUpdateInstallState,
 } from '#/cli/update/install-state';
-import { runUpdatePreflight } from '#/cli/update/preflight';
+import { installCommandFor, runUpdatePreflight } from '#/cli/update/preflight';
 import { promptForInstallChoice } from '#/cli/update/prompt';
 import type * as PromptModule from '#/cli/update/prompt';
 import { refreshUpdateCache } from '#/cli/update/refresh';
@@ -23,6 +23,7 @@ import {
   type UpdateManifest,
 } from '#/cli/update/types';
 import type { TuiConfig } from '#/tui/config';
+import { refreshPythinkerRegion } from '#/utils/region';
 
 const mocks = vi.hoisted(() => ({
   readUpdateCache: vi.fn(),
@@ -237,6 +238,10 @@ describe('runUpdatePreflight', () => {
     // regardless of the host environment (the flag bypasses batch holds).
     // Tests that exercise the bypass opt back in with `vi.stubEnv(..., '1')`.
     vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '');
+    // Pin the region to cn so address assertions don't follow the dev
+    // machine's own login/marker state; global tests override below.
+    vi.stubEnv('PYTHINKER_CODE_OAUTH_HOST', 'https://auth.kimi.com');
+    refreshPythinkerRegion();
     mocks.readUpdateInstallState.mockResolvedValue(emptyUpdateInstallState());
     mocks.writeUpdateInstallState.mockResolvedValue(undefined);
     mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
@@ -249,7 +254,7 @@ describe('runUpdatePreflight', () => {
     mocks.resolveCommandPath.mockImplementation((cmd: string) => cmd);
   });
 
-  afterEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); });
+  afterEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); refreshPythinkerRegion(); });
 
   it('skips all update work when PYTHINKER_CODE_NO_AUTO_UPDATE is set', async () => {
     vi.stubEnv('PYTHINKER_CODE_NO_AUTO_UPDATE', '1');
@@ -494,50 +499,81 @@ describe('runUpdatePreflight', () => {
     await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
     expect(stdout.join('')).toContain('brew upgrade pythinker-code');
     expect(stdout.join('')).toContain('Third-party sources may lag behind the official release.');
-    expect(stdout.join('')).not.toContain('official installer');
+    expect(stdout.join('')).toContain('https://www.kimi.com/code');
     expect(promptForInstallChoice).not.toHaveBeenCalled();
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
-  it.each(['darwin', 'linux', 'win32'] as const)(
-    'native: downloads in the background by default on %s',
-    async (platform) => {
-      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.detectInstallSource.mockResolvedValue('native');
-      mockSpawnExit(0);
-      const originalPlatform = process.platform;
-      Object.defineProperty(process, 'platform', { value: platform });
-      try {
-        const { stdout, options } = captureOutput();
-        await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-        expect(promptForInstallChoice).not.toHaveBeenCalled();
-        expect(mocks.spawn).toHaveBeenCalledWith(
-          process.execPath,
-          ['__update_download', '0.5.0'],
-          platform === 'win32'
-            ? { detached: true, stdio: 'ignore', windowsHide: true }
-            : { detached: true, stdio: 'ignore' },
-        );
-        expect(stdout.join('')).not.toContain('To update manually');
-        await flushBackgroundInstall();
-      } finally {
-        Object.defineProperty(process, 'platform', { value: originalPlatform });
-      }
-    },
-  );
-
-  it('native: asks before downloading when automatic installation is disabled', async () => {
+  it('native: self-spawns the staged downloader sub-command', async () => {
     disableAutoInstall();
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.detectInstallSource.mockResolvedValue('native');
-    mocks.promptForInstallChoice.mockResolvedValue('skip');
-    const { options } = captureOutput();
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    mockSpawnExit(0);
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    try {
+      const { stdout, options } = captureOutput();
+      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('exit');
+      expect(mocks.spawn).toHaveBeenCalledWith(
+        process.execPath,
+        ['__update_download', '0.5.0', '--manual'],
+        expect.objectContaining({ stdio: 'inherit' }),
+      );
+      expect(stdout.join('')).toContain('Updated @pymodel/pythinker-code to 0.5.0');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
 
-    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-    expect(promptForInstallChoice).toHaveBeenCalledTimes(1);
-    expect(mocks.spawn).not.toHaveBeenCalled();
+  it('native on win32: auto-installs via the staged downloader sub-command', async () => {
+    disableAutoInstall();
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('native');
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    mockSpawnExit(0);
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      const { stdout, options } = captureOutput();
+      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('exit');
+      expect(mocks.spawn).toHaveBeenCalledWith(
+        process.execPath,
+        ['__update_download', '0.5.0', '--manual'],
+        expect.objectContaining({ stdio: 'inherit' }),
+      );
+      expect(stdout.join('')).toContain('Updated @pymodel/pythinker-code to 0.5.0');
+      expect(stdout.join('')).not.toContain('Auto-update is not supported');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+
+  it('global region: derives install commands and site links from the .ai profile', async () => {
+    vi.stubEnv('PYTHINKER_CODE_OAUTH_HOST', 'https://auth.kimi.ai');
+    refreshPythinkerRegion();
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      // Native updates self-spawn the staged downloader silently, so the
+      // region surface there is the manual install command text.
+      expect(installCommandFor('native', '0.5.0', 'win32')).toBe(
+        'irm https://code.kimi.ai/pythinker-code/install.ps1 | iex',
+      );
+
+      mocks.detectInstallSource.mockResolvedValue('homebrew');
+      const brew = captureOutput();
+      await expect(runUpdatePreflight('0.4.0', brew.options)).resolves.toBe('continue');
+      expect(brew.stdout.join('')).toContain('https://www.kimi.ai/code');
+      expect(mocks.spawn).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+      refreshPythinkerRegion();
+    }
   });
 
   it('unsupported: prints fallback npm command', async () => {
@@ -694,7 +730,7 @@ describe('runUpdatePreflight', () => {
     }
   });
 
-  it('native: retries an orphaned background install when the download lock is free', async () => {
+  it('native: retries the background install when an old active record has no live lock', async () => {
     // Orphaned `active`: older than the spawn grace window and the lock is
     // free (beforeEach default) ⇒ the previous downloader is gone; retry.
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
@@ -716,7 +752,6 @@ describe('runUpdatePreflight', () => {
       ['__update_download', '0.5.0'],
       expect.objectContaining({ detached: true, stdio: 'ignore' }),
     );
-    await flushBackgroundInstall();
   });
 
   it('native: does not re-spawn while the install lock is genuinely held', async () => {

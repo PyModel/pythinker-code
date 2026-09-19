@@ -117,9 +117,7 @@ export function renderAgentProfilePrompt(
   context: AgentProfileContext,
 ): SystemPromptRenderResult {
   const rendered = profile.renderSystemPrompt(context);
-  if (context.notifyUserActive !== true || rendered.text.includes(NOTIFY_USER_GUIDANCE)) {
-    return rendered;
-  }
+  if (context.notifyUserActive !== true || rendered.text.includes(NOTIFY_USER_GUIDANCE)) return rendered;
   return { ...rendered, text: `${rendered.text}\n\n${NOTIFY_USER_GUIDANCE}` };
 }
 

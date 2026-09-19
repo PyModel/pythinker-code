@@ -2,8 +2,9 @@ import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { PYTHINKER_CODE_PROVIDER_NAME } from '@pymodel/pythinker-code-oauth';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LifecycleScope } from '#/app/scopes';
+
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -13,11 +14,12 @@ import { createScopedTestHost, stubPair, type ScopedTestHost } from '#/_base/di/
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IPluginService } from '#/app/plugin/plugin';
 import { PluginService } from '#/app/plugin/pluginService';
-import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
-import { IProviderService } from '#/kosong/provider/provider';
 import * as pluginStore from '#/app/plugin/store';
 import type { InstalledFile } from '#/app/plugin/store';
 import type { PluginMutationSummary, ReloadSummary } from '#/app/plugin/types';
+import { LifecycleScope } from '#/app/scopes';
+import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
+import { IProviderService, type ProviderConfig } from '#/llm-adapter/provider/provider';
 
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubProviderService } from '../provider/stubs';
@@ -115,10 +117,7 @@ function deferred<T>(): {
   return { promise, resolve };
 }
 
-async function makePluginDir(
-  name: string,
-  manifest: Record<string, unknown>,
-): Promise<string> {
+async function makePluginDir(name: string, manifest: Record<string, unknown>): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), `plugin-${name}-`));
   await writeFile(
     path.join(root, 'pythinker.plugin.json'),
@@ -259,7 +258,7 @@ describe('PluginService (plugin boundary)', () => {
     try {
       const svc = host.app.accessor.get(IPluginService);
       const reloads: ReloadSummary[] = [];
-      svc.onDidReload(({ added, removed, errors }) => reloads.push({ added, removed, errors }));
+      svc.onDidReload((summary) => reloads.push(summary));
 
       await svc.installPlugin({ source: pluginRoot });
       await svc.setPluginEnabled({ id: 'notify-demo', enabled: false });
@@ -420,10 +419,7 @@ describe('PluginService (plugin boundary)', () => {
     const host = makeHost(home);
     try {
       const svc = host.app.accessor.get(IPluginService);
-      const [plugins, roots] = await Promise.all([
-        svc.listPlugins(),
-        svc.pluginSkillRoots(),
-      ]);
+      const [plugins, roots] = await Promise.all([svc.listPlugins(), svc.pluginSkillRoots()]);
 
       expect(plugins).toEqual([expect.objectContaining({ id: 'snapshot-demo' })]);
       expect(roots).toEqual([
@@ -490,9 +486,9 @@ describe('PluginService (plugin boundary)', () => {
       await expect(svc.getPluginInfo({ id: 'demo' })).resolves.toEqual(
         expect.objectContaining({ root: previous.root, version: '1.0.0' }),
       );
-      await expect(readFile(path.join(previous.root, 'pythinker.plugin.json'), 'utf8')).resolves.toContain(
-        '"version":"1.0.0"',
-      );
+      await expect(
+        readFile(path.join(previous.root, 'pythinker.plugin.json'), 'utf8'),
+      ).resolves.toContain('"version":"1.0.0"');
       await expect(readdir(path.join(home, 'plugins', 'managed'))).resolves.toEqual(['demo']);
     } finally {
       host.dispose();
@@ -623,7 +619,179 @@ describe('PluginService (plugin boundary)', () => {
     }
   });
 
-  it('returns MCP server entries with plugin provenance and persisted enablement', async () => {
+  it('injects the managed Pythinker endpoint env into stdio plugin MCP servers only', async () => {
+    const home = await makeHome();
+    await writeValidInstalledFile(home);
+    const host = makeHost(
+      home,
+      stubProviderService({
+        [PYTHINKER_CODE_PROVIDER_NAME]: {
+          baseUrl: 'https://api.example.test/',
+          oauth: { storage: 'file', key: 'pythinker', oauthHost: 'https://auth.example.test' },
+        },
+      }),
+    );
+    try {
+      const svc = host.app.accessor.get(IPluginService);
+      const pluginRoot = await makePluginDir('demo', {
+        mcpServers: {
+          finance: { command: 'finance-mcp', env: { CUSTOM: '1' } },
+          docs: { url: 'https://example.test/mcp' },
+        },
+      });
+      createdDirs.push(pluginRoot);
+      await svc.installPlugin({ source: pluginRoot });
+
+      const servers = await svc.enabledMcpServers();
+      const managedRoot = path.join(home, 'plugins', 'managed', 'demo');
+      expect(servers['plugin-demo:finance']).toEqual(
+        expect.objectContaining({
+          env: expect.objectContaining({
+            PYTHINKER_CODE_BASE_URL: 'https://api.example.test/',
+            PYTHINKER_CODE_OAUTH_HOST: 'https://auth.example.test',
+            CUSTOM: '1',
+            PYTHINKER_CODE_HOME: home,
+            PYTHINKER_PLUGIN_ROOT: await realpath(managedRoot),
+          }),
+        }),
+      );
+      expect(JSON.stringify(servers['plugin-demo:docs'])).not.toContain('PYTHINKER_CODE_BASE_URL');
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('merges the managed Pythinker endpoint env into stdio MCP server entries with provenance', async () => {
+    const home = await makeHome();
+    await writeValidInstalledFile(home);
+    const host = makeHost(
+      home,
+      stubProviderService({
+        [PYTHINKER_CODE_PROVIDER_NAME]: {
+          baseUrl: 'https://api.example.test/',
+          oauth: { storage: 'file', key: 'pythinker', oauthHost: 'https://auth.example.test' },
+        },
+      }),
+    );
+    try {
+      const svc = host.app.accessor.get(IPluginService);
+      const pluginRoot = await makePluginDir('demo', {
+        mcpServers: {
+          finance: { command: 'finance-mcp', env: { CUSTOM: '1' } },
+          docs: { url: 'https://example.test/mcp' },
+        },
+      });
+      createdDirs.push(pluginRoot);
+      await svc.installPlugin({ source: pluginRoot });
+      await svc.setPluginMcpServerEnabled({ id: 'demo', server: 'finance', enabled: false });
+
+      const entries = await svc.mcpServerEntries();
+      const managedRoot = await realpath(path.join(home, 'plugins', 'managed', 'demo'));
+      const finance = entries.find((entry) => entry.name === 'plugin-demo:finance');
+      expect(finance).toEqual(expect.objectContaining({ pluginId: 'demo', serverName: 'finance' }));
+      expect(finance?.config).toEqual(
+        expect.objectContaining({
+          enabled: false,
+          env: expect.objectContaining({
+            PYTHINKER_CODE_BASE_URL: 'https://api.example.test/',
+            PYTHINKER_CODE_OAUTH_HOST: 'https://auth.example.test',
+            CUSTOM: '1',
+            PYTHINKER_CODE_HOME: home,
+            PYTHINKER_PLUGIN_ROOT: managedRoot,
+          }),
+        }),
+      );
+      const docs = entries.find((entry) => entry.name === 'plugin-demo:docs');
+      expect(docs).toEqual(expect.objectContaining({ pluginId: 'demo', serverName: 'docs' }));
+      expect(docs?.config.enabled).toBe(true);
+      expect(JSON.stringify(docs?.config)).not.toContain('PYTHINKER_CODE_BASE_URL');
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('waits for provider config before injecting persisted managed endpoints', async () => {
+    const home = await makeHome();
+    await writeValidInstalledFile(home);
+    const providerConfigs: Record<string, ProviderConfig> = {};
+    const readyAccessed = deferred<void>();
+    const readyGate = deferred<void>();
+    const providers = stubProviderService(providerConfigs, readyGate.promise);
+    Object.defineProperty(providers, 'ready', {
+      get: () => {
+        readyAccessed.resolve(undefined);
+        return readyGate.promise;
+      },
+    });
+    const host = makeHost(home, providers);
+    try {
+      const svc = host.app.accessor.get(IPluginService);
+      const pluginRoot = await makePluginDir('ready-demo', {
+        mcpServers: { finance: { command: 'finance-mcp' } },
+      });
+      createdDirs.push(pluginRoot);
+      await svc.installPlugin({ source: pluginRoot });
+
+      const servers = svc.enabledMcpServers();
+      await readyAccessed.promise;
+      providerConfigs[PYTHINKER_CODE_PROVIDER_NAME] = {
+        baseUrl: 'https://ready.example.test/',
+        oauth: { storage: 'file', key: 'pythinker', oauthHost: 'https://auth.ready.example.test' },
+      };
+      readyGate.resolve(undefined);
+
+      await expect(servers).resolves.toMatchObject({
+        'plugin-ready-demo:finance': {
+          env: {
+            PYTHINKER_CODE_BASE_URL: 'https://ready.example.test/',
+            PYTHINKER_CODE_OAUTH_HOST: 'https://auth.ready.example.test',
+          },
+        },
+      });
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('prefers explicit PYTHINKER_CODE_BASE_URL / PYTHINKER_OAUTH_HOST env over the persisted provider', async () => {
+    const home = await makeHome();
+    await writeValidInstalledFile(home);
+    const host = makeHost(
+      home,
+      stubProviderService({
+        [PYTHINKER_CODE_PROVIDER_NAME]: {
+          baseUrl: 'https://api.example.test',
+          oauth: { storage: 'file', key: 'pythinker', oauthHost: 'https://auth.example.test' },
+        },
+      }),
+      {
+        PYTHINKER_CODE_BASE_URL: 'https://env.example.test/',
+        PYTHINKER_OAUTH_HOST: 'https://legacy.example.test',
+      },
+    );
+    try {
+      const svc = host.app.accessor.get(IPluginService);
+      const pluginRoot = await makePluginDir('demo', {
+        mcpServers: { finance: { command: 'finance-mcp' } },
+      });
+      createdDirs.push(pluginRoot);
+      await svc.installPlugin({ source: pluginRoot });
+
+      const servers = await svc.enabledMcpServers();
+      expect(servers['plugin-demo:finance']).toEqual(
+        expect.objectContaining({
+          env: expect.objectContaining({
+            PYTHINKER_CODE_BASE_URL: 'https://env.example.test',
+            PYTHINKER_CODE_OAUTH_HOST: 'https://legacy.example.test',
+          }),
+        }),
+      );
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('does not inject managed env when neither env nor the pythinker provider supplies it', async () => {
     const home = await makeHome();
     await writeValidInstalledFile(home);
     const host = makeHost(home);
@@ -634,21 +802,12 @@ describe('PluginService (plugin boundary)', () => {
       });
       createdDirs.push(pluginRoot);
       await svc.installPlugin({ source: pluginRoot });
-      await svc.setPluginMcpServerEnabled({ id: 'demo', server: 'finance', enabled: false });
 
-      const entries = await svc.mcpServerEntries();
-      expect(entries).toEqual([
-        expect.objectContaining({
-          name: 'plugin-demo:finance',
-          pluginId: 'demo',
-          serverName: 'finance',
-          config: expect.objectContaining({
-            transport: 'stdio',
-            enabled: false,
-            env: expect.objectContaining({ CUSTOM: '1' }),
-          }),
-        }),
-      ]);
+      const servers = await svc.enabledMcpServers();
+      const env = (servers['plugin-demo:finance'] as { env?: Record<string, string> }).env ?? {};
+      expect(env['CUSTOM']).toBe('1');
+      expect(env).not.toHaveProperty('PYTHINKER_CODE_BASE_URL');
+      expect(env).not.toHaveProperty('PYTHINKER_CODE_OAUTH_HOST');
     } finally {
       host.dispose();
     }

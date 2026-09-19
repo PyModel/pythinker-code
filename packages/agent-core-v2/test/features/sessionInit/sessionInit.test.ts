@@ -20,6 +20,7 @@ import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle'
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionInitService } from '#/features/sessionInit/sessionInit';
 import { SessionInitService } from '#/features/sessionInit/sessionInitService';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 
@@ -37,8 +38,6 @@ describe('SessionInitService', () => {
   let flush: ReturnType<typeof vi.fn>;
   let republishStatus: ReturnType<typeof vi.fn>;
   let create: ReturnType<typeof vi.fn>;
-  let planSpawn: ReturnType<typeof vi.fn>;
-  let spawn: ReturnType<typeof vi.fn>;
   let run: ReturnType<typeof vi.fn>;
   let runCompletion: Promise<{ summary: string; usage?: undefined }>;
 
@@ -55,18 +54,6 @@ describe('SessionInitService', () => {
     runCompletion = Promise.resolve({ summary: 'Explored and wrote AGENTS.md', usage: undefined });
 
     const handles: Record<string, { id: string; accessor: { get: (id: unknown) => unknown } }> = {};
-    planSpawn = vi.fn(async () => ({
-      profileName: 'coder',
-      model: 'mock-model',
-      thinking: 'off',
-      fork: false,
-    }));
-    spawn = vi.fn(async ({ plan, prompt }: { plan: { profileName: string; model: string }; prompt: string }) => ({
-      agentId: 'agent-0',
-      profileName: plan.profileName,
-      model: plan.model,
-      promptText: prompt,
-    }));
     const lifecycle = {
       _serviceBrand: undefined,
       hooks: {
@@ -74,10 +61,7 @@ describe('SessionInitService', () => {
       },
       notifyAgentTaskStopped: vi.fn(),
       handleOf: vi.fn((agentId: string) => handles[agentId]),
-      resolve: vi.fn(() => ({ notify: appendReminder })),
       create: vi.fn(async () => stubAgentContext('agent-0', 1)),
-      planSpawn,
-      spawn,
       run: vi.fn(async (agent: AgentContext) => ({
         agentId: agent.agentId,
         turn: {},
@@ -106,6 +90,7 @@ describe('SessionInitService', () => {
           if (id === IAgentProfileService) return profile;
           if (id === IAgentPermissionModeService) return permissionMode;
           if (id === IAgentAgentsMdReminderService) return { seedInjected };
+          if (id === IAgentReminderService) return { notify: appendReminder };
           if (id === IEventDispatcher) {
             return {
               flush,
@@ -174,15 +159,10 @@ describe('SessionInitService', () => {
     const svc = ix.get(ISessionInitService);
     await svc.generateAgentsMd();
 
-    expect(planSpawn).toHaveBeenCalledWith({ callerAgentId: 'main', profileName: 'coder' });
-    expect(spawn).toHaveBeenCalledWith({
-      callerAgentId: 'main',
-      plan: { profileName: 'coder', model: 'mock-model', thinking: 'off', fork: false },
-      labels: { parentAgentId: 'main' },
-      prompt: expect.stringContaining('Task requirements:'),
-      signal: expect.any(AbortSignal),
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0]![0]).toMatchObject({
+      binding: { profile: 'coder', model: 'mock-model', thinking: 'off' },
     });
-    expect(create).not.toHaveBeenCalled();
 
     expect(run).toHaveBeenCalledTimes(1);
     const runArgs = run.mock.calls[0]!;
@@ -232,11 +212,10 @@ describe('SessionInitService', () => {
     }));
     const svc = ix.get(ISessionInitService);
 
-    const error = await svc.generateAgentsMd().catch((error) => error);
+    const error = await svc.generateAgentsMd().catch((e) => e);
     expect(error).toBeInstanceOf(Error2);
     expect((error as Error2).code).toBe(ErrorCodes.SESSION_INIT_FAILED);
     expect((error as Error2).message).toContain('coder exploded');
-    expect((error as Error2).details).toEqual({ agentId: 'agent-0' });
   });
 
   it('throws AGENT_NOT_FOUND when the main agent is missing', async () => {
@@ -246,7 +225,7 @@ describe('SessionInitService', () => {
     lifecycle.handleOf.mockReturnValue(undefined);
     const svc = ix.get(ISessionInitService);
 
-    const error = await svc.generateAgentsMd().catch((error) => error);
+    const error = await svc.generateAgentsMd().catch((e) => e);
     expect(error).toBeInstanceOf(Error2);
     expect((error as Error2).code).toBe(ErrorCodes.AGENT_NOT_FOUND);
   });
@@ -265,7 +244,7 @@ describe('SessionInitService', () => {
     await vi.waitFor(() => expect(run).toHaveBeenCalled());
     svc.cancelInit();
 
-    const error = await pending.catch((error) => error);
+    const error = await pending.catch((e) => e);
     expect(error).toBeInstanceOf(UserCancellationError);
     expect(events).not.toContainEqual(
       expect.objectContaining({ type: 'subagent.failed', subagentId: 'agent-0' }),

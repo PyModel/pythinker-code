@@ -3,6 +3,12 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import {
+  FileTokenStorage,
+  PYTHINKER_CODE_PROVIDER_NAME,
+  resolvePythinkerTokenStorageName,
+  type TokenInfo,
+} from '@pymodel/pythinker-code-oauth';
 import { remoteControlLockPath } from '@pymodel/remote-control';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
@@ -29,15 +35,26 @@ interface RemoteControlStatusWire {
   error?: string;
 }
 
-const RELAY_KEY = 'relay-key';
+const TOKEN: TokenInfo = {
+  accessToken: 'access-token',
+  refreshToken: 'refresh-token',
+  expiresAt: 0,
+  scope: '',
+  tokenType: 'Bearer',
+  expiresIn: 0,
+};
 
-describe('agent-gateway /api/v1/remote-control', () => {
+describe('server-v2 /api/v1/remote-control', () => {
   let home: string | undefined;
   let server: RunningServer | undefined;
   let base: string;
 
   beforeAll(async () => {
-    home = await mkdtemp(join(tmpdir(), 'pythinker-gateway-rc-'));
+    home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-rc-'));
+    await new FileTokenStorage(join(home, 'credentials')).save(
+      resolvePythinkerTokenStorageName({ providerName: PYTHINKER_CODE_PROVIDER_NAME }),
+      TOKEN,
+    );
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
       host: '127.0.0.1',
@@ -69,8 +86,7 @@ describe('agent-gateway /api/v1/remote-control', () => {
 
   it('starts and stops the tunnel at runtime, dedupes concurrent enables, and tracks relay-initiated shutdown', async () => {
     const relay = await startRegisterAckRelay();
-    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY', `http://127.0.0.1:${relay.port}`);
-    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY', RELAY_KEY);
+    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_URL', `http://127.0.0.1:${relay.port}`);
 
     const initial = await authedFetch(server as RunningServer, base, '/api/v1/remote-control');
     const initialBody = (await initial.json()) as Envelope<RemoteControlStatusWire>;
@@ -109,15 +125,17 @@ describe('agent-gateway /api/v1/remote-control', () => {
         type: 'request',
         is_last: true,
         body_base64: Buffer.from(
-          'GET /api/v1/sessions HTTP/1.1\r\nHost: relay.test\r\n\r\n',
+          'GET /api/v1/healthz HTTP/1.1\r\nHost: relay.test\r\n\r\n',
         ).toString('base64'),
       }),
     );
+    const rotatedMessage = await rotatedResponsePromise;
     const rotatedResponse = Buffer.from(
-      (await rotatedResponsePromise)['body_base64'] as string,
+      rotatedMessage['body_base64'] as string,
       'base64',
     ).toString();
     expect(rotatedResponse).toContain('HTTP/1.1 200');
+    expect(rotatedResponse).toContain('"ok":true');
 
     relay.managementSockets.at(-1)!.send(
       JSON.stringify({ type: 'disconnect', payload: { reason: 'user_requested' } }),
@@ -137,7 +155,6 @@ describe('agent-gateway /api/v1/remote-control', () => {
   });
 
   it('reports REMOTE_CONTROL_ALREADY_RUNNING when another live process holds the lock', async () => {
-    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY', RELAY_KEY);
     await mkdir(join(home as string, 'server'), { recursive: true });
     await writeFile(
       remoteControlLockPath(home as string),
@@ -146,7 +163,7 @@ describe('agent-gateway /api/v1/remote-control', () => {
         nonce: 'other-process',
         local_origin: 'http://127.0.0.1:58627',
         device_id: 'other-device',
-        url: 'https://code-rc.example.test/devices/other-device/',
+        url: 'https://code-rc.kimi.com/devices/other-device/',
         started_at: Date.now(),
       }),
     );

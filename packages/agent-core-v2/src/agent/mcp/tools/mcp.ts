@@ -1,11 +1,10 @@
-import type { Tool as KosongTool } from '#/kosong/contract/tool';
+import type { ToolDescription as KosongTool } from '#human/llm/message';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import { Error2, ErrorCodes, toErrorMessage } from '#/errors';
 import { isAbortError } from '#/_base/utils/abort';
 
 import type { ExecutableTool, ExecutableToolContext } from '#/tool/toolContract';
-import { mcpResultToExecutableOutput } from '#/agent/mcp/output';
-import type { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
+import { mcpResultToExecutableOutput, type McpOutputOptions } from '#/agent/mcp/output';
 import type { MCPClient, MCPToolResult } from '#/mcpCore/types';
 import {
   isMcpConnectionClosedError,
@@ -15,9 +14,10 @@ import {
 } from '#/mcpCore/client-shared';
 
 interface McpToolOptions {
+  readonly attachmentStore?: McpOutputOptions['attachmentStore'];
   readonly originalsDir?: string;
-  readonly attachmentStore?: ISessionMediaStore;
   readonly telemetry?: ITelemetryService;
+  readonly providerType?: () => string | undefined;
   readonly reconnect?: (signal?: AbortSignal) => Promise<MCPClient | undefined>;
   readonly isRemoved?: () => boolean;
 }
@@ -53,9 +53,10 @@ export function createMcpTool(
         }
         return mcpResultToExecutableOutput(result, qualifiedName, {
           signal: context.signal,
-          originalsDir: options.originalsDir,
           attachmentStore: options.attachmentStore,
+          originalsDir: options.originalsDir,
           telemetry: options.telemetry,
+          providerType: options.providerType?.(),
         });
       },
     }),

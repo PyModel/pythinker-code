@@ -1,8 +1,5 @@
-import type { ModelCapability } from '#/kosong/contract/capability';
-import type { ToolCall } from '#/kosong/contract/message';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'pathe';
+import type { ModelCapability } from '#/llm-adapter/contract/capability';
+import type { ToolCall } from '#human/llm/message';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
@@ -24,7 +21,6 @@ import { createDecorator, type ProvideHandle } from '#/_base/di/instantiation';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import { TestInstantiationService } from '#/_base/di/test';
-import { Event } from '#/_base/event';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import {
   type ConfigSchema,
@@ -68,7 +64,10 @@ import {
   THINKING_SECTION,
 } from '#/app/kosongConfig/configSection';
 import '#/app/kosongConfig/envOverlay';
-import { type ThinkingConfig } from '#/kosong/model/thinking';
+import { IOAuthService } from '#/app/auth/auth';
+import { IAuthStatusService } from '#/app/authLegacy/authLegacy';
+import { AuthStatusService } from '#/app/authLegacy/authStatusService';
+import { type ThinkingConfig } from '#/llm-adapter/model/thinking';
 import {
   BASH_TASK_TIMEOUT_S_ENV,
   KEEP_ALIVE_ON_EXIT_ENV,
@@ -94,11 +93,8 @@ import {
   type SubagentConfig,
   wrapSubagentModelError,
 } from '#/session/subagent/configSection';
-import { prospectiveModelView, validateSubagentModelPolicy } from '#/session/subagent/policy';
 import {
   DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS,
-  DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV,
-  resolveDynamicWorkflowMaxConcurrency,
   resolveDynamicWorkflowTimeoutMs,
   DYNAMIC_WORKFLOW_SECTION,
   DYNAMIC_WORKFLOW_TIMEOUT_ENV,
@@ -142,7 +138,6 @@ describe('Agent config', () => {
 
   beforeEach(() => {
     ctx = createTestAgent();
-    void ctx.restoreRuntimes();
     profile = ctx.get(IAgentProfileService);
   });
 
@@ -294,7 +289,11 @@ describe('Agent config', () => {
   });
 
   it('keeps turn-start config for later steps and applies updates to the next turn', async () => {
-    await ctx.restoreRuntimes();
+    await ctx.dispose();
+    ctx = createTestAgent({ autoConfigure: false });
+    await ctx.restorePersisted();
+    ctx.configure();
+    profile = ctx.get(IAgentProfileService);
     const lookupCall: ToolCall = {
       type: 'function',
       id: 'call_lookup',
@@ -324,29 +323,25 @@ describe('Agent config', () => {
       [wire] prompt.accepted                 { "agentId": "main", "promptId": "<msg-1>", "content": [ { "type": "text", "text": "Look up before config changes" } ], "time": "<time>" }
       [emit] prompt.accepted                 { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "content": [ { "type": "text", "text": "Look up before config changes" } ] }
       [emit] prompt.submitted                { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "userMessageId": "<msg-1>", "status": "running", "content": [ { "type": "text", "text": "Look up before config changes" } ], "createdAt": "<time>" }
-      [wire] turn.prompt                     { "agentId": "main", "input": [ { "type": "text", "text": "Look up before config changes" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "time": "<time>" }
+      [wire] turn.prompt                     { "agentId": "main", "input": [ { "type": "text", "text": "Look up before config changes" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0, "time": "<time>" }
       [emit] turn.started                    { "time": "<time>", "agentId": "main", "turnId": 0, "promptId": "<msg-1>", "origin": { "kind": "user" }, "prompt": "Look up before config changes" }
-      [emit] agent.activity.updated          { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "running", "step": 0, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
       [emit] context.spliced                 { "time": "<time>", "agentId": "main", "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Look up before config changes" } ], "toolCalls": [], "origin": { "kind": "user" }, "id": "<msg-1>" } ] }
       [emit] prompt.started                  { "time": "<time>", "agentId": "main", "promptId": "<msg-1>" }
       [wire] context.append_message          { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "Look up before config changes" } ], "toolCalls": [], "origin": { "kind": "user" }, "id": "<msg-1>" }, "time": "<time>" }
       [wire] plugin.session_start            { "agentId": "main", "content": null, "time": "<time>" }
       [emit] turn.step.started               { "time": "<time>", "agentId": "main", "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
-      [emit] agent.activity.updated          { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "running", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
       [wire] context.append_loop_event       { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-1>", "turnId": "0", "step": 1 }, "time": "<time>" }
-      [wire] llm.tools_snapshot              { "agentId": "main", "hash": "3bfeb22e61431247933e79f6ab94e7ca14a127f899bc87e7bbd22594ba9cdb66", "tools": [ { "name": "Lookup", "description": "Look up a short test value.", "parameters": { "type": "object", "properties": { "query": { "type": "string" } }, "required": [ "query" ], "additionalProperties": false } } ], "time": "<time>" }
-      [wire] llm.request                     { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "3bfeb22e61431247933e79f6ab94e7ca14a127f899bc87e7bbd22594ba9cdb66", "messageCount": 1, "turnStep": "0.1", "time": "<time>" }
       [emit] assistant.delta                 { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "I will look it up." }
-      [emit] agent.activity.updated          { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "streaming", "stream": "assistant", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
+      [wire] llm.tools_snapshot              { "agentId": "main", "hash": "3bfeb22e61431247933e79f6ab94e7ca14a127f899bc87e7bbd22594ba9cdb66", "tools": [ { "name": "Lookup", "description": "Look up a short test value.", "parameters": { "type": "object", "properties": { "query": { "type": "string" } }, "required": [ "query" ], "additionalProperties": false } } ], "time": "<time>" }
       [emit] tool.call.delta                 { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "argumentsPart": "{\\"query\\":\\"original\\"}" }
-      [emit] agent.activity.updated          { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "streaming", "stream": "tool_call", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
-      [wire] usage.record                    { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [wire] llm.request                     { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "3bfeb22e61431247933e79f6ab94e7ca14a127f899bc87e7bbd22594ba9cdb66", "messageCount": 1, "turnStep": "0.1", "time": "<time>" }
       [emit] agent.status.updated            { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] token_counting.measured         { "agentId": "main", "length": 2, "tokens": 26, "time": "<time>" }
       [emit] agent.status.updated            { "time": "<time>", "agentId": "main", "contextTokens": 26 }
+      [wire] usage.record                    { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [wire] token_counting.measured         { "agentId": "main", "length": 2, "tokens": 26, "time": "<time>" }
       [wire] context.append_loop_event       { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "I will look it up." } }, "time": "<time>" }
       [emit] permission.approval.requested   { "time": "<time>", "id": "<approval-1>", "sessionId": "test-session", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "display": { "kind": "generic", "summary": "Approve Lookup", "detail": { "query": "original" } }, "toolInput": { "query": "original" } }
-      [emit] agent.activity.updated          { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "streaming", "stream": "tool_call", "step": 1, "ending": false, "pendingApprovals": [ { "approvalId": "<approval-1>", "toolCallId": "call_lookup", "since": "<time>" } ], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
+      [wire] interaction.request             { "agentId": "main", "id": "<approval-1>", "kind": "approval", "toolCallId": "call_lookup", "request": { "id": "<approval-1>", "sessionId": "test-session", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "display": { "kind": "generic", "summary": "Approve Lookup", "detail": { "query": "original" } } }, "time": "<time>" }
       [emit] requestApproval                 { "id": "<approval-1>", "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "display": { "kind": "generic", "summary": "Approve Lookup", "detail": { "query": "original" } } }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
@@ -376,25 +371,21 @@ describe('Agent config', () => {
       [wire] interaction.request         { "agentId": "main", "id": "<user_tool-2>", "kind": "user_tool", "toolCallId": "call_lookup", "request": { "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "args": { "query": "original" } }, "time": "<time>" }
       [wire] interaction.resolved        { "agentId": "main", "id": "<user_tool-2>", "response": { "content": "original-result", "output": "original-result" }, "time": "<time>" }
       [emit] tool.result                 { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "output": "original-result" }
-      [emit] agent.activity.updated      { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "running", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
       [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "tool.result", "parentUuid": "<uuid-3>", "toolCallId": "call_lookup", "result": { "output": "original-result" } }, "time": "<time>" }
       [emit] turn.step.completed         { "time": "<time>", "agentId": "main", "turnId": 0, "step": 1, "stepId": "<uuid-1>", "usage": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "tool_use", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }
       [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.end", "uuid": "<uuid-1>", "turnId": "0", "step": 1, "finishReason": "tool_use", "usage": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-1", "providerFinishReason": "tool_calls", "rawFinishReason": "tool_calls" }, "time": "<time>" }
       [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 3, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "<date-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "date_change", "disclosure": { "kind": "date", "renderGeneration": 2, "localDate": "<date>", "timeZone": "<time-zone>" } } } ] }
       [wire] context.append_message      { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "<date-reminder>" } ], "toolCalls": [], "origin": { "kind": "injection", "variant": "date_change", "disclosure": { "kind": "date", "renderGeneration": 2, "localDate": "<date>", "timeZone": "<time-zone>" } } }, "time": "<time>" }
       [emit] turn.step.started           { "time": "<time>", "agentId": "main", "turnId": 0, "step": 2, "stepId": "<uuid-4>" }
-      [emit] agent.activity.updated      { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "running", "step": 2, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
       [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-4>", "turnId": "0", "step": 2 }, "time": "<time>" }
+      [emit] assistant.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "Still using the original turn config." }
       [wire] llm.tools_snapshot          { "agentId": "main", "hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "tools": [], "time": "<time>" }
       [wire] llm.request                 { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "systemPrompt": "You are a deterministic test agent.", "toolsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "messageCount": 4, "turnStep": "0.2", "time": "<time>" }
-      [emit] assistant.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "Still using the original turn config." }
-      [emit] agent.activity.updated      { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "streaming", "stream": "assistant", "step": 2, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
-      [wire] usage.record                { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 89, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
       [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 98, "output": 30, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 98, "output": 30, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 98, "output": 30, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] token_counting.measured     { "agentId": "main", "length": 5, "tokens": 102, "time": "<time>" }
       [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "contextTokens": 102 }
+      [wire] usage.record                { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 89, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
       [emit] turn.step.completed         { "time": "<time>", "agentId": "main", "turnId": 0, "step": 2, "stepId": "<uuid-4>", "usage": { "inputOther": 89, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn", "providerFinishReason": "completed", "rawFinishReason": "stop" }
-      [emit] agent.activity.updated      { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "running", "step": 2, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
+      [wire] token_counting.measured     { "agentId": "main", "length": 5, "tokens": 102, "time": "<time>" }
       [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-5>", "turnId": "0", "step": 2, "stepUuid": "<uuid-4>", "part": { "type": "text", "text": "Still using the original turn config." } }, "time": "<time>" }
       [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.end", "uuid": "<uuid-4>", "turnId": "0", "step": 2, "finishReason": "end_turn", "usage": { "inputOther": 89, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-2", "providerFinishReason": "completed", "rawFinishReason": "stop" }, "time": "<time>" }
       [wire] turn.ended                  { "agentId": "main", "turnId": 0, "reason": "completed", "time": "<time>" }
@@ -414,31 +405,26 @@ describe('Agent config', () => {
 
     expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
       [wire] token_counting.turn_recorded   { "agentId": "main", "turnId": 0, "length": 5, "tokens": 102, "time": "<time>" }
-      [emit] agent.activity.updated         { "time": "<time>", "lifecycle": "ready", "lastTurn": { "turnId": 0, "reason": "completed", "at": "<time>" }, "background": [], "agentId": "main" }
       [emit] agent.status.updated           { "time": "<time>", "agentId": "main", "contextTokens": 102 }
       [wire] prompt.completed               { "agentId": "main", "promptId": "<msg-1>", "finishedAt": "<time>", "reason": "completed", "time": "<time>" }
       [emit] prompt.completed               { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "finishedAt": "<time>", "reason": "completed" }
       [wire] prompt.accepted                { "agentId": "main", "promptId": "<msg-2>", "content": [ { "type": "text", "text": "Start a fresh turn" } ], "time": "<time>" }
       [emit] prompt.accepted                { "time": "<time>", "agentId": "main", "promptId": "<msg-2>", "content": [ { "type": "text", "text": "Start a fresh turn" } ] }
       [emit] prompt.submitted               { "time": "<time>", "agentId": "main", "promptId": "<msg-2>", "userMessageId": "<msg-2>", "status": "running", "content": [ { "type": "text", "text": "Start a fresh turn" } ], "createdAt": "<time>" }
-      [wire] turn.prompt                    { "agentId": "main", "input": [ { "type": "text", "text": "Start a fresh turn" } ], "origin": { "kind": "user" }, "promptId": "<msg-2>", "time": "<time>" }
+      [wire] turn.prompt                    { "agentId": "main", "input": [ { "type": "text", "text": "Start a fresh turn" } ], "origin": { "kind": "user" }, "promptId": "<msg-2>", "turnId": 1, "time": "<time>" }
       [emit] turn.started                   { "time": "<time>", "agentId": "main", "turnId": 1, "promptId": "<msg-2>", "origin": { "kind": "user" }, "prompt": "Start a fresh turn" }
-      [emit] agent.activity.updated         { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 1, "origin": { "kind": "user" }, "phase": "running", "step": 0, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
       [emit] context.spliced                { "time": "<time>", "agentId": "main", "start": 5, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Start a fresh turn" } ], "toolCalls": [], "origin": { "kind": "user" }, "id": "<msg-2>" } ] }
       [emit] prompt.started                 { "time": "<time>", "agentId": "main", "promptId": "<msg-2>" }
       [wire] context.append_message         { "agentId": "main", "message": { "role": "user", "content": [ { "type": "text", "text": "Start a fresh turn" } ], "toolCalls": [], "origin": { "kind": "user" }, "id": "<msg-2>" }, "time": "<time>" }
       [emit] turn.step.started              { "time": "<time>", "agentId": "main", "turnId": 1, "step": 1, "stepId": "<uuid-6>" }
-      [emit] agent.activity.updated         { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 1, "origin": { "kind": "user" }, "phase": "running", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
       [wire] context.append_loop_event      { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-6>", "turnId": "1", "step": 1 }, "time": "<time>" }
-      [wire] llm.request                    { "agentId": "main", "kind": "loop", "provider": "openai", "model": "changed-model", "modelAlias": "changed-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "7617cb8b42659214c397a1d7505fce204b673b078a10de8bcccc697d88dcda56", "toolsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "messageCount": 6, "turnStep": "1.1", "time": "<time>" }
       [emit] assistant.delta                { "time": "<time>", "agentId": "main", "turnId": 1, "delta": "Now the changed config is active." }
-      [emit] agent.activity.updated         { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 1, "origin": { "kind": "user" }, "phase": "streaming", "stream": "assistant", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
+      [wire] llm.request                    { "agentId": "main", "kind": "loop", "provider": "openai", "model": "changed-model", "modelAlias": "changed-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "7617cb8b42659214c397a1d7505fce204b673b078a10de8bcccc697d88dcda56", "toolsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "messageCount": 6, "turnStep": "1.1", "time": "<time>" }
       [wire] usage.record                   { "agentId": "main", "model": "changed-model", "usage": { "inputOther": 108, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
       [emit] agent.status.updated           { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 98, "output": 30, "inputCacheRead": 0, "inputCacheCreation": 0 }, "changed-model": { "inputOther": 108, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 206, "output": 42, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 108, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [wire] token_counting.measured        { "agentId": "main", "length": 7, "tokens": 120, "time": "<time>" }
       [emit] agent.status.updated           { "time": "<time>", "agentId": "main", "contextTokens": 120 }
       [emit] turn.step.completed            { "time": "<time>", "agentId": "main", "turnId": 1, "step": 1, "stepId": "<uuid-6>", "usage": { "inputOther": 108, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn", "providerFinishReason": "completed", "rawFinishReason": "stop" }
-      [emit] agent.activity.updated         { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 1, "origin": { "kind": "user" }, "phase": "running", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
       [wire] context.append_loop_event      { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-7>", "turnId": "1", "step": 1, "stepUuid": "<uuid-6>", "part": { "type": "text", "text": "Now the changed config is active." } }, "time": "<time>" }
       [wire] context.append_loop_event      { "agentId": "main", "event": { "type": "step.end", "uuid": "<uuid-6>", "turnId": "1", "step": 1, "finishReason": "end_turn", "usage": { "inputOther": 108, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-3", "providerFinishReason": "completed", "rawFinishReason": "stop" }, "time": "<time>" }
       [wire] turn.ended                     { "agentId": "main", "turnId": 1, "reason": "completed", "time": "<time>" }
@@ -590,6 +576,30 @@ describe('ConfigService env overlay (live)', () => {
 
     await config.replace('defaultModel', undefined);
     expect(config.get<string>('defaultModel')).toBeUndefined();
+
+    disposables.dispose();
+  });
+
+  it('marks the env-injected flat model ready in the auth legacy summary', async () => {
+    const env: Record<string, string> = { PYTHINKER_MODEL_NAME: 'kimi-for-coding' };
+    const disposables = new DisposableStore();
+    const ix = disposables.add(new TestInstantiationService());
+    ix.stub(ILogService, stubLog());
+    ix.stub(IBootstrapService, stubBootstrap('/tmp/pythinker-cfg', env));
+    ix.stub(IFileSystemStorageService, new InMemoryStorageService());
+    ix.stub(IOAuthService, { status: vi.fn() } as unknown as IOAuthService);
+    ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
+    ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
+    ix.set(IConfigService, new SyncDescriptor(ConfigService));
+    ix.set(IAuthStatusService, new SyncDescriptor(AuthStatusService));
+
+    const summary = await ix.get(IAuthStatusService).get();
+
+    expect(summary).toEqual({
+      models_ready: true,
+      providers_count: 1,
+      managed_provider: null,
+    });
 
     disposables.dispose();
   });
@@ -1377,20 +1387,20 @@ describe('malformed models config entries', () => {
     ix.set(IConfigService, new SyncDescriptor(ConfigService));
     const config = ix.get(IConfigService);
     await config.ready;
-    return { config, disposables, storage, registry: ix.get(IConfigRegistry) };
+    return { config, disposables, storage };
   }
 
   it('warns at load time when a dotted alias parses as a nested table', async () => {
     const { config, disposables } = await createConfig(
-      '[models.acme-m1.5-code]\nmodel = "acme-m1.5-code"\nmax_context_size = 262144\n',
+      '[models.kimi-k2.7-code]\nmodel = "kimi-k2.7-code"\nmax_context_size = 262144\n',
     );
 
     expect(config.diagnostics()).toContainEqual({
       domain: 'models',
       severity: 'warning',
       message:
-        "[models] entry 'acme-m1' is missing the 'model' field and cannot be used as a model; " +
-        'if the alias contains dots, quote the table name (e.g. [models."acme-m1.5-code"]).',
+        "[models] entry 'kimi-k2' is missing the 'model' field and cannot be used as a model; " +
+        'if the alias contains dots, quote the table name (e.g. [models."kimi-k2.7-code"]).',
     });
 
     disposables.dispose();
@@ -1398,7 +1408,7 @@ describe('malformed models config entries', () => {
 
   it('stays silent for quoted dotted aliases and entries with a wire-facing name', async () => {
     const { config, disposables } = await createConfig(
-      '[models."acme-m1.5-code"]\nmodel = "acme-m1.5-code"\n\n[models.renamed]\nname = "wire-name"\n',
+      '[models."kimi-k2.7-code"]\nmodel = "kimi-k2.7-code"\n\n[models.renamed]\nname = "wire-name"\n',
     );
 
     expect(config.diagnostics()).toEqual([]);
@@ -1436,57 +1446,16 @@ describe('malformed models config entries', () => {
     disposables.dispose();
   });
 
-  it('clears the warning after a persisted write fixes the entry', async () => {
-    const { config, disposables } = await createConfig(
-      '[models.acme-m1.5-code]\nmodel = "acme-m1.5-code"\n',
-    );
-    expect(config.diagnostics()).toHaveLength(1);
-
-    await config.replace('models', { 'acme-m1.5-code': { model: 'acme-m1.5-code' } });
-
-    expect(config.diagnostics()).toEqual([]);
-
-    disposables.dispose();
-  });
-
-  it('collects diagnostics for a section registered after load', async () => {
-    const { config, disposables, registry } = await createConfig(
-      '[late_demo]\nbroken = true\n',
-    );
-    expect(config.diagnostics()).toEqual([]);
-
-    registry.registerSection(
-      'lateDemo',
-      { parse: (value: unknown) => value as Record<string, unknown> },
-      {
-        collectDiagnostics: (rawSection) =>
-          typeof rawSection === 'object' &&
-          rawSection !== null &&
-          (rawSection as Record<string, unknown>)['broken'] === true
-            ? [{ domain: 'lateDemo', severity: 'warning', message: '[late_demo] is broken.' }]
-            : [],
-      },
-    );
-
-    expect(config.diagnostics()).toContainEqual({
-      domain: 'lateDemo',
-      severity: 'warning',
-      message: '[late_demo] is broken.',
-    });
-
-    disposables.dispose();
-  });
-
   it('clears the warning on reload once the entry is fixed', async () => {
     const { config, disposables, storage } = await createConfig(
-      '[models.acme-m1.5-code]\nmodel = "acme-m1.5-code"\n',
+      '[models.kimi-k2.7-code]\nmodel = "kimi-k2.7-code"\n',
     );
     expect(config.diagnostics()).toHaveLength(1);
 
     await storage.write(
       '',
       'config.toml',
-      new TextEncoder().encode('[models."acme-m1.5-code"]\nmodel = "acme-m1.5-code"\n'),
+      new TextEncoder().encode('[models."kimi-k2.7-code"]\nmodel = "kimi-k2.7-code"\n'),
     );
     await config.reload();
 
@@ -1677,28 +1646,6 @@ describe('task config section', () => {
     disposables.dispose();
   });
 
-  it('clears the invalid-section warning once a write replaces the section', async () => {
-    const { config, disposables } = await createTaskConfig(
-      {},
-      '[task]\nprint_background_mode = "wait"\n',
-    );
-    expect(
-      config
-        .diagnostics()
-        .some((d) => d.message.includes("Ignored invalid config section 'task'")),
-    ).toBe(true);
-
-    await config.replace('task', { printBackgroundMode: 'steer' });
-
-    expect(
-      config
-        .diagnostics()
-        .some((d) => d.message.includes("Ignored invalid config section 'task'")),
-    ).toBe(false);
-
-    disposables.dispose();
-  });
-
   it('resolvePrintBackgroundMode prefers the explicit mode over keepAliveOnExit', async () => {
     const { config, disposables } = await createTaskConfig(
       {},
@@ -1719,6 +1666,7 @@ describe('task config section', () => {
 
     disposables.dispose();
   });
+
   it('applies the bashTaskTimeoutS env binding, accepting 0 as no timeout', async () => {
     const env: Record<string, string> = {};
     const { config, disposables } = await createTaskConfig(env);
@@ -1829,7 +1777,7 @@ describe('applyPrintModeConfigDefaults', () => {
       maxStepsPerTurn: 0,
     });
     expect(config.inspect('subagent').memoryValue).toMatchObject({ timeoutMs: 0 });
-    expect(config.inspect(DYNAMIC_WORKFLOW_SECTION).memoryValue).toMatchObject({ timeoutMs: 0 });
+    expect(config.inspect('dynamic_workflow').memoryValue).toMatchObject({ timeoutMs: 0 });
 
     disposables.dispose();
   });
@@ -1852,7 +1800,7 @@ describe('applyPrintModeConfigDefaults', () => {
     expect(config.inspect('task').memoryValue).toBeUndefined();
     expect(config.inspect(LOOP_CONTROL_SECTION).memoryValue).toBeUndefined();
     expect(config.inspect('subagent').memoryValue).toBeUndefined();
-    expect(config.inspect(DYNAMIC_WORKFLOW_SECTION).memoryValue).toBeUndefined();
+    expect(config.inspect('dynamic_workflow').memoryValue).toBeUndefined();
 
     disposables.dispose();
   });
@@ -1866,6 +1814,19 @@ describe('applyPrintModeConfigDefaults', () => {
     await applyPrintModeConfigDefaults(config);
 
     expect(resolveAgentTaskConfig(config)?.bashTaskTimeoutS).toBe(15);
+
+    disposables.dispose();
+  });
+
+  it('does not override keys set via env bindings', async () => {
+    const { config, disposables } = await createConfig({
+      [BASH_TASK_TIMEOUT_S_ENV]: '30',
+    });
+
+    await applyPrintModeConfigDefaults(config);
+
+    expect(resolveAgentTaskConfig(config)?.bashTaskTimeoutS).toBe(30);
+    expect(config.inspect('task').memoryValue).toBeUndefined();
 
     disposables.dispose();
   });
@@ -1899,7 +1860,7 @@ describe('applyPrintModeConfigDefaults', () => {
     disposables.dispose();
   });
 
-  it('does not override the dynamic workflow timeout env override', async () => {
+  it('does not override the dynamic_workflow timeout env override', async () => {
     const env: Record<string, string> = { [DYNAMIC_WORKFLOW_TIMEOUT_ENV]: '3000' };
     const { config, disposables } = await createConfig(env);
 
@@ -1909,22 +1870,9 @@ describe('applyPrintModeConfigDefaults', () => {
 
     disposables.dispose();
   });
-  it('does not override keys set via env bindings', async () => {
-    const { config, disposables } = await createConfig({
-      [BASH_TASK_TIMEOUT_S_ENV]: '30',
-    });
-
-    await applyPrintModeConfigDefaults(config);
-
-    expect(resolveAgentTaskConfig(config)?.bashTaskTimeoutS).toBe(30);
-    expect(config.inspect('task').memoryValue).toBeUndefined();
-
-    disposables.dispose();
-  });
-
 });
 
-describe('dynamic workflow config section', () => {
+describe('dynamic_workflow config section', () => {
   async function createConfig(env: Record<string, string>, toml?: string) {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
@@ -1954,37 +1902,6 @@ describe('dynamic workflow config section', () => {
 
     env[DYNAMIC_WORKFLOW_TIMEOUT_ENV] = '3000';
     expect(resolveDynamicWorkflowTimeoutMs(config)).toBe(3000);
-
-    env[DYNAMIC_WORKFLOW_TIMEOUT_ENV] = '0';
-    expect(resolveDynamicWorkflowTimeoutMs(config)).toBe(0);
-
-    env[DYNAMIC_WORKFLOW_TIMEOUT_ENV] = '';
-    expect(resolveDynamicWorkflowTimeoutMs(config)).toBe(DEFAULT_DYNAMIC_WORKFLOW_TIMEOUT_MS);
-
-    disposables.dispose();
-  });
-
-  it('resolves max_concurrency through the config and environment layers', async () => {
-    const env: Record<string, string> = {};
-    const { config, disposables } = await createConfig(
-      env,
-      '[dynamic_workflow]\nmax_concurrency = 3\n',
-    );
-
-    expect(resolveDynamicWorkflowMaxConcurrency(config, env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV])).toBe(3);
-
-    env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV] = '2';
-    expect(resolveDynamicWorkflowMaxConcurrency(config, env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV])).toBe(2);
-
-    env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV] = 'invalid';
-    expect(() =>
-      resolveDynamicWorkflowMaxConcurrency(
-        config,
-        env[DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV],
-      ),
-    ).toThrow(
-      'PYTHINKER_CODE_AGENT_DYNAMIC_WORKFLOW_MAX_CONCURRENCY must be a positive integer, got "invalid".',
-    );
 
     disposables.dispose();
   });
@@ -2074,19 +1991,6 @@ describe('subagent config section', () => {
     disposables.dispose();
   });
 
-  it('accepts 0 from the env var as "no timeout" and ignores a blank value', async () => {
-    const env: Record<string, string> = {};
-    const { config, disposables } = await createConfig(env, '[subagent]\ntimeout_ms = 5000\n');
-
-    env[SUBAGENT_TIMEOUT_ENV] = '0';
-    expect(resolveSubagentTimeoutMs(config)).toBe(0);
-
-    env[SUBAGENT_TIMEOUT_ENV] = '   ';
-    expect(resolveSubagentTimeoutMs(config)).toBe(5000);
-
-    disposables.dispose();
-  });
-
   it('reads timeout_ms from config.toml and lets the env var win', async () => {
     const env: Record<string, string> = {};
     const { config, disposables } = await createConfig(env, '[subagent]\ntimeout_ms = 5000\n');
@@ -2150,10 +2054,12 @@ describe('subagent config section', () => {
     expect(resolveSubagentBinding(noPool.config, own)).toEqual({
       model: 'provider/main',
       thinking: 'medium',
+      modelSource: 'inherited',
     });
     expect(resolveSubagentBinding(noPool.config, own, 'primary')).toEqual({
       model: 'provider/main',
       thinking: 'medium',
+      modelSource: 'primary_override',
     });
     noPool.disposables.dispose();
 
@@ -2164,14 +2070,17 @@ describe('subagent config section', () => {
     expect(resolveSubagentBinding(pool.config, own)).toEqual({
       model: 'provider/fast',
       thinking: undefined,
+      modelSource: 'secondary_pool',
     });
     expect(resolveSubagentBinding(pool.config, own, 'provider/smart')).toEqual({
       model: 'provider/smart',
       thinking: undefined,
+      modelSource: 'secondary_pool',
     });
     expect(resolveSubagentBinding(pool.config, own, 'primary')).toEqual({
       model: 'provider/main',
       thinking: 'medium',
+      modelSource: 'primary_override',
     });
     pool.disposables.dispose();
   });
@@ -2186,10 +2095,12 @@ describe('subagent config section', () => {
     expect(resolveSubagentBinding(config, own)).toEqual({
       model: 'provider/fast',
       thinking: undefined,
+      modelSource: 'secondary_pool',
     });
     expect(resolveSubagentBinding(config, own, 'primary')).toEqual({
       model: 'provider/main',
       thinking: 'medium',
+      modelSource: 'primary_override',
     });
     expect(() => resolveSubagentBinding(config, own, 'provider/smart')).toThrow(
       /Invalid model "provider\/smart"\. Available models: provider\/fast, primary\./,
@@ -2216,6 +2127,7 @@ describe('subagent config section', () => {
     expect(resolveSubagentBinding(config, own)).toEqual({
       model: 'provider/fast',
       thinking: 'low',
+      modelSource: 'secondary_pool',
     });
     expect(() => resolveSubagentBinding(config, own, 'provider/smart')).toThrow(
       /Invalid model "provider\/smart"\. Available models: provider\/fast, primary\./,
@@ -2234,6 +2146,7 @@ describe('subagent config section', () => {
     expect(resolveSubagentBinding(config, own)).toEqual({
       model: 'provider/fast',
       thinking: undefined,
+      modelSource: 'secondary_pool',
     });
 
     disposables.dispose();
@@ -2263,6 +2176,7 @@ describe('subagent config section', () => {
     expect(resolveSubagentBinding(config, own)).toEqual({
       model: 'provider/fast',
       thinking: undefined,
+      modelSource: 'forced',
     });
     expect(() => resolveSubagentBinding(config, own, 'primary')).toThrow(
       /Invalid model "primary": \[secondary_model\]\.force is set/,
@@ -2305,10 +2219,12 @@ describe('subagent config section', () => {
     expect(resolveSubagentBinding(config, own)).toEqual({
       model: 'provider/fast',
       thinking: 'max',
+      modelSource: 'secondary_pool',
     });
     expect(resolveSubagentBinding(config, own, 'primary')).toEqual({
       model: 'provider/main',
       thinking: 'medium',
+      modelSource: 'primary_override',
     });
 
     disposables.dispose();
@@ -2328,6 +2244,7 @@ describe('subagent config section', () => {
     expect(resolveSubagentBinding(config, own)).toEqual({
       model: 'provider/fast',
       thinking: undefined,
+      modelSource: 'forced',
     });
     expect(() => resolveSubagentBinding(config, own, 'primary')).toThrow(
       /Invalid model "primary": \[secondary_model\]\.force is set/,
@@ -2791,76 +2708,6 @@ function toolNames(value: unknown): string[] {
     .filter((name): name is string => name !== null);
 }
 
-describe('ConfigService thinking effort max migration', () => {
-  let homeDir: string;
-
-  beforeEach(() => {
-    homeDir = mkdtempSync(join(tmpdir(), 'pythinker-v2-cfg-migrate-'));
-  });
-
-  afterEach(() => {
-    rmSync(homeDir, { recursive: true, force: true });
-  });
-
-  async function createMigratingConfig(toml: string) {
-    const disposables = new DisposableStore();
-    const ix = disposables.add(new TestInstantiationService());
-    const storage = new InMemoryStorageService();
-    await storage.write('', 'config.toml', new TextEncoder().encode(toml));
-    ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap(homeDir));
-    ix.stub(IFileSystemStorageService, storage);
-    ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
-    ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
-    ix.set(IConfigService, new SyncDescriptor(ConfigService));
-    const config = ix.get(IConfigService);
-    await config.ready;
-    return { config, disposables };
-  }
-
-  function readMarkers(): Record<string, string> {
-    return JSON.parse(readFileSync(join(homeDir, 'migrations-effort.json'), 'utf-8')) as Record<
-      string,
-      string
-    >;
-  }
-
-  it('rewrites a persisted max to high on first load and records the marker', async () => {
-    const { config, disposables } = await createMigratingConfig(
-      '[thinking]\nenabled = true\neffort = "max"\n',
-    );
-
-    expect(config.get<ThinkingConfig>(THINKING_SECTION)).toEqual({
-      enabled: true,
-      effort: 'high',
-    });
-    expect(readMarkers()['thinking-effort-max-to-high']).toBeDefined();
-
-    disposables.dispose();
-  });
-
-  it('honors a hand-set max once the marker exists', async () => {
-    writeFileSync(
-      join(homeDir, 'migrations-effort.json'),
-      JSON.stringify({ 'thinking-effort-max-to-high': new Date().toISOString() }),
-    );
-    const { config, disposables } = await createMigratingConfig('[thinking]\neffort = "max"\n');
-
-    expect(config.get<ThinkingConfig>(THINKING_SECTION)).toEqual({ effort: 'max' });
-
-    disposables.dispose();
-  });
-
-  it('records the marker even when nothing needs migrating', async () => {
-    const { config, disposables } = await createMigratingConfig('[thinking]\neffort = "low"\n');
-
-    expect(config.get<ThinkingConfig>(THINKING_SECTION)).toEqual({ effort: 'low' });
-    expect(readMarkers()['thinking-effort-max-to-high']).toBeDefined();
-
-    disposables.dispose();
-  });
-});
-
 describe('ConfigService replaceSections', () => {
   const SEED_TOML = [
     'default_model = "acme/m1"',
@@ -2947,130 +2794,6 @@ describe('ConfigService replaceSections', () => {
     disposables.dispose();
   });
 
-  it('replace drops omitted keys from a section with a custom TOML serializer', async () => {
-    const seed = ['[loop_control]', 'max_steps_per_turn = 5', 'max_attempts_per_step = 3', ''].join('\n');
-    const { config, disposables, storage } = await createSectionsConfig(seed);
-    await config.replace(LOOP_CONTROL_SECTION, { maxStepsPerTurn: 7 });
-    const onDisk = new TextDecoder().decode(await storage.read('', 'config.toml'));
-    expect(onDisk).toContain('max_steps_per_turn = 7');
-    expect(onDisk).not.toContain('max_attempts_per_step');
-    await config.reload();
-    expect(config.get(LOOP_CONTROL_SECTION)).toEqual({ maxStepsPerTurn: 7 });
-    disposables.dispose();
-  });
-
-  it('replace and replaceSections drop keys the new value does not carry from disk', async () => {
-    const seed = [
-      '[secondary_model]',
-      'default_model = "acme/m1"',
-      'default_effort = "low"',
-      'force = true',
-      '',
-      '[secondary_model.models]',
-      '"acme/m1" = "fast"',
-      '',
-    ].join('\n');
-    const { config, disposables, storage } = await createSectionsConfig(seed);
-
-    await config.replaceSections({ [SECONDARY_MODEL_SECTION]: { defaultModel: 'acme/m1' } });
-    let onDisk = new TextDecoder().decode(await storage.read('', 'config.toml'));
-    expect(onDisk).not.toContain('force');
-    expect(onDisk).not.toContain('default_effort');
-    expect(onDisk).not.toContain('[secondary_model.models]');
-    await config.reload();
-    expect(config.get(SECONDARY_MODEL_SECTION)).toEqual({ defaultModel: 'acme/m1' });
-
-    await config.replace(SECONDARY_MODEL_SECTION, { defaultModel: 'acme/m1', force: true });
-    await config.replace(SECONDARY_MODEL_SECTION, { defaultModel: 'acme/m1' });
-    onDisk = new TextDecoder().decode(await storage.read('', 'config.toml'));
-    expect(onDisk).not.toContain('force');
-    await config.reload();
-    expect(config.get(SECONDARY_MODEL_SECTION)).toEqual({ defaultModel: 'acme/m1' });
-
-    disposables.dispose();
-  });
-
-  it('previewReplaceSections returns the prospective effective config with zero side effects', async () => {
-    const { config, disposables, store, storage } = await createSectionsConfig();
-    const setSpy = vi.spyOn(store, 'set');
-    const setTextSpy = vi.spyOn(store, 'setText');
-    const events: string[] = [];
-    disposables.add(config.onDidChangeConfiguration((e) => events.push(e.domain)));
-    const diskBefore = new TextDecoder().decode(await storage.read('', 'config.toml'));
-
-    const preview = config.previewReplaceSections({
-      [MODELS_SECTION]: { 'acme/m2': { provider: 'acme', model: 'm2', maxContextSize: 2000 } },
-      [DEFAULT_MODEL_SECTION]: null,
-    });
-
-    expect(Object.keys(preview[MODELS_SECTION] as Record<string, unknown>)).toEqual(['acme/m2']);
-    expect(preview[DEFAULT_MODEL_SECTION]).toBeUndefined();
-    expect(preview[PROVIDERS_SECTION]).toEqual({ acme: { type: 'openai', apiKey: 'sk-acme' } });
-    expect(preview[THINKING_SECTION]).toEqual({ enabled: true });
-    expect(setSpy).not.toHaveBeenCalled();
-    expect(events).toEqual([]);
-    expect(config.get(DEFAULT_MODEL_SECTION)).toBe('acme/m1');
-    expect(Object.keys(config.get<Record<string, unknown>>(MODELS_SECTION))).toEqual(['acme/m1']);
-    expect(new TextDecoder().decode(await storage.read('', 'config.toml'))).toBe(diskBefore);
-
-    await config.replaceSections({
-      [MODELS_SECTION]: { 'acme/m2': { provider: 'acme', model: 'm2', maxContextSize: 2000 } },
-      [DEFAULT_MODEL_SECTION]: null,
-    });
-    expect(config.get(MODELS_SECTION)).toEqual(preview[MODELS_SECTION]);
-    expect(config.get(DEFAULT_MODEL_SECTION)).toBeUndefined();
-
-    expect(() => config.previewReplaceSections({ [MODELS_SECTION]: { broken: 'x' } })).toThrow();
-    expect(setSpy.mock.calls.length + setTextSpy.mock.calls.length).toBe(1);
-
-    disposables.dispose();
-  });
-
-  it('a prospective model view from previewReplaceSections validates removals and swaps before any write', async () => {
-    const seed = [
-      '[providers.acme]',
-      'type = "openai"',
-      'api_key = "sk-acme"',
-      '',
-      '[models."acme/luna"]',
-      'provider = "acme"',
-      'model = "luna"',
-      'max_context_size = 1000',
-      '',
-    ].join('\n');
-    const { config, disposables, store } = await createSectionsConfig(seed);
-    const setSpy = vi.spyOn(store, 'set');
-    const setTextSpy = vi.spyOn(store, 'setText');
-    const luna = { mode: 'default', defaultModel: 'acme/luna' } as const;
-    const sol = { mode: 'default', defaultModel: 'acme/sol' } as const;
-    const solRecord = { provider: 'acme', model: 'sol', maxContextSize: 1000 };
-
-    const current = config.previewReplaceSections({});
-    expect(() =>
-      validateSubagentModelPolicy(luna, prospectiveModelView(current[PROVIDERS_SECTION], current[MODELS_SECTION])),
-    ).not.toThrow();
-
-    const removed = config.previewReplaceSections({ [MODELS_SECTION]: {} });
-    expect(() =>
-      validateSubagentModelPolicy(luna, prospectiveModelView(removed[PROVIDERS_SECTION], removed[MODELS_SECTION])),
-    ).toThrow(/acme\/luna/);
-
-    const swapped = config.previewReplaceSections({ [MODELS_SECTION]: { 'acme/sol': solRecord } });
-    const swappedView = prospectiveModelView(swapped[PROVIDERS_SECTION], swapped[MODELS_SECTION]);
-    expect(() => validateSubagentModelPolicy(sol, swappedView)).not.toThrow();
-    expect(() => validateSubagentModelPolicy(luna, swappedView)).toThrow();
-    expect(setSpy).not.toHaveBeenCalled();
-
-    await config.replaceSections({
-      [MODELS_SECTION]: { 'acme/sol': solRecord },
-      [SECONDARY_MODEL_SECTION]: { defaultModel: 'acme/sol' },
-    });
-    expect(setSpy.mock.calls.length + setTextSpy.mock.calls.length).toBe(1);
-    expect(config.get(SECONDARY_MODEL_SECTION)).toEqual({ defaultModel: 'acme/sol' });
-
-    disposables.dispose();
-  });
-
   it('fires change events only after all domains have taken effect', async () => {
     const { config, disposables } = await createSectionsConfig();
     const domains: string[] = [];
@@ -3151,16 +2874,10 @@ describe('ConfigService replaceSections', () => {
 });
 
 describe('ConfigService persistence guards', () => {
-  class SilentStorage extends InMemoryStorageService {
-    override watch(): Event<void> {
-      return Event.None as Event<void>;
-    }
-  }
-
   async function createGuardedConfig(toml: string, env: NodeJS.ProcessEnv = {}) {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
-    const storage = new SilentStorage();
+    const storage = new InMemoryStorageService();
     await storage.write('', 'config.toml', new TextEncoder().encode(toml));
     ix.stub(ILogService, stubLog());
     ix.stub(IBootstrapService, stubBootstrap('/tmp/pythinker-cfg-guards', env));

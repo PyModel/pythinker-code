@@ -9,6 +9,18 @@ import {
 import type { TranscriptEntry } from '#/tui/types';
 import { DEFAULT_SURVEY_POPUP_CONFIG } from '#/utils/survey-popup-config';
 
+const mocks = vi.hoisted(() => ({
+  getSurveyPopupConfig: vi.fn(() => Promise.resolve(undefined)),
+}));
+
+vi.mock('#/utils/survey-popup-config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('#/utils/survey-popup-config')>();
+  return {
+    ...actual,
+    getSurveyPopupConfig: mocks.getSurveyPopupConfig,
+  };
+});
+
 const ESC = '\u001B';
 const CSI_LEFT = '\u001B[D';
 const CSI_RIGHT = '\u001B[C';
@@ -99,7 +111,7 @@ function createHarness(deps: Partial<SurveyControllerDeps> = {}): Harness {
     tasksBrowser: undefined,
     editor,
     appState: {
-      model: 'test-model',
+      model: 'k2',
       streamingPhase: 'idle',
       isCompacting: false,
       contextTokens: 640,
@@ -191,7 +203,7 @@ function userEntry(content: string): TranscriptEntry {
 }
 
 const HARNESS_ENVIRONMENT = {
-  current_model: 'test-model',
+  current_model: 'k2',
   user_turn_count: 5,
   cumulative_tokens: 1234,
   virtual_context_tokens: 640,
@@ -415,7 +427,7 @@ describe('SurveyController long-context arm', () => {
       appearance_id: 'appearance-1',
       appearance_index: 1,
       response: undefined,
-      current_model: 'test-model',
+      current_model: 'k2',
       user_turn_count: 1,
       cumulative_tokens: 250_000,
       virtual_context_tokens: 640,
@@ -1336,12 +1348,12 @@ describe('SurveyController interaction', () => {
     const harness = createHarness({ terminalWidth: () => 18, terminalHeight: () => height });
     await harness.flush();
     harness.clock.mono += 600_000;
-    height = 14;
+    height = 13;
     harness.runTurns(5);
     harness.elapse(2000);
     expect(harness.container.children).toHaveLength(0);
 
-    height = 15;
+    height = 14;
     harness.runTurns(1);
     harness.elapse(2000);
     expect(harness.container.children).not.toHaveLength(0);
@@ -1598,8 +1610,8 @@ describe('SurveyController event payload', () => {
   });
 
   it('snapshots the config that produced the appearance, not a later refresh', async () => {
-    let liveConfig = { ...DEFAULT_SURVEY_POPUP_CONFIG, probability: 0.5 };
-    const harness = createHarness({ config: () => liveConfig });
+    let cloudConfig = { ...DEFAULT_SURVEY_POPUP_CONFIG, probability: 0.5 };
+    const harness = createHarness({ config: () => cloudConfig });
     await harness.flush();
     harness.appear();
     expect(harness.track).toHaveBeenCalledWith(
@@ -1607,7 +1619,7 @@ describe('SurveyController event payload', () => {
       expect.objectContaining({ event_type: 'appeared', config_probability: 0.5 }),
     );
 
-    liveConfig = { ...liveConfig, probability: 0.9 };
+    cloudConfig = { ...cloudConfig, probability: 0.9 };
     harness.typeDigit('1');
     harness.elapse(400);
     harness.elapse(3000);
@@ -1772,7 +1784,7 @@ describe('SurveyController event payload', () => {
     );
   });
 
-  it('re-refreshes the survey config when the region changes', async () => {
+  it('re-refreshes the cloud config when the region changes', async () => {
     let region = 'region-a';
     const refreshConfig = vi.fn();
     const harness = createHarness({ refreshConfig, configRegion: () => region });
@@ -1785,7 +1797,7 @@ describe('SurveyController event payload', () => {
     expect(refreshConfig).toHaveBeenCalledTimes(2);
   });
 
-  it('re-refreshes the survey config once the previous refresh is over an hour old', async () => {
+  it('re-refreshes the cloud config once the previous refresh is over an hour old', async () => {
     const refreshConfig = vi.fn();
     const harness = createHarness({ refreshConfig });
     await harness.flush();
@@ -1802,12 +1814,71 @@ describe('SurveyController event payload', () => {
     expect(refreshConfig).toHaveBeenCalledTimes(2);
   });
 
-  it('applies the model gate at evaluation time', async () => {
+  it('applies the cloud model gate at evaluation time', async () => {
     const harness = createHarness({
       config: () => ({ ...DEFAULT_SURVEY_POPUP_CONFIG, on_for_models: ['other-model'] }),
     });
     await harness.flush();
     harness.appear();
     expect(harness.container.children).toHaveLength(0);
+  });
+});
+
+describe('SurveyController cloud config refresh', () => {
+  it('fires the injected refresh once at mount and not on session reset', async () => {
+    const refreshConfig = vi.fn();
+    const harness = createHarness({ refreshConfig });
+    await harness.flush();
+    expect(refreshConfig).toHaveBeenCalledTimes(1);
+
+    harness.controller.reset();
+    expect(refreshConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves the access token before refreshing the named config', async () => {
+    mocks.getSurveyPopupConfig.mockClear();
+    const harness = createHarness({ accessToken: async () => 'tok' });
+    await harness.flush();
+    expect(mocks.getSurveyPopupConfig).toHaveBeenCalledWith({
+      accessToken: 'tok',
+    });
+  });
+
+  it('refreshes anonymously when no token is cached', async () => {
+    mocks.getSurveyPopupConfig.mockClear();
+    const harness = createHarness({ accessToken: async () => undefined });
+    await harness.flush();
+    expect(mocks.getSurveyPopupConfig).toHaveBeenCalledWith({
+      accessToken: undefined,
+    });
+  });
+
+  it.each([
+    [
+      'rejects',
+      async (): Promise<string | undefined> => {
+        throw new Error('no facade');
+      },
+    ],
+    [
+      'throws synchronously',
+      () => {
+        throw new Error('no facade');
+      },
+    ],
+  ])('skips the fetch when the token provider %s', async (_kind, accessToken) => {
+    mocks.getSurveyPopupConfig.mockClear();
+    const harness = createHarness({
+      accessToken: accessToken as () => Promise<string | undefined>,
+    });
+    await harness.flush();
+    expect(mocks.getSurveyPopupConfig).not.toHaveBeenCalled();
+  });
+
+  it('does not fetch without a token provider', async () => {
+    mocks.getSurveyPopupConfig.mockClear();
+    const harness = createHarness();
+    await harness.flush();
+    expect(mocks.getSurveyPopupConfig).not.toHaveBeenCalled();
   });
 });

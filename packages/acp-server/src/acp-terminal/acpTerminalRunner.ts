@@ -24,25 +24,8 @@ const OUTPUT_BYTE_LIMIT = 4 * 1024 * 1024;
 const OUTPUT_POLL_MS = 250;
 let nextGeneration = 1;
 
-const SHELL_EXECUTABLES = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']);
-
-/**
- * The Bash tool always spawns the configured shell. Classifying the executable
- * keeps another caller's `-c` invocation — `python -c ...` carrying the same
- * non-interactive env — on the local path, where the client cannot refuse it.
- */
-function isShellExecutable(command: string): boolean {
-  const base = (command.split(/[\\/]/).pop() ?? command).toLowerCase();
-  return SHELL_EXECUTABLES.has(base.endsWith('.exe') ? base.slice(0, -4) : base);
-}
-
-function isBashToolInvocation(
-  command: string,
-  args: readonly string[],
-  options?: HostProcessOptions,
-): boolean {
+function isBashToolInvocation(args: readonly string[], options?: HostProcessOptions): boolean {
   return (
-    isShellExecutable(command) &&
     args.length === 2 &&
     args[0] === '-c' &&
     options?.env?.['NO_COLOR'] === '1' &&
@@ -72,7 +55,7 @@ class AcpProcessService implements IHostProcessService {
     args: readonly string[] = [],
     options?: HostProcessOptions,
   ): Promise<IHostProcess> {
-    if (!this.connection.terminalEnabled || !isBashToolInvocation(command, args, options)) {
+    if (!this.connection.terminalEnabled || !isBashToolInvocation(args, options)) {
       return this.local.spawn(command, args, { ...options, cwd: options?.cwd ?? this.cwd });
     }
 
@@ -242,14 +225,7 @@ class AcpWorkspaceRuntimeAttachment implements RuntimeProviderAttachment {
     const runtimeId = AcpRuntimeProviderFactory.runtimeId(sessionId);
     if (this.sessions.has(sessionId)) return runtimeId;
     const registration = this.host.registerRuntime(
-      new AcpSessionRuntime(
-        this.workspace.id,
-        sessionId,
-        cwd,
-        this.connection,
-        this.environment,
-        this.local,
-      ),
+      new AcpSessionRuntime(this.workspace.id, sessionId, cwd, this.connection, this.environment, this.local),
     );
     this.sessions.set(sessionId, registration);
     return runtimeId;
@@ -265,7 +241,7 @@ class AcpWorkspaceRuntimeAttachment implements RuntimeProviderAttachment {
   async dispose(): Promise<void> {
     const registrations = [...this.sessions.values()];
     this.sessions.clear();
-    for (const registration of registrations.toReversed()) await registration.remove();
+    for (const registration of registrations.reverse()) await registration.remove();
   }
 }
 
@@ -285,13 +261,7 @@ export class AcpRuntimeProviderFactory implements RuntimeProviderFactory {
   }
 
   async attach(workspace: RuntimeProviderContext, host: RuntimeProviderHost): Promise<RuntimeProviderAttachment> {
-    const attachment = new AcpWorkspaceRuntimeAttachment(
-      workspace,
-      host,
-      this.connection,
-      this.environment,
-      this.local,
-    );
+    const attachment = new AcpWorkspaceRuntimeAttachment(workspace, host, this.connection, this.environment, this.local);
     this.attachments.set(workspace.id, attachment);
     return {
       dispose: async () => {

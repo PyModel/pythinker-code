@@ -24,68 +24,67 @@
 // cross-reducers), blobs (the folding states whose blob codec offloads inline
 // media to blob storage), owner (the source file declaring the class).
 
-// Index (61 record types)
-//   config.update                         profile                                               src/agent/profile/profileOps.ts
-//   context.append_loop_event             contextMemory, turn                                   src/agent/contextMemory/contextEvents.ts
-//   context.append_message                contextMemory, plan, task.notificationDelivery        src/agent/contextMemory/contextEvents.ts
-//   context.apply_compaction              contextMemory, plan, task.notificationDelivery, turn  src/agent/contextMemory/contextEvents.ts
-//   context.clear                         contextMemory, plan, task.notificationDelivery, turn  src/agent/contextMemory/contextEvents.ts
-//   context.undo                          contextMemory, plan, task.notificationDelivery, turn  src/agent/contextMemory/contextEvents.ts
-//   cron.add                              (none)                                                src/features/cron/cronOps.ts
-//   cron.cursor                           (none)                                                src/features/cron/cronOps.ts
-//   cron.delete                           (none)                                                src/features/cron/cronOps.ts
-//   dynamic_workflow_mode.enter           dynamic_workflow                                      src/features/dynamic_workflow/dynamicWorkflowOps.ts
-//   dynamic_workflow_mode.exit            contextMemory, dynamic_workflow                       src/features/dynamic_workflow/dynamicWorkflowOps.ts
-//   file_history.checkpoint               fileHistory                                           src/features/fileHistory/fileHistoryOps.ts
-//   file_history.tracked                  fileHistory                                           src/features/fileHistory/fileHistoryOps.ts
-//   forked                                (none)                                                src/features/goal/goalOps.ts
-//   full_compaction.begin                 fullCompaction                                        src/agent/fullCompaction/compactionOps.ts
-//   full_compaction.cancel                fullCompaction                                        src/agent/fullCompaction/compactionOps.ts
-//   full_compaction.complete              fullCompaction                                        src/agent/fullCompaction/compactionOps.ts
-//   goal.clear                            (none)                                                src/features/goal/goalOps.ts
-//   goal.create                           (none)                                                src/features/goal/goalOps.ts
-//   goal.update                           (none)                                                src/features/goal/goalOps.ts
-//   interaction.request                   (none)                                                src/features/interaction/interactionOps.ts
-//   interaction.resolved                  (none)                                                src/features/interaction/interactionOps.ts
-//   interruptionReminder.recorded         interruptionReminder                                  src/agent/interruptionReminder/interruptionReminderOps.ts
-//   llm.request                           llm.requestTrace                                      src/agent/llmRequester/llmRequestOps.ts
-//   llm.tools_snapshot                    llm.requestTrace                                      src/agent/llmRequester/llmRequestOps.ts
-//   mcp.tools_discovered                  mcp.discovery                                         src/agent/mcp/mcpDiscoveryOps.ts
-//   permission.record_approval_result     permissionRules                                       src/agent/permissionRules/permissionRulesOps.ts
-//   permission.set_mode                   permissionMode, permissionMode.configured             src/agent/permissionMode/permissionModeOps.ts
-//   plan_mode.cancel                      plan                                                  src/features/plan/planOps.ts
-//   plan_mode.enter                       plan                                                  src/features/plan/planOps.ts
-//   plan_mode.exit                        plan                                                  src/features/plan/planOps.ts
-//   plan.revision                         plan                                                  src/features/plan/planOps.ts
-//   plugin.session_start                  pluginSessionStartSnapshot                            src/agent/plugin/agentPluginOps.ts
-//   profile.bind                          profile, profile.activeTools                          src/agent/profile/profileOps.ts
-//   prompt.aborted                        promptResolution                                      src/agent/prompt/promptService.ts
-//   prompt.accepted                       promptAdmission                                       src/agent/prompt/promptOps.ts
-//   prompt.completed                      promptResolution                                      src/agent/prompt/promptService.ts
-//   prompt.steered                        promptResolution                                      src/agent/prompt/promptService.ts
-//   runtime.set_binding                   runtimeBinding                                        src/agent/runtimeBinding/runtimeBindingOps.ts
-//   subagent.binding_provenance.recorded  subagent.bindingProvenance                            src/session/subagent/bindingProvenance.ts
-//   task.started                          task                                                  src/agent/task/taskOps.ts
-//   task.terminated                       task                                                  src/agent/task/taskOps.ts
-//   task.waitDelivered                    task.notificationDelivery                             src/agent/task/taskOps.ts
-//   token_counting.measured               (none)                                                src/agent/tokenCounting/tokenCountingOps.ts
-//   token_counting.rebased                (none)                                                src/agent/tokenCounting/tokenCountingOps.ts
-//   token_counting.truncated              (none)                                                src/agent/tokenCounting/tokenCountingOps.ts
-//   token_counting.turn_recorded          (none)                                                src/agent/tokenCounting/tokenCountingOps.ts
-//   tools.register_user_tool              userTool                                              src/agent/userTool/userToolOps.ts
-//   tools.reset_active_tools              profile.activeTools                                   src/agent/profile/profileOps.ts
-//   tools.set_active_tools                profile.activeTools                                   src/agent/profile/profileOps.ts
-//   tools.unregister_user_tool            userTool                                              src/agent/userTool/userToolOps.ts
-//   tools.update_store                    (none)                                                src/features/todo/todoOps.ts
-//   tower_mode.enter                      tower, tower.base, tower.owner                        src/features/tower/towerOps.ts
-//   tower_mode.exit                       tower, tower.base, tower.owner                        src/features/tower/towerOps.ts
-//   turn.cancel                           turn                                                  src/agent/loop/turnOps.ts
-//   turn.ended                            turn                                                  src/agent/loop/turnOps.ts
-//   turn.prompt                           turn                                                  src/agent/loop/turnOps.ts
-//   turn.steer                            turn                                                  src/agent/loop/turnOps.ts
-//   turn.step.interrupted                 (none)                                                src/agent/loop/turnEvents.ts
-//   turn.step.retrying                    (none)                                                src/agent/stepRetry/stepRetryService.ts
-//   usage.record                          (none)                                                src/agent/usage/usageOps.ts
+// Index (60 record types)
+//   config.update                      profile                                               src/agent/profile/profileOps.ts
+//   context.append_loop_event          contextMemory, turn                                   src/agent/contextMemory/contextEvents.ts
+//   context.append_message             contextMemory, plan, task.notificationDelivery        src/agent/contextMemory/contextEvents.ts
+//   context.apply_compaction           contextMemory, plan, task.notificationDelivery, turn  src/agent/contextMemory/contextEvents.ts
+//   context.clear                      contextMemory, plan, task.notificationDelivery, turn  src/agent/contextMemory/contextEvents.ts
+//   context.undo                       contextMemory, plan, task.notificationDelivery, turn  src/agent/contextMemory/contextEvents.ts
+//   cron.add                           (none)                                                src/features/cron/cronOps.ts
+//   cron.cursor                        (none)                                                src/features/cron/cronOps.ts
+//   cron.delete                        (none)                                                src/features/cron/cronOps.ts
+//   file_history.checkpoint            fileHistory                                           src/features/fileHistory/fileHistoryOps.ts
+//   file_history.tracked               fileHistory                                           src/features/fileHistory/fileHistoryOps.ts
+//   forked                             (none)                                                src/features/goal/goalOps.ts
+//   full_compaction.begin              fullCompaction                                        src/agent/fullCompaction/compactionOps.ts
+//   full_compaction.cancel             fullCompaction                                        src/agent/fullCompaction/compactionOps.ts
+//   full_compaction.complete           fullCompaction                                        src/agent/fullCompaction/compactionOps.ts
+//   goal.clear                         (none)                                                src/features/goal/goalOps.ts
+//   goal.create                        (none)                                                src/features/goal/goalOps.ts
+//   goal.update                        (none)                                                src/features/goal/goalOps.ts
+//   interaction.request                (none)                                                src/agent/interaction/interactionOps.ts
+//   interaction.resolved               (none)                                                src/agent/interaction/interactionOps.ts
+//   interruptionReminder.recorded      interruptionReminder                                  src/agent/interruptionReminder/interruptionReminderOps.ts
+//   llm.request                        llm.requestTrace                                      src/agent/llmRequester/llmRequestOps.ts
+//   llm.tools_snapshot                 llm.requestTrace                                      src/agent/llmRequester/llmRequestOps.ts
+//   mcp.tools_discovered               mcp.discovery                                         src/agent/mcp/mcpDiscoveryOps.ts
+//   permission.record_approval_result  permissionRules                                       src/agent/permissionRules/permissionRulesOps.ts
+//   permission.set_mode                permissionMode, permissionMode.configured             src/agent/permissionMode/permissionModeOps.ts
+//   plan_mode.cancel                   plan                                                  src/features/plan/planOps.ts
+//   plan_mode.enter                    plan                                                  src/features/plan/planOps.ts
+//   plan_mode.exit                     plan                                                  src/features/plan/planOps.ts
+//   plan.revision                      plan                                                  src/features/plan/planOps.ts
+//   plugin.session_start               pluginSessionStartSnapshot                            src/agent/plugin/agentPluginOps.ts
+//   profile.bind                       profile, profile.activeTools                          src/agent/profile/profileOps.ts
+//   prompt.aborted                     promptResolution                                      src/agent/prompt/promptService.ts
+//   prompt.accepted                    promptAdmission                                       src/agent/prompt/promptOps.ts
+//   prompt.completed                   promptResolution                                      src/agent/prompt/promptService.ts
+//   prompt.steered                     promptResolution                                      src/agent/prompt/promptService.ts
+//   runtime.set_binding                runtimeBinding                                        src/agent/runtimeBinding/runtimeBindingOps.ts
+//   dynamic_workflow_mode.enter                   dynamic_workflow                                                 src/features/dynamic_workflow/dynamicWorkflowOps.ts
+//   dynamic_workflow_mode.exit                    contextMemory, dynamic_workflow                                  src/features/dynamic_workflow/dynamicWorkflowOps.ts
+//   task.started                       task                                                  src/agent/task/taskOps.ts
+//   task.terminated                    task                                                  src/agent/task/taskOps.ts
+//   task.waitDelivered                 task.notificationDelivery                             src/agent/task/taskOps.ts
+//   token_counting.measured            (none)                                                src/agent/tokenCounting/tokenCountingOps.ts
+//   token_counting.rebased             (none)                                                src/agent/tokenCounting/tokenCountingOps.ts
+//   token_counting.truncated           (none)                                                src/agent/tokenCounting/tokenCountingOps.ts
+//   token_counting.turn_recorded       (none)                                                src/agent/tokenCounting/tokenCountingOps.ts
+//   tools.register_user_tool           userTool                                              src/agent/userTool/userToolOps.ts
+//   tools.reset_active_tools           profile.activeTools                                   src/agent/profile/profileOps.ts
+//   tools.set_active_tools             profile.activeTools                                   src/agent/profile/profileOps.ts
+//   tools.unregister_user_tool         userTool                                              src/agent/userTool/userToolOps.ts
+//   tools.update_store                 (none)                                                src/features/todo/todoOps.ts
+//   tower_mode.enter                   tower, tower.base, tower.owner                        src/features/tower/towerOps.ts
+//   tower_mode.exit                    tower, tower.base, tower.owner                        src/features/tower/towerOps.ts
+//   turn.cancel                        turn                                                  src/agent/loop/turnOps.ts
+//   turn.ended                         turn                                                  src/agent/loop/turnOps.ts
+//   turn.prompt                        turn                                                  src/agent/loop/turnOps.ts
+//   turn.steer                         turn                                                  src/agent/loop/turnOps.ts
+//   turn.step.interrupted              (none)                                                src/agent/loop/turnEvents.ts
+//   turn.step.retrying                 (none)                                                src/agent/loop/turnEvents.ts
+//   usage.record                       (none)                                                src/agent/usage/usageOps.ts
 
 /**
  * states: profile
@@ -96,10 +95,8 @@ interface ConfigUpdatePayload {
   agentId: string;
   modelAlias?: string;
   profileName?: string;
-  /** ThinkingEffort */
-  thinkingEffort?: 'off' | 'on' | (string & {});
-  /** ThinkingEffort */
-  thinkingLevel?: 'off' | 'on' | (string & {});
+  thinkingEffort?: ThinkingEffort;
+  thinkingLevel?: ThinkingEffort;
   systemPrompt?: string;
   /** EnvironmentDisclosureSnapshot */
   environmentDisclosure?: {
@@ -130,29 +127,18 @@ interface ContextAppendMessagePayload {
   agentId: string;
   /** ContextMessage */
   message: {
-    role: 'system' | 'user' | 'assistant' | 'tool';
+    role: Role;
     name?: string;
-    content: ('text' | 'think' | 'image_url' | 'audio_url' | 'video_url')[];
-    toolCalls: {
-      type: 'function';
-      id: string;
-      name: string;
-      arguments: string | null;
-      extras?: Record<string, unknown>;
-      _streamIndex?: number | string;
-    }[];
+    content: ContentPart[];
+    toolCalls: ToolCall[];
     toolCallId?: string;
     partial?: boolean;
-    tools?: {
-      name: string;
-      description: string;
-      parameters: Record<string, unknown>;
-      deferred?: true;
-    }[];
+    tools?: ToolDescription[];
     id?: string;
     providerMessageId?: string;
     origin?: 'user' | 'skill_activation' | 'plugin_command' | 'injection' | 'shell_command' | 'compaction_summary' | 'system_trigger' | 'task' | 'cron_job' | 'cron_missed' | 'hook_result' | 'retry' | undefined;
     isError?: boolean;
+    toolCallDisplays?: Record<string, ToolInputDisplay>;
     note?: string;
   };
 }
@@ -217,26 +203,6 @@ interface CronCursorPayload {
 interface CronDeletePayload {
   _name: 'cron.delete';
   ids: string[];
-}
-
-/**
- * states: dynamic_workflow
- * owner: src/features/dynamic_workflow/dynamicWorkflowOps.ts
- */
-interface DynamicWorkflowModeEnterPayload {
-  _name: 'dynamic_workflow_mode.enter';
-  agentId: string;
-  /** DynamicWorkflowModeTrigger */
-  trigger: 'manual' | 'task' | 'tool';
-}
-
-/**
- * states: contextMemory, dynamic_workflow · blobs: contextMemory
- * owner: src/features/dynamic_workflow/dynamicWorkflowOps.ts
- */
-interface DynamicWorkflowModeExitPayload {
-  _name: 'dynamic_workflow_mode.exit';
-  agentId: string;
 }
 
 /**
@@ -362,7 +328,7 @@ interface GoalUpdatePayload {
 
 /**
  * states: (none)
- * owner: src/features/interaction/interactionOps.ts
+ * owner: src/agent/interaction/interactionOps.ts
  */
 interface InteractionRequestPayload {
   _name: 'interaction.request';
@@ -375,7 +341,7 @@ interface InteractionRequestPayload {
 
 /**
  * states: (none)
- * owner: src/features/interaction/interactionOps.ts
+ * owner: src/agent/interaction/interactionOps.ts
  */
 interface InteractionResolvedPayload {
   _name: 'interaction.resolved';
@@ -405,8 +371,7 @@ interface LlmRequestPayload {
   provider: string;
   model: string;
   modelAlias?: string;
-  /** ThinkingEffort */
-  thinkingEffort?: 'off' | 'on' | (string & {});
+  thinkingEffort?: ThinkingEffort;
   thinkingKeep?: string;
   temperature?: number;
   topP?: number;
@@ -545,8 +510,7 @@ interface ProfileBindPayload {
   agentId: string;
   modelAlias?: string;
   profileName?: string;
-  /** ThinkingEffort */
-  thinkingEffort: 'off' | 'on' | (string & {});
+  thinkingEffort: ThinkingEffort;
   systemPrompt: string;
   /** EnvironmentDisclosureSnapshot */
   environmentDisclosure?: {
@@ -618,22 +582,23 @@ interface RuntimeSetBindingPayload {
 }
 
 /**
- * states: subagent.bindingProvenance
- * owner: src/session/subagent/bindingProvenance.ts
+ * states: dynamic_workflow
+ * owner: src/features/dynamic_workflow/dynamicWorkflowOps.ts
  */
-interface SubagentBindingProvenanceRecordedPayload {
-  _name: 'subagent.binding_provenance.recorded';
+interface DynamicWorkflowModeEnterPayload {
+  _name: 'dynamic_workflow_mode.enter';
   agentId: string;
-  provenance: {
-    operation: 'spawn' | 'fork' | 'resume';
-    profileSource: 'requested' | 'default' | 'fork-inherit' | 'resume-existing';
-    modelSource: 'caller' | 'policy-default' | 'policy-pool' | 'policy-force' | 'fork-inherit' | 'resume-existing';
-    policyMode: 'inherit' | 'default' | 'pool' | 'force';
-    policySource: 'config' | 'default';
-    featureSource: 'master-env' | 'env' | 'config' | 'default';
-    resolvedFromRoutingEnvironmentRevision: string;
-    routeDecisionFingerprint: string;
-  };
+  /** DynamicWorkflowModeTrigger */
+  trigger: 'manual' | 'task' | 'tool';
+}
+
+/**
+ * states: contextMemory, dynamic_workflow · blobs: contextMemory
+ * owner: src/features/dynamic_workflow/dynamicWorkflowOps.ts
+ */
+interface DynamicWorkflowModeExitPayload {
+  _name: 'dynamic_workflow_mode.exit';
+  agentId: string;
 }
 
 /**
@@ -854,6 +819,7 @@ interface TurnEndedPayload {
     };
   };
   durationMs?: number;
+  stopReason?: string;
 }
 
 /**
@@ -867,6 +833,7 @@ interface TurnPromptPayload {
   /** PromptOrigin */
   origin: 'user' | 'skill_activation' | 'plugin_command' | 'injection' | 'shell_command' | 'compaction_summary' | 'system_trigger' | 'task' | 'cron_job' | 'cron_missed' | 'hook_result' | 'retry';
   promptId?: string;
+  turnId?: number;
 }
 
 /**
@@ -897,7 +864,7 @@ interface TurnStepInterruptedPayload {
 
 /**
  * states: (none)
- * owner: src/agent/stepRetry/stepRetryService.ts
+ * owner: src/agent/loop/turnEvents.ts
  */
 interface TurnStepRetryingPayload {
   _name: 'turn.step.retrying';
@@ -922,13 +889,7 @@ interface UsageRecordPayload {
   _name: 'usage.record';
   agentId: string;
   model: string;
-  /** TokenUsage */
-  usage: {
-    inputOther: number;
-    output: number;
-    inputCacheRead: number;
-    inputCacheCreation: number;
-  };
+  usage: TokenUsage;
   /** UsageRecordScope */
   usageScope?: 'session' | 'turn';
 }
@@ -944,8 +905,6 @@ interface WirePayloadMap {
   "cron.add": CronAddPayload;
   "cron.cursor": CronCursorPayload;
   "cron.delete": CronDeletePayload;
-  "dynamic_workflow_mode.enter": DynamicWorkflowModeEnterPayload;
-  "dynamic_workflow_mode.exit": DynamicWorkflowModeExitPayload;
   "file_history.checkpoint": FileHistoryCheckpointPayload;
   "file_history.tracked": FileHistoryTrackedPayload;
   "forked": ForkedPayload;
@@ -974,7 +933,8 @@ interface WirePayloadMap {
   "prompt.completed": PromptCompletedPayload;
   "prompt.steered": PromptSteeredPayload;
   "runtime.set_binding": RuntimeSetBindingPayload;
-  "subagent.binding_provenance.recorded": SubagentBindingProvenanceRecordedPayload;
+  "dynamic_workflow_mode.enter": DynamicWorkflowModeEnterPayload;
+  "dynamic_workflow_mode.exit": DynamicWorkflowModeExitPayload;
   "task.started": TaskStartedPayload;
   "task.terminated": TaskTerminatedPayload;
   "task.waitDelivered": TaskWaitDeliveredPayload;

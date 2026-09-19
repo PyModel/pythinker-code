@@ -17,7 +17,8 @@ import { MediaThumbnail } from "../MediaThumbnail";
 import { MediaPreviewModal } from "../MediaPreviewModal";
 import { BottomToolbar } from "../BottomToolbar";
 import { StreamingConfirmDialog } from "../StreamingConfirmDialog";
-import { ComposerModeMenu } from "../ComposerModeMenu";
+import { ThinkingButton } from "../ThinkingButton";
+import { PlanModeButton } from "../PlanModeButton";
 import {
   getModelById,
   getMediaFallbackModel,
@@ -44,6 +45,12 @@ interface InputAreaProps {
 const SWITCH_CACHE_NOTE =
   "Note: Switching models or thinking effort invalidates the existing prompt cache. Start a new conversation to avoid extra token costs.";
 
+function adjustHeight(textarea: HTMLTextAreaElement | null) {
+  if (!textarea) return;
+  textarea.style.height = "auto";
+  textarea.style.height = `${Math.min(textarea.scrollHeight, 140)}px`;
+}
+
 export function InputArea({ onAuthAction }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -51,7 +58,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
   const [cursorPos, setCursorPos] = useState(0);
   const [previewMedia, setPreviewMedia] = useState<string | null>(null);
 
-  const { isStreaming, sendMessage, abort, draftMedia, removeDraftMedia, hasProcessingMedia, getMediaInConversation, pendingInput, planMode, permissionMode, messages } = useChatStore();
+  const { isStreaming, sendMessage, abort, draftMedia, removeDraftMedia, hasProcessingMedia, getMediaInConversation, pendingInput, planMode, messages } = useChatStore();
   const { currentModel, thinkingEffort, updateModel, toggleThinking, selectThinkingEffort, models, extensionConfig, getCurrentThinkingMode } = useSettingsStore();
 
   const isProcessing = hasProcessingMedia();
@@ -115,7 +122,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
       return;
     }
 
-    // Only restore when the input box is empty
+    // 只在输入框为空时恢复
     if (text.trim()) {
       return;
     }
@@ -125,6 +132,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
       setText(textContent);
       setTimeout(() => {
         textareaRef.current?.focus();
+        adjustHeight(textareaRef.current);
       }, 0);
     }
   }, [pendingInput, isStreaming]);
@@ -140,11 +148,13 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
   } = useInputHistory({
     text,
     setText,
+    onHeightChange: () => setTimeout(() => { adjustHeight(textareaRef.current); }, 0),
   });
 
   function clearInput() {
     setText("");
     setCursorPos(0);
+    setTimeout(() => { adjustHeight(textareaRef.current); }, 0);
   }
 
   function removeActiveToken() {
@@ -155,6 +165,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     setCursorPos(newCursorPos);
     setTimeout(() => {
       textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
+      adjustHeight(textareaRef.current);
     }, 0);
   }
 
@@ -168,22 +179,9 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     clearInput();
   }
 
-  function applyText(newText: string, newCursorPos: number) {
-    setText(newText);
-    setCursorPos(newCursorPos);
-    setTimeout(() => {
-      textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
-      textareaRef.current?.focus();
-    }, 0);
-  }
-
   function handleSlashCommand(name: string) {
-    // Picking a command completes the token being typed. Sending it here would
-    // discard the rest of the message the command was being written into.
-    const before = activeToken ? text.slice(0, activeToken.start) : text;
-    const after = activeToken ? text.slice(cursorPos) : "";
-    const insertion = `/${name} `;
-    applyText(`${before}${insertion}${after}`, before.length + insertion.length);
+    sendMessage(`/${name}`);
+    clearInput();
   }
 
   function applyMention(filePath: string) {
@@ -195,7 +193,13 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
       isAppend: false,
     });
 
-    applyText(newText, newCursorPos);
+    setText(newText);
+    setCursorPos(newCursorPos);
+    setTimeout(() => {
+      textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
+      textareaRef.current?.focus();
+      adjustHeight(textareaRef.current);
+    }, 0);
   }
 
   const {
@@ -209,15 +213,13 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
 
   const {
     showFileMenu,
-    filePickerMode,
-    folderPath,
     fileItems,
     selectedIndex: fileSelectedIndex,
     isLoading: isFileLoading,
+    isStale: isFileStale,
     showMediaOption,
     setSelectedIndex: setFileSelectedIndex,
-    setFilePickerMode,
-    setFolderPath,
+    handleSelectItem: handleSelectFileItem,
     handleFileMenuKey,
     resetFilePicker,
   } = useFilePicker(
@@ -253,6 +255,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
 
       setTimeout(() => {
         textareaRef.current?.focus();
+        adjustHeight(textareaRef.current);
       }, 0);
     });
 
@@ -293,6 +296,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     setText(e.target.value);
     setCursorPos(e.target.selectionStart);
     resetHistoryIndex();
+    setTimeout(() => { adjustHeight(textareaRef.current); }, 0);
   };
 
   const handleSelect = () => {
@@ -306,6 +310,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     setTimeout(() => {
       textareaRef.current?.focus();
       textareaRef.current?.setSelectionRange(newText.length, newText.length);
+      adjustHeight(textareaRef.current);
     }, 0);
   }
 
@@ -331,35 +336,15 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
         {showFileMenu && (
           <div ref={menuRef} className="absolute bottom-full left-0 right-0 mb-2 z-10">
             <FilePickerMenu
-              mode={filePickerMode}
               items={fileItems}
-              currentPath={folderPath}
               selectedIndex={fileSelectedIndex}
               isLoading={isFileLoading}
+              isStale={isFileStale}
               showMediaOption={showMediaOption}
               onSelectMedia={() => {
                 void handlePickMedia();
               }}
-              onSwitchToFolder={() => {
-                setFilePickerMode("folder");
-                setFolderPath("");
-                setFileSelectedIndex(0);
-              }}
-              onSwitchToSearch={() => {
-                setFilePickerMode("search");
-                setFolderPath("");
-                setFileSelectedIndex(0);
-              }}
-              onSelectItem={(item) => { applyMention(item.path); }}
-              onNavigateUp={() => {
-                setFolderPath(folderPath.split("/").slice(0, -1).join("/"));
-                setFileSelectedIndex(0);
-              }}
-              onNavigateInto={(item) => {
-                setFilePickerMode("folder");
-                setFolderPath(item.path);
-                setFileSelectedIndex(0);
-              }}
+              onSelectItem={handleSelectFileItem}
               onHover={setFileSelectedIndex}
             />
           </div>
@@ -389,7 +374,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
             onPaste={handlePaste}
             placeholder={isStreaming ? "Add a follow-up…" : "Ask Pythinker Code… (/ commands · @ files · Alt+K code)"}
             className={cn(
-              "w-full field-sizing-content min-h-12 max-h-35 px-2.5 py-1.5 text-xs leading-relaxed",
+              "w-full min-h-12 max-h-35 px-2.5 py-1.5 text-xs leading-relaxed",
               "bg-transparent resize-none outline-none border-none overflow-y-auto",
               "placeholder:text-muted-foreground",
             )}
@@ -454,22 +439,20 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <ComposerModeMenu
-                permissionMode={permissionMode}
-                planMode={planMode}
-                onTogglePlanMode={handleTogglePlanMode}
-                thinkingMode={thinkingMode}
-                thinkingEffort={thinkingEffort}
-                thinkingEfforts={currentModelConfig?.support_efforts}
-                thinkingAlwaysOn={currentModelConfig?.capabilities.includes("always_thinking")}
-                thinkingDisabled={isStreaming}
+              <ThinkingButton
+                mode={thinkingMode}
+                effort={thinkingEffort}
+                efforts={currentModelConfig?.support_efforts}
+                alwaysOn={currentModelConfig?.capabilities.includes("always_thinking")}
+                disabled={isStreaming}
                 cacheNote={hasConversationHistory ? SWITCH_CACHE_NOTE : undefined}
-                onToggleThinking={toggleThinking}
-                onSelectThinkingEffort={selectThinkingEffort}
+                onToggle={toggleThinking}
+                onSelectEffort={selectThinkingEffort}
               />
+              <PlanModeButton active={planMode} onToggle={handleTogglePlanMode} />
             </div>
 
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button variant="ghost" size="icon-xs" onClick={handleAddButtonClick} className="text-muted-foreground">

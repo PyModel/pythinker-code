@@ -1,21 +1,23 @@
+
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket, type RawData } from 'ws';
 import {
-  transcriptResponseSchema,
-  type TranscriptOperation,
-  type TranscriptOpsEvent,
-  type TranscriptResetEvent,
-} from '@pymodel/transcript';
-import type { z } from 'zod';
+  IAgentLifecycleService,
+  IConfigService,
+  MAIN_AGENT_ID,
+  getLiveSessionById,
+  resumeSessionById,
+} from '@pymodel/agent-core-v2';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders, bearerToken } from './helpers/auth';
+
 
 function sseLines(...events: readonly string[]): string {
   return events.map((event) => `data: ${event}\n\n`).join('') + 'data: [DONE]\n\n';
@@ -102,16 +104,11 @@ async function startMockLlm(routes: readonly LlmRoute[], fallback: () => string 
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
-  if (address === null || typeof address !== 'object') throw new Error('no llm port');
+  if (address === null || typeof address === 'object' === false) throw new Error('no llm port');
   return {
     port: address.port,
     hits,
-    close: () =>
-      new Promise<void>((resolve) => {
-        server.close(() => {
-          resolve();
-        });
-      }),
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }
 
@@ -150,7 +147,15 @@ async function rest<T>(server: RunningServer, base: string, path: string, init?:
   return envelope.data;
 }
 
-type TxSnapshot = z.infer<typeof transcriptResponseSchema>;
+interface TxSnapshot {
+  items: any[];
+  tasks: any[];
+  interactions: any[];
+  attachments: any[];
+  todos: any[];
+  prompts: { promptId: string; status: string }[];
+  meta: { activity?: string; agent?: unknown; goal?: unknown; modes?: unknown };
+}
 
 const getTranscript = (server: RunningServer, base: string, sid: string): Promise<TxSnapshot> =>
   rest<TxSnapshot>(server, base, `/api/v1/sessions/${encodeURIComponent(sid)}/transcript?agent_id=main`);
@@ -183,8 +188,9 @@ async function until(label: string, fn: () => Promise<boolean> | boolean, timeou
 }
 
 interface TranscriptChannel {
-  readonly ops: TranscriptOperation[];
-  reset(): Omit<TranscriptResetEvent, 'type'>;
+  readonly frames: any[];
+  readonly ops: any[];
+  reset(): any;
   close(): void;
 }
 
@@ -192,30 +198,27 @@ function rawToString(data: RawData): string {
   if (typeof data === 'string') return data;
   if (Buffer.isBuffer(data)) return data.toString('utf8');
   if (Array.isArray(data)) return Buffer.concat(data).toString('utf8');
-  return Buffer.from(data).toString('utf8');
+  return Buffer.from(data as ArrayBuffer).toString('utf8');
 }
 
 async function subscribeTranscript(server: RunningServer, sid: string): Promise<TranscriptChannel> {
-  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/api/v1/ws`, [
-    `pythinker-code.bearer.${bearerToken(server)}`,
-  ]);
-  const ops: TranscriptOperation[] = [];
-  let resetPayload: Omit<TranscriptResetEvent, 'type'> | undefined;
+  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/api/v1/ws`, [`pythinker-code.bearer.${bearerToken(server)}`]);
+  const frames: any[] = [];
+  const ops: any[] = [];
+  let resetFrame: any;
   ws.on('message', (data) => {
-    let frame: { type?: unknown; payload?: unknown };
+    let frame: any;
     try {
-      frame = JSON.parse(rawToString(data)) as { type?: unknown; payload?: unknown };
+      frame = JSON.parse(rawToString(data));
     } catch {
       return;
     }
-    if (frame.type === 'transcript.reset') {
-      const payload = frame.payload as Omit<TranscriptResetEvent, 'type'>;
-      if (payload.agent_id === 'main' && resetPayload === undefined) resetPayload = payload;
+    frames.push(frame);
+    const payload = frame.payload as { agent_id?: string; ops?: any[] } | undefined;
+    if (frame.type === 'transcript.reset' && payload?.agent_id === 'main' && resetFrame === undefined) {
+      resetFrame = frame;
     }
-    if (frame.type === 'transcript.ops') {
-      const payload = frame.payload as Omit<TranscriptOpsEvent, 'type'>;
-      if (payload.agent_id === 'main') ops.push(...payload.ops);
-    }
+    if (frame.type === 'transcript.ops' && payload?.agent_id === 'main') ops.push(...(payload.ops ?? []));
   });
   await new Promise<void>((resolve, reject) => {
     ws.once('open', () => {
@@ -224,16 +227,12 @@ async function subscribeTranscript(server: RunningServer, sid: string): Promise<
     ws.once('error', reject);
   });
   ws.send(JSON.stringify({ type: 'subscribe_v2', id: 'sub-1', payload: { session_id: sid, transcript: { '*': 'delta' } } }));
-  await until('transcript.reset', () => resetPayload !== undefined, 15000);
+  await until('transcript.reset', () => resetFrame !== undefined, 15000);
   return {
+    frames,
     ops,
-    reset: () => {
-      if (resetPayload === undefined) throw new Error('transcript reset missing');
-      return resetPayload;
-    },
-    close: () => {
-      ws.close();
-    },
+    reset: () => resetFrame?.payload,
+    close: () => ws.close(),
   };
 }
 
@@ -244,21 +243,28 @@ describe('transcript contract e2e', () => {
   let llm: MockLlm | undefined;
   let base: string;
 
+  beforeAll(async () => {
+    home = await mkdtemp(join(tmpdir(), 'pythinker-transcript-contract-'));
+    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    base = `http://127.0.0.1:${server.port}`;
+  });
+
   afterEach(async () => {
     await llm?.close();
+    llm = undefined;
+  });
+
+  afterAll(async () => {
     await server?.close();
+    server = undefined;
     if (home !== undefined) await rm(home, { recursive: true, force: true });
     home = undefined;
-    server = undefined;
-    llm = undefined;
   });
 
   async function boot(routes: readonly LlmRoute[]): Promise<void> {
     llm = await startMockLlm(routes);
-    home = await mkdtemp(join(tmpdir(), 'pythinker-transcript-contract-'));
-    await writeFile(join(home, 'config.toml'), configToml(llm.port), 'utf-8');
-    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
-    base = `http://127.0.0.1:${server.port}`;
+    await writeFile(join(home!, 'config.toml'), configToml(llm.port), 'utf-8');
+    await server!.core.accessor.get(IConfigService).reload();
   }
 
   const idle = (server: RunningServer, base: string, sid: string) =>
@@ -266,18 +272,15 @@ describe('transcript contract e2e', () => {
 
   function dumpState(tx: TxSnapshot, hits: string[]): string {
     const turns = tx.items
-      .filter((item) => item.kind === 'turn')
-      .map((turn) => ({
-        id: turn.turnId,
-        state: turn.state,
-        origin: turn.origin?.kind,
-        steps: turn.steps.map((step) => ({
-          ordinal: step.ordinal,
-          state: step.state,
-          frames: step.frames.map(
-            (frame) =>
-              `${frame.kind}:${'role' in frame ? frame.role : ''}:${frame.kind === 'tool' ? frame.name : ''}:${'state' in frame ? frame.state : ''}`,
-          ),
+      .filter((i) => i.kind === 'turn')
+      .map((t: any) => ({
+        id: t.turnId,
+        state: t.state,
+        origin: t.origin?.kind,
+        steps: t.steps.map((s: any) => ({
+          ordinal: s.ordinal,
+          state: s.state,
+          frames: s.frames.map((f: any) => `${f.kind}:${f.role ?? ''}:${f.name ?? ''}:${f.state ?? ''}`),
         })),
       }));
     const markers = hits
@@ -320,25 +323,21 @@ describe('transcript contract e2e', () => {
     expect(end.meta.activity).toBe('idle');
     const turn = end.items.find((i) => i.kind === 'turn');
     expect(turn).toMatchObject({ state: 'completed' });
-    if (turn?.kind !== 'turn') throw new Error('completed turn missing');
     expect(typeof turn.endedAt).toBe('string');
-    const frameKinds = turn.steps.flatMap((step) => step.frames).map((frame) => frame.kind);
+    const frameKinds = turn.steps.flatMap((s: any) => s.frames).map((f: any) => f.kind);
     expect(frameKinds).toContain('text');
     const promptStatuses = end.prompts.map((p) => p.status);
     expect(promptStatuses.every((s) => s === 'completed')).toBe(true);
 
     const reset = channel.reset();
     expect(reset.snapshot.meta.activity).toBe('turn');
-    const opTypes = new Set(channel.ops.map((op) => op.op));
+    const opTypes = new Set(channel.ops.map((o: any) => o.op));
     expect(opTypes.has('turn.upsert')).toBe(true);
     expect(opTypes.has('step.upsert')).toBe(true);
     expect(opTypes.has('frame.upsert') || opTypes.has('append')).toBe(true);
     expect(opTypes.has('prompt.upsert')).toBe(true);
-    const activityMerges = channel.ops.filter(
-      (op): op is Extract<TranscriptOperation, { op: 'meta.merge' }> =>
-        op.op === 'meta.merge' && op.meta.activity !== undefined,
-    );
-    expect(activityMerges.map((op) => op.meta.activity)).toContain('idle');
+    const activityMerges = channel.ops.filter((o: any) => o.op === 'meta.merge' && o.meta?.activity !== undefined);
+    expect(activityMerges.map((o: any) => o.meta.activity)).toContain('idle');
     channel.close();
   });
 
@@ -359,7 +358,7 @@ describe('transcript contract e2e', () => {
       return tx.prompts.some((p) => p.status === 'queued') && tx.prompts.some((p) => p.status === 'running');
     });
     const mid = await getTranscript(server!, base, sid);
-    expect(mid.prompts.map((prompt) => prompt.status).toSorted()).toEqual(['queued', 'running']);
+    expect(mid.prompts.map((p) => p.status).sort()).toEqual(['queued', 'running']);
 
     await until('both settled', async () => {
       const tx = await getTranscript(server!, base, sid);
@@ -377,18 +376,14 @@ describe('transcript contract e2e', () => {
 
     await until('approval pending', async () => {
       const tx = await getTranscript(server!, base, sid);
-      return tx.interactions.some(
-        (interaction) =>
-          interaction.interactionKind === 'approval' && interaction.state === 'pending',
-      );
+      return tx.interactions.some((x: any) => x.interactionKind === 'approval' && x.state === 'pending');
     });
     const mid = await getTranscript(server!, base, sid);
-    const approval = mid.interactions.find(
-      (interaction) => interaction.interactionKind === 'approval' && interaction.state === 'pending',
-    );
-    if (approval === undefined) throw new Error('pending approval missing');
+    const approval = mid.interactions.find((x: any) => x.interactionKind === 'approval' && x.state === 'pending');
+    expect(approval).toBeDefined();
     expect(approval.toolCallId).toBe('call_1');
-    expect(approval.request).toMatchObject({ toolName: 'Bash' });
+    expect((approval.request as any)?.toolName).toBe('Bash');
+    expect(mid.meta.agent).toBeDefined();
 
     await rest(server!, base, `/api/v1/sessions/${encodeURIComponent(sid)}/approvals/${encodeURIComponent(approval.interactionId)}`, {
       method: 'POST',
@@ -397,15 +392,14 @@ describe('transcript contract e2e', () => {
     await idle(server!, base, sid);
 
     const end = await getTranscript(server!, base, sid);
-    expect(end.interactions.every((interaction) => interaction.state !== 'pending')).toBe(true);
+    expect(end.interactions.every((x: any) => x.state !== 'pending')).toBe(true);
     expect(end.meta.activity).toBe('idle');
     const toolFrame = end.items
-      .filter((item) => item.kind === 'turn')
-      .flatMap((turn) => turn.steps)
-      .flatMap((step) => step.frames)
-      .find((frame) => frame.kind === 'tool' && frame.name === 'Bash');
+      .filter((i) => i.kind === 'turn')
+      .flatMap((t: any) => t.steps)
+      .flatMap((s: any) => s.frames)
+      .find((f: any) => f.kind === 'tool' && f.name === 'Bash');
     expect(toolFrame).toMatchObject({ state: 'done' });
-    if (toolFrame?.kind !== 'tool') throw new Error('Bash frame missing');
     expect(String(toolFrame.output)).toContain('contract-hi');
   });
 
@@ -423,42 +417,37 @@ describe('transcript contract e2e', () => {
 
     await until('background task running', async () => {
       const tx = await getTranscript(server!, base, sid);
-      return tx.tasks.some((task) => task.kind === 'subagent' && task.state === 'running');
+      return tx.tasks.some((t: any) => t.kind === 'subagent' && t.state === 'running');
     });
     const mid = await getTranscript(server!, base, sid);
-    const task = mid.tasks.find((item) => item.kind === 'subagent');
-    if (task === undefined) throw new Error('subagent task missing');
+    const task = mid.tasks.find((t: any) => t.kind === 'subagent');
     expect(task).toMatchObject({ state: 'running', detached: true });
     expect(typeof task.agentId).toBe('string');
 
     await until('task completed', async () => {
       const tx = await getTranscript(server!, base, sid);
-      return tx.tasks.some((item) => item.taskId === task.taskId && item.state === 'completed');
+      return tx.tasks.some((t: any) => t.taskId === task.taskId && t.state === 'completed');
     }, 45000).catch(async (error) => {
       const tx = await getTranscript(server!, base, sid);
-      const opsData = await rest<{
-        batches: { seq: number; ops: TranscriptOperation[] }[];
-      }>(
+      const opsData = await rest<{ batches: { seq: number; ops: any[] }[] }>(
         server!,
         base,
         `/api/v1/sessions/${encodeURIComponent(sid)}/transcript/ops?agent_id=main&since_seq=0`,
       );
       const taskOps = opsData.batches.flatMap((b) =>
         b.ops
-          .filter((op) => op.op === 'task.upsert')
-          .map((op) => `${b.seq}:${op.task.taskId}:${op.task.state}`),
+          .filter((o: any) => o.op === 'task.upsert')
+          .map((o: any) => `${b.seq}:${o.task.taskId}:${o.task.state}`),
       );
       throw new Error(`${(error as Error).message}\ntasks: ${JSON.stringify(tx.tasks)}\ntaskOps: ${JSON.stringify(taskOps)}`, { cause: error });
     });
     await until('notification turn exists', async () => {
       const tx = await getTranscript(server!, base, sid);
-      return tx.items.some((item) => item.kind === 'turn' && item.origin?.kind === 'task');
+      return tx.items.some((i: any) => i.kind === 'turn' && i.origin?.kind === 'task');
     }, 45000);
 
     const end = await getTranscript(server!, base, sid);
-    const taskTurn = end.items.find(
-      (item) => item.kind === 'turn' && item.origin?.kind === 'task',
-    );
+    const taskTurn = end.items.find((i: any) => i.kind === 'turn' && i.origin?.kind === 'task');
     expect(taskTurn).toBeDefined();
     expect(JSON.stringify(taskTurn)).toContain('notification');
     await idleOrDump(server!, base, sid);
@@ -472,7 +461,7 @@ describe('transcript contract e2e', () => {
 
     const tx = await getTranscript(server!, base, sid);
     expect(tx.meta.activity).toBe('turn');
-    expect(tx.items.some((item) => item.kind === 'turn' && item.state === 'running')).toBe(true);
+    expect(tx.items.some((i: any) => i.kind === 'turn' && i.state === 'running')).toBe(true);
     expect(tx.prompts.some((p) => p.status === 'running')).toBe(true);
 
     const channel = await subscribeTranscript(server!, sid);
@@ -496,20 +485,99 @@ describe('transcript contract e2e', () => {
     const reset = channel.reset().snapshot;
 
     expect(reset.meta).toEqual(snapshot.meta);
-    expect(reset.tasks.map((task) => task.taskId).toSorted()).toEqual(
-      snapshot.tasks.map((task) => task.taskId).toSorted(),
+    const byId = (xs: any[], key: string): Record<string, unknown> =>
+      Object.fromEntries(xs.map((x) => [x[key], x]));
+    expect(Object.keys(byId(reset.tasks ?? [], 'taskId')).sort()).toEqual(
+      Object.keys(byId(snapshot.tasks, 'taskId')).sort(),
     );
-    expect(
-      reset.interactions.map((interaction) => interaction.interactionId).toSorted(),
-    ).toEqual(
-      snapshot.interactions.map((interaction) => interaction.interactionId).toSorted(),
+    expect(Object.keys(byId(reset.interactions ?? [], 'interactionId')).sort()).toEqual(
+      Object.keys(byId(snapshot.interactions, 'interactionId')).sort(),
     );
-    expect(reset.prompts.map((prompt) => prompt.promptId).toSorted()).toEqual(
-      snapshot.prompts.map((prompt) => prompt.promptId).toSorted(),
+    expect(Object.keys(byId(reset.prompts ?? [], 'promptId')).sort()).toEqual(
+      Object.keys(byId(snapshot.prompts, 'promptId')).sort(),
     );
-    expect(reset.todos.map((todo) => todo.todoId).toSorted()).toEqual(
-      snapshot.todos.map((todo) => todo.todoId).toSorted(),
+    expect(Object.keys(byId(reset.todos ?? [], 'todoId')).sort()).toEqual(
+      Object.keys(byId(snapshot.todos, 'todoId')).sort(),
     );
     channel.close();
   });
+
+  it('S7: a foreground subagent resumes with its prior context after a server restart', async () => {
+    let childAgentId: string | undefined;
+    let resumedChildRequest: string | undefined;
+    await boot([
+      {
+        match: (body) => body.includes('spawn-child') && !body.includes('"role":"tool"'),
+        respond: () =>
+          sseToolCall(
+            'call_spawn',
+            'Agent',
+            JSON.stringify({ prompt: 'remember the token quartz-7731 and reply with ok', description: 'child' }),
+          ),
+      },
+      {
+        match: (body) =>
+          body.includes('remember the token') && !body.includes('spawn-child') && !body.includes('recall the token'),
+        respond: () => sseText('ok, remembered'),
+      },
+      {
+        match: (body) => body.includes('resume-child') && !body.includes('recall the token'),
+        respond: () =>
+          sseToolCall(
+            'call_resume',
+            'Agent',
+            JSON.stringify({ prompt: 'recall the token', description: 'child again', resume: childAgentId }),
+          ),
+      },
+      {
+        match: (body) => {
+          const hit = body.includes('recall the token') && !body.includes('resume-child');
+          if (hit) resumedChildRequest = body;
+          return hit;
+        },
+        respond: () => sseText('the token is quartz-7731'),
+      },
+      { match: () => true, respond: () => sseText('noted') },
+    ]);
+    const sid = await createSession(server!, base);
+    await submitPrompt(server!, base, sid, 'spawn-child now');
+    await idle(server!, base, sid);
+
+    const liveBefore = getLiveSessionById(server!.core.accessor, sid);
+    expect(liveBefore).toBeDefined();
+    const childIds = liveBefore!.accessor
+      .get(IAgentLifecycleService)
+      .list()
+      .map((agent) => agent.agentId)
+      .filter((id) => id !== MAIN_AGENT_ID);
+    expect(childIds).toHaveLength(1);
+    childAgentId = childIds[0];
+
+    await server!.close();
+    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home!, logLevel: 'silent' });
+    base = `http://127.0.0.1:${server.port}`;
+
+    const resumed = await resumeSessionById(server.core.accessor, sid);
+    expect(resumed).toBeDefined();
+    const agents = resumed!.accessor.get(IAgentLifecycleService);
+    expect(agents.handleOf(childAgentId!)).toBeUndefined();
+
+    await submitPrompt(server, base, sid, 'resume-child now');
+    await idle(server, base, sid);
+
+    expect(resumedChildRequest).toBeDefined();
+    expect(resumedChildRequest).toContain('quartz-7731');
+    expect(resumedChildRequest).toContain('ok, remembered');
+    expect(agents.handleOf(childAgentId!)).toBeDefined();
+
+    const end = await getTranscript(server, base, sid);
+    const agentFrames = end.items
+      .filter((i) => i.kind === 'turn')
+      .flatMap((t: any) => t.steps)
+      .flatMap((s: any) => s.frames)
+      .filter((f: any) => f.kind === 'tool' && f.name === 'Agent');
+    expect(agentFrames).toHaveLength(2);
+    expect(String(agentFrames[1].output)).toContain(`agent_id: ${childAgentId}`);
+    expect(String(agentFrames[1].output)).toContain('the token is quartz-7731');
+  }, 60000);
 }, 90000);

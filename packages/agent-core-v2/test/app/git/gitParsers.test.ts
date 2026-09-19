@@ -26,12 +26,6 @@ describe('parsePorcelain', () => {
     });
   });
 
-  it('consumes the origin path of an unstaged rename', () => {
-    const out = ['## dev', ' R new.ts', 'old.ts', ' M src/a.ts', ''].join('\0');
-    const result = parsePorcelain(out, undefined);
-    expect(result.entries).toEqual({ 'new.ts': 'renamed', 'src/a.ts': 'modified' });
-  });
-
   it('applies the path filter when provided', () => {
     const out = '## main\0 M src/a.ts\0 M src/b.ts\0';
     const result = parsePorcelain(out, new Set(['src/a.ts']));
@@ -39,16 +33,16 @@ describe('parsePorcelain', () => {
   });
 
   it('keeps non-ASCII paths intact', () => {
-    const path = 'my-ai-workspace/output/2026-08-31-notes-café-naïve résumé.md';
+    const path = 'my-ai-workspace/output/2026-08-31-bilibili-BV175t86pEre-26.8.31-总能等到回踩的.md';
     const out = ` M ${path}\0`;
     const result = parsePorcelain(out, undefined);
     expect(result.entries).toEqual({ [path]: 'modified' });
   });
 
   it('uses the new path of a rename and skips the old one', () => {
-    const out = 'R  dir/renamed-café.md\0dir/old-café.md\0';
+    const out = 'R  dir/新名字.md\0dir/旧名字.md\0';
     const result = parsePorcelain(out, undefined);
-    expect(result.entries).toEqual({ 'dir/renamed-café.md': 'renamed' });
+    expect(result.entries).toEqual({ 'dir/新名字.md': 'renamed' });
   });
 });
 

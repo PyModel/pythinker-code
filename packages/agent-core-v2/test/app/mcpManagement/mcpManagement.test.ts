@@ -34,7 +34,6 @@ import { McpOAuthService, type McpOAuthEvent } from '#/mcpCore/oauth/service';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostClock } from '#/os/interface/hostClock';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
@@ -81,7 +80,6 @@ describe('McpManagementService', () => {
   let getOrCreate: Mock<IWorkspaceInstanceManager['getOrCreate']>;
   let findContaining: Mock<IWorkspaceInstanceManager['findContaining']>;
   let management: IMcpManagementService;
-  let clockNowMs: number;
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), 'pythinker-mcp-management-home-'));
@@ -97,7 +95,6 @@ describe('McpManagementService', () => {
     identitySnapshot = stubAgentIdentity({ slug: 'test-agent' }).current();
     identityReady = Promise.resolve(identitySnapshot);
     trusted = true;
-    clockNowMs = Date.UTC(2026, 0, 1);
     getOrCreate = vi.fn<IWorkspaceInstanceManager['getOrCreate']>(async () =>
       ({ id: 'test-workspace' }) as unknown as WorkspaceInstance,
     );
@@ -132,11 +129,6 @@ describe('McpManagementService', () => {
           pathClass: 'posix',
           homeDir: home,
           ready: Promise.resolve(),
-        });
-        reg.defineInstance(IHostClock, {
-          _serviceBrand: undefined,
-          now: () => new Date(clockNowMs),
-          timeZone: () => 'UTC',
         });
         reg.defineInstance(IHostProcessService, hostProcess);
         reg.definePartialInstance(IAtomicDocumentStore, {
@@ -196,10 +188,7 @@ describe('McpManagementService', () => {
     httpServers.push({
       close: () =>
         new Promise<void>((resolve, reject) => {
-          httpServer.close((error) => {
-            if (error === undefined || error === null) resolve();
-            else reject(error);
-          });
+          httpServer.close((err) => (err === undefined || err === null ? resolve() : reject(err)));
         }),
     });
     const port = (httpServer.address() as HttpAddress).port;
@@ -226,10 +215,7 @@ describe('McpManagementService', () => {
     httpServers.push({
       close: () =>
         new Promise<void>((resolve, reject) => {
-          httpServer.close((error) => {
-            if (error === undefined || error === null) resolve();
-            else reject(error);
-          });
+          httpServer.close((err) => (err === undefined || err === null ? resolve() : reject(err)));
         }),
     });
     const port = (httpServer.address() as HttpAddress).port;
@@ -263,10 +249,7 @@ describe('McpManagementService', () => {
     httpServers.push({
       close: () =>
         new Promise<void>((resolve, reject) => {
-          httpServer.close((error) => {
-            if (error === undefined || error === null) resolve();
-            else reject(error);
-          });
+          httpServer.close((err) => (err === undefined || err === null ? resolve() : reject(err)));
         }),
     });
     const port = (httpServer.address() as HttpAddress).port;
@@ -1579,25 +1562,31 @@ describe('McpManagementService', () => {
         auth: 'oauth',
       });
       const cancel = vi.fn(async () => undefined);
-      vi.spyOn(oauth, 'beginAuthorization').mockResolvedValue({
+      const beginSpy = vi.spyOn(oauth, 'beginAuthorization').mockResolvedValue({
         authorizationUrl: new URL('https://oauthable.example.test/authorize'),
         complete: vi.fn(async () => undefined),
         cancel,
       });
-      const begun = await management.beginServerAuth({ source: 'global', name: 'oauthable' });
-      if (begun.status !== 'authorization-required') {
-        throw new Error(`expected authorization-required, got ${begun.status}`);
+      vi.useFakeTimers();
+      try {
+        const begun = await management.beginServerAuth({ source: 'global', name: 'oauthable' });
+        if (begun.status !== 'authorization-required') {
+          throw new Error(`expected authorization-required, got ${begun.status}`);
+        }
+
+        await vi.advanceTimersByTimeAsync(15 * 60_000);
+
+        expect(cancel).toHaveBeenCalledTimes(1);
+        await expect(
+          management.completeServerAuth({ flowId: begun.flowId, timeoutMs: 1000 }),
+        ).rejects.toMatchObject({
+          code: ErrorCodes.REQUEST_INVALID,
+          message: `Unknown MCP OAuth flow: ${begun.flowId}`,
+        });
+      } finally {
+        vi.useRealTimers();
+        beginSpy.mockRestore();
       }
-
-      clockNowMs += 15 * 60_000;
-
-      await expect(
-        management.completeServerAuth({ flowId: begun.flowId, timeoutMs: 1000 }),
-      ).rejects.toMatchObject({
-        code: ErrorCodes.REQUEST_INVALID,
-        message: `Unknown MCP OAuth flow: ${begun.flowId}`,
-      });
-      expect(cancel).toHaveBeenCalledTimes(1);
     });
 
     it('complete rejects on timeout when the browser callback never arrives', async () => {

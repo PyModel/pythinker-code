@@ -1,13 +1,11 @@
 import { toDisposable } from '#/_base/di/lifecycle';
 import type { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { isCompactionSummaryMessage } from '#/agent/contextMemory/compactionHandoff';
-import { Event } from '#/_base/event';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
 import type { IAgentLoopService } from '#/agent/loop/loop';
 import type { IEventBus } from '#/app/event/eventBus';
+import type { IAgentReminderService } from '#/features/reminder/reminderService';
 import { wrapSystemReminder } from '#/features/reminder/systemReminder';
-import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import type { ReminderRuntime } from '#/features/reminder/reminderAgentRuntime';
 import type {
   ContextInjectionContent,
   ContextInjectionMessage,
@@ -20,28 +18,20 @@ export function createReminderStub(input: {
   register?<D>(variant: string, provider: ContextInjectionProvider<D>): { dispose(): void };
   notify?(content: string, notification: ReminderNotification): void;
   reconcileWhenIdle?(variant: string): Promise<void>;
-} = {}): ReminderRuntime {
+} = {}): IAgentReminderService {
   return {
+    _serviceBrand: undefined,
     register: input.register ?? (() => toDisposable(() => {})),
     notify: input.notify ?? (() => {}),
     reconcileWhenIdle: input.reconcileWhenIdle ?? (async () => {}),
-  } as ReminderRuntime;
-}
-
-export function lifecycleWithReminder(reminder: ReminderRuntime): IAgentLifecycleService {
-  return {
-    resolve: () => reminder,
-    handleOf: () => ({}),
-    onDidCreateScope: () => toDisposable(() => {}),
-    onWillClose: Event.None,
-  } as unknown as IAgentLifecycleService;
+  } as IAgentReminderService;
 }
 
 export function createReminderHarness(
   loop: IAgentLoopService,
   context: IAgentContextMemoryService,
   eventBus?: IEventBus,
-): ReminderRuntime {
+): IAgentReminderService {
   const entries = new Map<string, ContextInjectionProvider>();
   let rearm = false;
   eventBus?.subscribe(ContextSpliced, (event) => {

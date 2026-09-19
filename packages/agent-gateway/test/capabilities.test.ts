@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { listCapabilitiesResponseSchema } from '../src/protocol/rest-capability';
+import {
+  capabilityStatusSchema,
+  listCapabilitiesResponseSchema,
+} from '../src/protocol/rest-capability';
 import { sharedAuthHeaders, sharedServer } from './helpers/sharedServer';
 
 interface Envelope<T> {
@@ -27,14 +30,34 @@ describe('server-v2 /api/v1 capabilities', () => {
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 
-  it('lists an empty capability registry with the documented shape', async () => {
+  it('lists both built-in capabilities with the documented shape', async () => {
     const { body } = await getJson<unknown>('/api/v1/capabilities');
     expect(body.code).toBe(0);
     const parsed = listCapabilitiesResponseSchema.parse(body.data);
-    expect(parsed.capabilities).toEqual([]);
+    const ids = parsed.capabilities.map((c) => c.id).toSorted();
+    expect(ids).toEqual(['pythinker-cu', 'pythinker-webbridge']);
+    for (const capability of parsed.capabilities) {
+      expect(capabilityStatusSchema.parse(capability)).toBeTruthy();
+      expect(capability.install.running).toBe(false);
+    }
+    const pythinkerCu = parsed.capabilities.find((c) => c.id === 'pythinker-cu');
+    if (process.platform === 'darwin' || (process.platform === 'win32' && process.arch === 'x64')) {
+      expect(pythinkerCu?.supported).toBe(true);
+    } else {
+      expect(pythinkerCu?.supported).toBe(false);
+      expect(pythinkerCu?.state).toBe('unsupported');
+    }
+    const webbridge = parsed.capabilities.find((c) => c.id === 'pythinker-webbridge');
+    expect(webbridge?.supported).toBe(true);
+    expect(webbridge?.steps.find((s) => s.id === 'skill')?.state).toBe('missing');
+    expect(webbridge?.steps.find((s) => s.id === 'extension')?.optional).toBe(true);
   });
 
-  it('40418s on an unknown capability id', async () => {
+  it('gets a single capability and 40418s on an unknown id', async () => {
+    const { body } = await getJson<unknown>('/api/v1/capabilities/pythinker-webbridge');
+    expect(body.code).toBe(0);
+    expect(capabilityStatusSchema.parse(body.data).id).toBe('pythinker-webbridge');
+
     const missing = await getJson<unknown>('/api/v1/capabilities/nope');
     expect(missing.body.code).toBe(40418);
     expect(missing.body.data).toBeNull();
@@ -46,9 +69,17 @@ describe('server-v2 /api/v1 capabilities', () => {
   });
 
   it('rejects bare ids and unknown actions with 40001', async () => {
-    const bare = await postJson<unknown>('/api/v1/capabilities/nope');
+    const bare = await postJson<unknown>('/api/v1/capabilities/pythinker-cu');
     expect(bare.body.code).toBe(40001);
-    const bogus = await postJson<unknown>('/api/v1/capabilities/nope:uninstall');
+    const bogus = await postJson<unknown>('/api/v1/capabilities/pythinker-cu:uninstall');
     expect(bogus.body.code).toBe(40001);
   });
+
+  it.skipIf(process.platform === 'darwin' || (process.platform === 'win32' && process.arch === 'x64'))(
+    'rejects pythinker-cu install on unsupported platforms with 40925',
+    async () => {
+      const { body } = await postJson<unknown>('/api/v1/capabilities/pythinker-cu:install');
+      expect(body.code).toBe(40925);
+    },
+  );
 });

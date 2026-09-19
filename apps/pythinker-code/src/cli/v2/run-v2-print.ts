@@ -12,15 +12,13 @@
  *     `Turn.result` for authoritative completion,
  *   - applies the print-mode background policy (config-driven, v1-aligned:
  *     `exit` / `drain` / `steer`) before exiting.
- *
- * Selected by `runPrompt` unless `PYTHINKER_CODE_LEGACY_FLAG` is truthy.
  */
 
 import { readFile } from 'node:fs/promises';
 
 import {
-  AgentCron,
-  AgentGoal,
+  IAgentCronService,
+  IAgentGoalService,
   IAgentLifecycleService,
   IAgentLoopService,
   IAgentPermissionModeService,
@@ -33,13 +31,13 @@ import {
   IEventBus,
   IEventDispatcher,
   IHostFileSystem,
+  IOAuthToolkit,
   ISessionIndex,
-  IWorkspaceInstanceManager,
   ISessionManager,
   ITelemetryService,
+  IWorkspaceInstanceManager,
   PRINT_MAX_TURNS_DEFAULT,
   PRINT_WAIT_CEILING_S_DEFAULT,
-  agentContextOf,
   applyPrintModeConfigDefaults,
   bootstrap,
   createCloudAppender,
@@ -57,15 +55,19 @@ import {
   type IAgentScopeHandle,
   type ISessionScopeHandle,
   type LoopRunResult,
-  type PrintBackgroundMode,
   type McpServerConfig,
+  type PrintBackgroundMode,
   type Scope,
 } from '@pymodel/agent-core-v2';
 import {
   loadMcpServersDetailed,
   resolveMcpJsonPaths,
 } from '@pymodel/agent-core-v2/app/mcpConfig/configLoader';
-import { createPythinkerDefaultHeaders, createPythinkerDeviceId } from '@pymodel/pythinker-code-oauth';
+import {
+  createPythinkerDefaultHeaders,
+  createPythinkerDeviceId,
+  PYTHINKER_CODE_PROVIDER_NAME,
+} from '@pymodel/pythinker-code-oauth';
 import {
   initializeTelemetry,
   setCrashPhase,
@@ -81,7 +83,7 @@ import type {
   ThinkingDelta,
   ToolCallDelta,
 } from '@pymodel/agent-core-v2/agent/loop/turnEvents';
-import type { TurnStepRetrying } from '@pymodel/agent-core-v2/agent/stepRetry/stepRetryService';
+import type { TurnStepRetrying } from '@pymodel/agent-core-v2/agent/loop/turnEvents';
 import type { HookResult } from '@pymodel/agent-core-v2/features/externalHooks/agent/agentExternalHooksService';
 import type {
   ToolCallStarted,
@@ -180,6 +182,8 @@ export async function runV2Print(
     },
     [...logSeed(logging)],
   );
+  const auth = app.accessor.get(IOAuthToolkit);
+
   const configService = app.accessor.get(IConfigService);
   await configService.ready;
   // Print-mode config defaults (task timeouts / loop step cap / subagent
@@ -187,7 +191,7 @@ export async function runV2Print(
   // user left unset are filled, in the memory layer.
   await applyPrintModeConfigDefaults(configService);
   const defaultModel = configService.get<string>('defaultModel') ?? undefined;
-  let configTelemetryEnabled: boolean;
+  let configTelemetryEnabled = true;
   try {
     configTelemetryEnabled = configService.get('telemetry') !== false;
   } catch {
@@ -201,7 +205,7 @@ export async function runV2Print(
   }
 
   let restorePermission = async (): Promise<void> => {};
-  let quiesceAgents = async (_signal?: AbortSignal): Promise<void> => {};
+  let quiesceAgents = async (): Promise<void> => {};
   let releaseQuiescence: (() => void) | undefined;
   let flushWires = async (): Promise<void> => {};
   let removeTerminationCleanup: (() => void) | undefined;
@@ -211,26 +215,25 @@ export async function runV2Print(
     const pending = (cleanupPromise ??= (async () => {
       removeTerminationCleanup?.();
       setCrashPhase('shutdown');
-      const quiesceAbort = new AbortController();
       try {
         await restorePermission();
-        await raceWithTimeout(quiesceAgents(quiesceAbort.signal), CLI_SHUTDOWN_TIMEOUT_MS).catch(
-          () => {},
-        );
+        // A termination signal can arrive mid-turn: cancel turns and wait for idle agents first.
+        await raceWithTimeout(quiesceAgents(), CLI_SHUTDOWN_TIMEOUT_MS).catch(() => {});
       } finally {
-        quiesceAbort.abort();
         try {
+          // Concurrent so the phases' allowances cannot sum past PROMPT_CLEANUP_TIMEOUT_MS.
           await Promise.all([
+            // The turn's tail records reach the journal only via the wire's
+            // async persist queue; process.exit must not cut off that queue.
             raceWithTimeout(flushWires(), CLI_SHUTDOWN_TIMEOUT_MS).catch(() => {}),
             telemetryService !== undefined
-              ? raceWithTimeout(telemetryService.shutdown(), CLI_SHUTDOWN_TIMEOUT_MS).catch(
-                  () => {},
-                )
+              ? raceWithTimeout(telemetryService.shutdown(), CLI_SHUTDOWN_TIMEOUT_MS)
               : Promise.resolve(),
             shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS }).catch(() => {}),
           ]);
           app.dispose();
         } finally {
+          // Keep producers frozen until the journals are drained and disposed.
           releaseQuiescence?.();
         }
       }
@@ -246,8 +249,8 @@ export async function runV2Print(
     // The model below is the best known up front; a resumed session's real
     // model is reconciled once resolved (v2 via setContext, v1 via
     // setTelemetryModel). The v1 pipeline is initialized here too: the
-    // process-wide crash handlers installed in main() report through its
-    // default client, so its sink must be attached before the run can crash.
+    // process-wide crash handlers report through its default client, so its
+    // sink must be attached before the run can crash.
     telemetryService = app.accessor.get(ITelemetryService);
     if (telemetryEnabled) {
       telemetryService.addAppender(
@@ -256,6 +259,7 @@ export async function runV2Print(
           appName: CLI_USER_AGENT_PRODUCT,
           uiMode: PROMPT_UI_MODE,
           model: opts.model ?? defaultModel,
+          getAccessToken: async () => (await auth.getCachedAccessToken()) ?? null,
         }),
       );
       // No `first_launch` on the v1 client: the v2 side already tracks it via
@@ -268,9 +272,14 @@ export async function runV2Print(
         uiMode: PROMPT_UI_MODE,
         model: opts.model ?? defaultModel,
         endpoint: () => currentPythinkerProfile().telemetryEndpoint,
+        getAccessToken: async () =>
+          (await auth.getCachedAccessToken(PYTHINKER_CODE_PROVIDER_NAME)) ?? null,
+        onUnexpectedError: (error) => console.error('[unexpected]', error),
       });
     }
 
+    // Print mode has no trust prompt, so the engine's workspace-trust gate
+    // would silently drop project-level MCP servers — say so on stderr.
     try {
       const gated = await listTrustGatedMcpServers(app, workDir, homeDir);
       if (gated.length > 0) stderr.write(formatTrustGatedMcpWarning(gated));
@@ -280,13 +289,13 @@ export async function runV2Print(
 
     const resolved = await resolveNativeSession(app, opts, workDir, defaultModel, stderr);
     restorePermission = resolved.restorePermission;
-    quiesceAgents = async (signal) => {
-      releaseQuiescence = await quiesceSessionAgents(resolved.session, resolved.agent, signal);
+    quiesceAgents = async () => {
+      releaseQuiescence = await quiesceSessionAgents(resolved.session, resolved.agent);
     };
     flushWires = () => flushSessionWires(resolved.session, resolved.agent);
 
     telemetryService.setContext({ session_id: resolved.session.id, model: resolved.telemetryModel });
-    setTelemetryContext({ session_id: resolved.session.id });
+    setTelemetryContext({ sessionId: resolved.session.id });
     setTelemetryModel(resolved.telemetryModel);
     setCrashPhase('runtime');
     if (firstLaunch) {
@@ -332,58 +341,6 @@ interface ResolvedNativeSession {
   readonly restorePermission: () => Promise<void>;
   readonly telemetryModel: string | undefined;
   readonly goalModel: string | undefined;
-}
-
-export interface TrustGatedMcpServer {
-  readonly name: string;
-  readonly target: string;
-}
-
-export async function listTrustGatedMcpServers(
-  app: Scope,
-  workDir: string,
-  homeDir: string,
-): Promise<readonly TrustGatedMcpServer[]> {
-  const workspace = await app.accessor
-    .get(IWorkspaceInstanceManager)
-    .getOrCreate({ root: workDir });
-  if (await workspace.program.trust.get()) return [];
-  const fs = app.accessor.get(IHostFileSystem);
-  const [paths, loaded] = await Promise.all([
-    resolveMcpJsonPaths({ fs, cwd: workDir, homeDir }),
-    loadMcpServersDetailed({ fs, cwd: workDir, homeDir, includeProject: true }),
-  ]);
-  const projectPaths = new Set([paths.projectRoot, paths.project]);
-  return Object.entries(loaded.servers)
-    .filter(([name]) => projectPaths.has(loaded.origins[name] ?? ''))
-    .map(([name, config]) => ({ name, target: describeMcpTarget(config) }))
-    .toSorted((a, b) => a.name.localeCompare(b.name));
-}
-
-export function formatTrustGatedMcpWarning(servers: readonly TrustGatedMcpServer[]): string {
-  const noun = servers.length === 1 ? 'server' : 'servers';
-  const list = servers
-    .map((server) => `${escapeControlChars(server.name)} (${escapeControlChars(server.target)})`)
-    .join(', ');
-  return (
-    `Warning: this folder is not trusted; skipped ${servers.length} project-level MCP ${noun}: ${list}.\n` +
-    '  Run `pythinker` here and choose "Trust this folder" to enable them.\n\n'
-  );
-}
-
-function escapeControlChars(value: string): string {
-  return value.replaceAll(/[\u0000-\u001F\u007F-\u009F]/g, (char) => {
-    const code = char.codePointAt(0) ?? 0;
-    return `\\x${code.toString(16).padStart(2, '0')}`;
-  });
-}
-
-function describeMcpTarget(config: McpServerConfig): string {
-  if (config.transport === 'stdio') {
-    const args = config.args === undefined ? '' : ` ${config.args.join(' ')}`;
-    return `stdio: ${config.command}${args}`;
-  }
-  return `${config.transport}: ${config.url}`;
 }
 
 async function resolveNativeSession(
@@ -532,6 +489,55 @@ async function resolveNativeSession(
   };
 }
 
+export interface TrustGatedMcpServer {
+  readonly name: string;
+  readonly target: string;
+}
+
+/**
+ * Project-level MCP servers the workspace-trust gate leaves out in this
+ * folder, identified by the origin of each entry in the final merged config
+ * (mirrors the SDK's `getWorkspaceTrustInfo`). Empty when the folder is trusted
+ * or nothing project-level is declared.
+ */
+export async function listTrustGatedMcpServers(
+  app: Scope,
+  workDir: string,
+  homeDir: string,
+): Promise<readonly TrustGatedMcpServer[]> {
+  const workspace = await app.accessor
+    .get(IWorkspaceInstanceManager)
+    .getOrCreate({ root: workDir });
+  if (await workspace.program.trust.get()) return [];
+  const fs = app.accessor.get(IHostFileSystem);
+  const [paths, loaded] = await Promise.all([
+    resolveMcpJsonPaths({ fs, cwd: workDir, homeDir }),
+    loadMcpServersDetailed({ fs, cwd: workDir, homeDir, includeProject: true }),
+  ]);
+  const projectPaths = new Set([paths.projectRoot, paths.project]);
+  return Object.entries(loaded.servers)
+    .filter(([name]) => projectPaths.has(loaded.origins[name] ?? ''))
+    .map(([name, config]) => ({ name, target: describeMcpTarget(config) }))
+    .toSorted((a, b) => a.name.localeCompare(b.name));
+}
+
+export function formatTrustGatedMcpWarning(servers: readonly TrustGatedMcpServer[]): string {
+  const noun = servers.length === 1 ? 'server' : 'servers';
+  const list = servers.map((server) => `${server.name} (${server.target})`).join(', ');
+  return (
+    `Warning: this folder is not trusted; skipped ${servers.length} project-level MCP ${noun}: ${list}.\n` +
+    '  Run `pythinker` here and choose "Trust this folder" to enable them.\n\n'
+  );
+}
+
+function describeMcpTarget(config: McpServerConfig): string {
+  if (config.transport === 'stdio') {
+    const args = config.args === undefined ? '' : ` ${config.args.join(' ')}`;
+    return `stdio: ${config.command}${args}`;
+  }
+  return `${config.transport}: ${config.url}`;
+}
+
 async function runNativeTurn(
   app: Scope,
   session: ISessionScopeHandle,
@@ -584,14 +590,14 @@ async function runNativeTurn(
     // final message.
     writer.flushAssistant();
     if (result.type === 'completed') {
+      const skipTurnId = turn.id;
+      if (skipTurnId === undefined) {
+        throw new Error('Prompt turn ended before it started');
+      }
       const configService = app.accessor.get(IConfigService);
       const taskConfig = resolveAgentTaskConfig(configService);
-      const goalService = session.accessor
-        .get(IAgentLifecycleService)
-        .resolve(agentContextOf(agent), AgentGoal);
-      const cronService = session.accessor
-        .get(IAgentLifecycleService)
-        .resolve(agentContextOf(agent), AgentCron);
+      const goalService = agent.accessor.get(IAgentGoalService);
+      const cronService = agent.accessor.get(IAgentCronService);
       try {
         await applyPrintBackgroundPolicy({
           mode: resolvePrintBackgroundMode(configService),
@@ -600,7 +606,7 @@ async function runNativeTurn(
           countPending: () => countPendingBackgroundTasks(session),
           drain: () => drainBackgroundTasks(session, taskConfig?.printWaitCeilingS),
           turnEndings,
-          skipTurnId: turn.id,
+          skipTurnId,
           warn: (message) => stderr.write(`Warning: ${message}\n`),
           now: () => Date.now(),
           goalActive: () => goalService.getGoal().goal?.status === 'active',
@@ -644,9 +650,7 @@ async function runNativeGoal(
   stderr: PromptOutput,
 ): Promise<void> {
   requireConfiguredModel(model);
-  const goalService = session.accessor
-    .get(IAgentLifecycleService)
-    .resolve(agentContextOf(agent), AgentGoal);
+  const goalService = agent.accessor.get(IAgentGoalService);
   await goalService.createGoal({
     objective: goal.objective,
     replace: goal.replace,
@@ -957,6 +961,7 @@ function countPendingBackgroundTasks(session: ISessionScopeHandle): number {
   return count;
 }
 
+/** Every agent handle in the session; the main agent is included explicitly since the lifecycle list skips `closing` agents. */
 function collectSessionAgentHandles(
   session: ISessionScopeHandle,
   mainAgent: IAgentScopeHandle,
@@ -970,47 +975,20 @@ function collectSessionAgentHandles(
   return [...handles];
 }
 
-export function abortPromise(signal: AbortSignal | undefined): Promise<void> {
-  if (signal === undefined) return new Promise(() => {});
-  if (signal.aborted) return Promise.resolve();
-  return new Promise((resolve) => {
-    signal.addEventListener('abort', () => resolve(), { once: true });
-  });
-}
-
-export async function settleOrAbort(
-  signal: AbortSignal | undefined,
-  work: Promise<unknown>,
-): Promise<void> {
-  if (signal?.aborted) return;
-  await Promise.race([work.then(() => undefined, () => undefined), abortPromise(signal)]);
-}
-
-export async function delayOrAbort(signal: AbortSignal | undefined, ms: number): Promise<void> {
-  if (signal?.aborted) return;
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      resolve();
-    };
-    signal?.addEventListener('abort', onAbort, { once: true });
-  });
-}
-
+/**
+ * Stop producers, drain prompts, and cancel turns so closing records exist
+ * before the wire flush; returns a release holding a guard per loop.
+ */
 async function quiesceSessionAgents(
   session: ISessionScopeHandle,
   mainAgent: IAgentScopeHandle,
-  signal?: AbortSignal,
 ): Promise<(() => void) | undefined> {
   const handles = collectSessionAgentHandles(session, mainAgent);
   const promptServices = handles.flatMap((handle) => {
     try {
       return [handle.accessor.get(IAgentPromptService)];
     } catch {
+      // A torn-down agent scope has no prompt service to drain or observe.
       return [];
     }
   });
@@ -1018,36 +996,30 @@ async function quiesceSessionAgents(
     try {
       return [handle.accessor.get(IAgentLoopService)];
     } catch {
+      // A torn-down agent scope has no loop to quiesce.
       return [];
     }
   });
-  await settleOrAbort(
-    signal,
-    Promise.allSettled(
-      handles.flatMap((handle) => {
-        try {
-          return [handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed')];
-        } catch {
-          return [];
-        }
-      }),
-    ),
+  // Task producers bypass the prompt queue and dispatch termination records
+  // straight to the wire; stop them first so the flush can persist those.
+  await Promise.allSettled(
+    handles.flatMap((handle) => {
+      try {
+        return [handle.accessor.get(IAgentTaskService).stopAllOnExit('Session closed')];
+      } catch {
+        return [];
+      }
+    }),
   );
+  // Repeat until every queue is empty and every loop freezable: a prompt can
+  // still surface from the launch window or a cancelled turn's settle chain.
   for (;;) {
-    if (signal?.aborted) return undefined;
-    await settleOrAbort(
-      signal,
-      Promise.allSettled(promptServices.map((service) => service.drain())),
-    );
-    if (signal?.aborted) return undefined;
+    await Promise.allSettled(promptServices.map((service) => service.drain()));
     for (const loop of loops) {
-      for (const turnId of loop.status().pendingTurnIds) loop.cancel(turnId);
+      for (const queueId of loop.status().pendingPromptIds) loop.cancelQueued(queueId);
       loop.cancel();
     }
-    await settleOrAbort(
-      signal,
-      Promise.allSettled(loops.map((loop) => loop.settled())),
-    );
+    await Promise.allSettled(loops.map((loop) => loop.settled()));
     const guards: { dispose(): void }[] = [];
     let frozen = true;
     for (const loop of loops) {
@@ -1055,6 +1027,7 @@ async function quiesceSessionAgents(
       try {
         guard = loop.tryAcquireQuiescence();
       } catch {
+        // A disposed loop cannot accept new submissions; it needs no guard.
         continue;
       }
       if (guard === undefined) {
@@ -1066,37 +1039,36 @@ async function quiesceSessionAgents(
     const busy = promptServices.some((service) => {
       try {
         const snapshot = service.list();
-        return snapshot.launching || snapshot.active !== undefined || snapshot.pending.length > 0;
+        return (
+          snapshot.launching ||
+          snapshot.active !== undefined ||
+          snapshot.pending.length > 0
+        );
       } catch {
         return false;
       }
     });
-    if (signal?.aborted) {
-      for (const guard of guards) guard.dispose();
-      return undefined;
-    }
     if (frozen && !busy) {
       return () => {
         for (const guard of guards) guard.dispose();
       };
     }
     for (const guard of guards) guard.dispose();
-    await delayOrAbort(signal, PROMPT_QUIESCE_POLL_MS);
+    await new Promise((resolve) => {
+      setTimeout(resolve, PROMPT_QUIESCE_POLL_MS);
+    });
   }
 }
 
+/** Flush every session agent's wire journal; each flush settles independently. */
 async function flushSessionWires(
   session: ISessionScopeHandle,
   mainAgent: IAgentScopeHandle,
 ): Promise<void> {
   await Promise.allSettled(
-    collectSessionAgentHandles(session, mainAgent).flatMap((handle) => {
-      try {
-        return [handle.accessor.get(IEventDispatcher).flush()];
-      } catch {
-        return [];
-      }
-    }),
+    collectSessionAgentHandles(session, mainAgent).map((handle) =>
+      handle.accessor.get(IEventDispatcher).flush(),
+    ),
   );
 }
 

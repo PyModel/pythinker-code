@@ -1,5 +1,5 @@
 import { IAuthStatusService, type Scope } from '@pymodel/agent-core-v2';
-import { authSummarySchema } from '@pymodel/agent-core-v2/app/auth/authStatus';
+import { authSummarySchema } from '@pymodel/agent-core-v2/app/authLegacy/authLegacy';
 
 import { okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';

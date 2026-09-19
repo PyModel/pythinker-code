@@ -1,4 +1,4 @@
-import type { PythinkerConfig, ModelAlias } from '@pymodel/agent-core';
+import type { PythinkerConfig, ModelAlias } from '#/config/index';
 import {
   catalogBaseUrl,
   catalogProviderModels,

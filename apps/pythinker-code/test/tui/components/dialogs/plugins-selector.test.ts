@@ -63,9 +63,9 @@ const superpowers = {
 
 const officialEntries = [
   {
-    id: 'example-data',
+    id: 'pythinker-datasource',
     tier: 'official' as const,
-    displayName: 'Example Data',
+    displayName: 'Pythinker Datasource',
     description: 'Query supported data sources',
     version: '3.1.1',
     source: 'https://x/d.zip',
@@ -122,19 +122,211 @@ function makeCapability(overrides: Partial<CapabilityStatus> = {}): CapabilitySt
 }
 
 describe('plugins selector dialogs', () => {
-  it('treats every plugin install as third-party', () => {
-    const installed = {
-      ...superpowers,
-      source: 'zip-url' as const,
-      originalSource:
-        'https://plugins.example.com/pythinker-code/plugins/official/example-data.zip',
-    };
+  it('trusts only built-in Pythinker CDN plugin paths', () => {
+    expect(pluginTrustLabel({
+      id: 'pythinker-datasource',
+      displayName: 'Pythinker Datasource',
+      enabled: true,
+      state: 'ok',
+      skillCount: 0,
+      mcpServerCount: 0,
+      enabledMcpServerCount: 0,
+      hookCount: 0,
+      commandCount: 0,
+      hasErrors: false,
+      source: 'zip-url',
+      originalSource: 'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+    })).toBe('official');
+    expect(pluginTrustLabel({
+      id: 'superpowers',
+      displayName: 'Superpowers',
+      enabled: true,
+      state: 'ok',
+      skillCount: 0,
+      mcpServerCount: 0,
+      enabledMcpServerCount: 0,
+      hookCount: 0,
+      commandCount: 0,
+      hasErrors: false,
+      source: 'zip-url',
+      originalSource: 'https://code.kimi.com/pythinker-code/plugins/curated/superpowers.zip',
+    })).toBe('curated');
+    expect(pluginTrustLabel({
+      id: 'pythinker-cu',
+      displayName: 'Pythinker Computer Use',
+      enabled: true,
+      state: 'ok',
+      skillCount: 1,
+      mcpServerCount: 1,
+      enabledMcpServerCount: 1,
+      hookCount: 0,
+      commandCount: 0,
+      hasErrors: false,
+      source: 'zip-url',
+      originalSource: 'https://cdn.kimi.com/pythinker-computer-use/latest/pythinker-cu-plugin.zip',
+    })).toBe('official');
+    expect(pluginTrustLabel({
+      id: 'demo',
+      displayName: 'Demo',
+      enabled: true,
+      state: 'ok',
+      skillCount: 0,
+      mcpServerCount: 0,
+      enabledMcpServerCount: 0,
+      hookCount: 0,
+      commandCount: 0,
+      hasErrors: false,
+      source: 'zip-url',
+      originalSource: 'https://code.kimi.com/demo.zip',
+    })).toBe('third-party');
+    expect(pluginTrustLabel({
+      id: 'local',
+      displayName: 'Local',
+      enabled: true,
+      state: 'ok',
+      skillCount: 0,
+      mcpServerCount: 0,
+      enabledMcpServerCount: 0,
+      hookCount: 0,
+      commandCount: 0,
+      hasErrors: false,
+      source: 'local-path',
+      originalSource: 'https://code.kimi.com/pythinker-code/plugins/official/local',
+    })).toBe('third-party');
+  });
 
-    expect(pluginTrustLabel(installed)).toBe('third-party');
-    expect(isOfficialPluginInstall(installed)).toBe(false);
-    expect(isOfficialPluginSource(installed.originalSource)).toBe(false);
-    expect(isOfficialPluginSource('https://example.test/plugin.zip')).toBe(false);
-    expect(isOfficialPluginSource('./plugins/local')).toBe(false);
+  it('trusts the .ai Pythinker plugin hosts with the same path rules', () => {
+    const labelFor = (originalSource: string) =>
+      pluginTrustLabel({
+        id: 'demo',
+        displayName: 'Demo',
+        enabled: true,
+        state: 'ok',
+        skillCount: 0,
+        mcpServerCount: 0,
+        enabledMcpServerCount: 0,
+        hookCount: 0,
+        commandCount: 0,
+        hasErrors: false,
+        source: 'zip-url',
+        originalSource,
+      });
+    // code.kimi.ai mirrors the cdnBase rules; cdn.kimi.ai the content-CDN ones.
+    expect(labelFor('https://code.kimi.ai/pythinker-code/plugins/official/pythinker-datasource.zip')).toBe('official');
+    expect(labelFor('https://code.kimi.ai/pythinker-code/plugins/curated/superpowers.zip')).toBe('curated');
+    expect(labelFor('https://cdn.kimi.ai/pythinker-computer-use/latest/pythinker-cu-plugin.zip')).toBe('official');
+    expect(labelFor('https://cdn.kimi.ai/pythinker-computer-use-windows/latest/pythinker-cu-win-plugin.zip')).toBe('official');
+    // Non-plugin paths on the .ai hosts, and lookalike hosts, stay third-party.
+    expect(labelFor('https://code.kimi.ai/demo.zip')).toBe('third-party');
+    expect(labelFor('https://cdn.kimi.ai/unrelated/plugin.zip')).toBe('third-party');
+    expect(labelFor('https://code.kimi.ai.example.test/pythinker-code/plugins/official/x.zip')).toBe('third-party');
+  });
+
+  it('recognizes installed plugins by official provenance', () => {
+    const base = {
+      id: 'pythinker-datasource',
+      displayName: 'Pythinker Datasource',
+      enabled: true,
+      state: 'ok' as const,
+      skillCount: 0,
+      mcpServerCount: 0,
+      enabledMcpServerCount: 0,
+      hookCount: 0,
+      commandCount: 0,
+      hasErrors: false,
+    };
+    // Zip installs from the official CDN path.
+    expect(isOfficialPluginInstall({
+      ...base,
+      source: 'zip-url',
+      originalSource: 'https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip',
+    })).toBe(true);
+    expect(isOfficialPluginInstall({
+      ...base,
+      source: 'zip-url',
+      originalSource: 'https://code.kimi.ai/pythinker-code/plugins/official/pythinker-datasource.zip',
+    })).toBe(true);
+    expect(isOfficialPluginInstall({
+      ...base,
+      id: 'pythinker-cu',
+      displayName: 'Pythinker Computer Use',
+      source: 'zip-url',
+      originalSource: 'https://cdn.kimi.com/pythinker-computer-use/latest/pythinker-cu-plugin.zip',
+    })).toBe(true);
+    // Same manifest id from a local path, GitHub, a loopback URL, or a
+    // third-party URL is not the official build.
+    expect(isOfficialPluginInstall({ ...base, source: 'local-path' })).toBe(false);
+    expect(isOfficialPluginInstall({ ...base, source: 'github' })).toBe(false);
+    expect(isOfficialPluginInstall({
+      ...base,
+      source: 'zip-url',
+      originalSource: 'http://127.0.0.1:58627/pythinker-code/plugins/official/pythinker-datasource.zip',
+    })).toBe(false);
+    expect(isOfficialPluginInstall({
+      ...base,
+      source: 'zip-url',
+      originalSource: 'https://example.test/pythinker-code/plugins/official/pythinker-datasource.zip',
+    })).toBe(false);
+  });
+
+  it('shows installed Pythinker Computer Use and WebBridge plugins as official', () => {
+    const installed: PluginSummary[] = [
+      {
+        ...superpowers,
+        id: 'pythinker-cu',
+        displayName: 'Pythinker Computer Use',
+        source: 'zip-url',
+        originalSource: 'https://cdn.kimi.com/pythinker-computer-use/latest/pythinker-cu-plugin.zip',
+      },
+      {
+        ...superpowers,
+        id: 'pythinker-webbridge',
+        displayName: 'Pythinker WebBridge',
+        source: 'zip-url',
+        originalSource: 'https://code.kimi.com/pythinker-code/plugins/official/pythinker-webbridge.zip',
+      },
+    ];
+
+    const { panel } = makePanel({ installed });
+    const out = strip(renderRaw(panel));
+
+    expect(out).toContain('id pythinker-cu');
+    expect(out).toContain('via cdn.kimi.com · official');
+    expect(out).toContain('id pythinker-webbridge');
+    expect(out).toContain('via code.kimi.com · official');
+  });
+
+  it('treats only the official Pythinker CDN path as a trusted install source', () => {
+    expect(isOfficialPluginSource('https://code.kimi.com/pythinker-code/plugins/official/pythinker-datasource.zip')).toBe(true);
+    expect(isOfficialPluginSource('https://cdn.kimi.com/pythinker-computer-use/latest/pythinker-cu-plugin.zip')).toBe(true);
+    expect(
+      isOfficialPluginSource(
+        'https://cdn.kimi.com/pythinker-computer-use-windows/latest/pythinker-cu-win-plugin.zip',
+      ),
+    ).toBe(true);
+    // The .ai region family follows the same path rules.
+    expect(isOfficialPluginSource('https://code.kimi.ai/pythinker-code/plugins/official/pythinker-datasource.zip')).toBe(true);
+    expect(isOfficialPluginSource('https://cdn.kimi.ai/pythinker-computer-use/latest/pythinker-cu-plugin.zip')).toBe(true);
+    expect(
+      isOfficialPluginSource(
+        'https://cdn.kimi.ai/pythinker-computer-use-windows/latest/pythinker-cu-win-plugin.zip',
+      ),
+    ).toBe(true);
+    expect(isOfficialPluginSource('https://code.kimi.ai/pythinker-code/plugins/curated/superpowers.zip')).toBe(false);
+    expect(isOfficialPluginSource('https://cdn.kimi.ai/unrelated/plugin.zip')).toBe(false);
+    // Curated and other Pythinker CDN paths are not "official" for the install gate.
+    expect(isOfficialPluginSource('https://code.kimi.com/pythinker-code/plugins/curated/superpowers.zip')).toBe(false);
+    expect(isOfficialPluginSource('https://code.kimi.com/pythinker-code/plugins/foo.zip')).toBe(false);
+    expect(isOfficialPluginSource('https://cdn.kimi.com/unrelated/plugin.zip')).toBe(false);
+    // Non-Pythinker hosts (loopback included), non-https schemes, local paths, and
+    // GitHub sources are unofficial.
+    expect(isOfficialPluginSource('https://example.test/pythinker-code/plugins/official/x.zip')).toBe(false);
+    expect(isOfficialPluginSource('http://code.kimi.com/pythinker-code/plugins/official/x.zip')).toBe(false);
+    expect(isOfficialPluginSource('http://127.0.0.1:58627/pythinker-code/plugins/official/x.zip')).toBe(false);
+    expect(isOfficialPluginSource('./plugins/pythinker-datasource')).toBe(false);
+    expect(isOfficialPluginSource('/abs/path/to/plugin')).toBe(false);
+    expect(isOfficialPluginSource('github.com/owner/repo')).toBe(false);
+    expect(isOfficialPluginSource('not a url')).toBe(false);
   });
 
   it('opens on the Installed tab with the four panel tabs', () => {
@@ -240,14 +432,14 @@ describe('plugins selector dialogs', () => {
   });
 
   it('renders the inline plugin hint on the installed row', () => {
-    const datasource = { ...superpowers, id: 'example-data', displayName: 'Example Data', skillCount: 1 };
+    const datasource = { ...superpowers, id: 'pythinker-datasource', displayName: 'Pythinker Datasource', skillCount: 1 };
     const { panel } = makePanel({
       installed: [datasource],
-      selectedId: 'example-data',
-      pluginHint: { id: 'example-data', text: 'pending /new' },
+      selectedId: 'pythinker-datasource',
+      pluginHint: { id: 'pythinker-datasource', text: 'pending /new' },
     });
     const out = strip(renderRaw(panel));
-    expect(out).toContain('? Example Data  enabled  pending /new');
+    expect(out).toContain('? Pythinker Datasource  enabled  pending /new');
   });
 
   it('lazily loads the Official catalog, then lists installed entries first', () => {
@@ -258,27 +450,29 @@ describe('plugins selector dialogs', () => {
 
     panel.setMarketplace(marketplaceEntries, '/tmp/marketplace.json');
     const out = strip(renderRaw(panel));
-    expect(out).toContain('Example Data  install');
+    expect(out).toContain('Pythinker Datasource  install');
     expect(out).toContain('Query supported data sources');
     expect(out).not.toContain('Query supported data sources · v3.1.1');
-    expect(out).not.toContain('id example-data');
+    expect(out).not.toContain('id pythinker-datasource');
     expect(out).not.toContain('Official plugin');
     expect(out).not.toContain('· data');
     expect(out).toContain('0 installed · 1 available');
   });
 
-  it('does not inject a WebBridge promo while the Official catalog loads', () => {
+  it('renders the hardcoded Web Bridge entry on the Official tab while loading', () => {
     const { panel } = makePanel({ initialTab: 'official' });
+    // The catalog is still loading, but the built-in Web Bridge entry is shown
+    // immediately because it is baked into the TUI, not fetched.
     const out = strip(renderRaw(panel));
-    expect(out).not.toContain('Pythinker WebBridge');
+    expect(out).toContain('Pythinker WebBridge  open in browser');
     expect(out).toContain('Loading marketplace');
   });
 
-  it('does not inject a WebBridge promo when the Official catalog errors', () => {
+  it('keeps the Web Bridge entry visible when the Official catalog errors', () => {
     const { panel } = makePanel({ initialTab: 'official' });
     panel.setMarketplaceError('fetch failed');
     const out = strip(renderRaw(panel));
-    expect(out).not.toContain('Pythinker WebBridge');
+    expect(out).toContain('Pythinker WebBridge  open in browser');
     expect(out).toContain('Marketplace unavailable: fetch failed');
   });
 
@@ -320,8 +514,9 @@ describe('plugins selector dialogs', () => {
     ];
     const { panel, onSelect } = makePanel({ initialTab: 'official', capabilities });
 
-    // No setMarketplace yet — caller-supplied built-in rows do not wait on
-    // the remote catalog.
+    // No setMarketplace yet — built-in runtime setup must not wait on the
+    // remote catalog: the engine-known rows render (and the promo is
+    // suppressed by the real webbridge row).
     const out = strip(renderRaw(panel));
     expect(out).toContain('Pythinker Computer Use  install');
     expect(out).toContain('Pythinker WebBridge  install');
@@ -352,21 +547,34 @@ describe('plugins selector dialogs', () => {
 
     const out = strip(renderRaw(panel));
     expect(out).not.toContain('Pythinker Computer Use');
-    expect(out).not.toContain('Pythinker WebBridge');
+    expect(out).toContain('Pythinker WebBridge  open in browser');
     expect(out).toContain('Loading marketplace');
   });
 
-  it('installs the first catalog official entry directly', () => {
+  it('opens the Web Bridge webpage on Enter instead of installing', () => {
     const { panel, onSelect } = makePanel({ initialTab: 'official' });
     panel.setMarketplace(marketplaceEntries, '/tmp/marketplace.json');
+    // Web Bridge is pinned at index 0, so Enter selects it directly.
     panel.handleInput('\r');
     expect(onSelect).toHaveBeenCalledWith({
-      kind: 'install',
-      entry: expect.objectContaining({ id: 'example-data' }),
+      kind: 'open-url',
+      url: 'https://www.kimi.com/features/webbridge#local-agent',
+      label: 'Pythinker WebBridge',
     });
   });
 
-  it('shows only the real WebBridge catalog entry', () => {
+  it('installs a catalog official entry after navigating past Web Bridge', () => {
+    const { panel, onSelect } = makePanel({ initialTab: 'official' });
+    panel.setMarketplace(marketplaceEntries, '/tmp/marketplace.json');
+    panel.handleInput('\u001B[B'); // ↓ → pythinker-datasource
+    panel.handleInput('\r');
+    expect(onSelect).toHaveBeenCalledWith({
+      kind: 'install',
+      entry: expect.objectContaining({ id: 'pythinker-datasource' }),
+    });
+  });
+
+  it('lets the real catalog entry win over the pinned Web Bridge promo', () => {
     const entries = [
       {
         id: 'pythinker-webbridge',
@@ -379,6 +587,8 @@ describe('plugins selector dialogs', () => {
     const { panel, onSelect } = makePanel({ initialTab: 'official' });
     panel.setMarketplace(entries, '/tmp/marketplace.json');
     const out = strip(renderRaw(panel));
+    // Exactly one row, and it is the installable catalog copy — the hardcoded
+    // open-in-browser promo is suppressed.
     expect(out.split('Pythinker WebBridge').length - 1).toBe(1);
     expect(out).not.toContain('open in browser');
     panel.handleInput('\r'); // index 0 → the real entry installs
@@ -388,7 +598,10 @@ describe('plugins selector dialogs', () => {
     });
   });
 
-  it('installs a Curated WebBridge catalog entry', () => {
+  it('installs a Curated entry whose id matches the pinned WebBridge', () => {
+    // A curated/custom marketplace entry can legitimately reuse the
+    // pythinker-webbridge id; on the Curated tab it must install normally, not
+    // open the WebBridge page (that shortcut is reserved for the pinned row).
     const entries = [
       {
         id: 'pythinker-webbridge',
@@ -711,8 +924,8 @@ describe('plugins selector dialogs', () => {
     const selections: PluginMcpSelection[] = [];
     const picker = new PluginMcpSelectorComponent({
       info: {
-        id: 'example-data',
-        displayName: 'Example Data',
+        id: 'pythinker-datasource',
+        displayName: 'Pythinker Datasource',
         version: '1.0.0',
         enabled: true,
         state: 'ok',
@@ -724,17 +937,17 @@ describe('plugins selector dialogs', () => {
         hasErrors: false,
         source: 'local-path',
         installedAt: '2026-05-29T00:00:00.000Z',
-        root: '/plugins/example-data',
+        root: '/plugins/pythinker-datasource',
         manifest: undefined,
         mcpServers: [
           {
             name: 'data',
-            runtimeName: 'plugin-example-data-data',
+            runtimeName: 'plugin-pythinker-datasource-data',
             enabled: true,
             transport: 'stdio',
             command: 'node',
-            args: ['./bin/example-data.mjs'],
-            cwd: '/plugins/example-data',
+            args: ['./bin/pythinker-datasource.mjs'],
+            cwd: '/plugins/pythinker-datasource',
           },
         ],
         diagnostics: [],
@@ -754,22 +967,22 @@ describe('plugins selector dialogs', () => {
     picker.handleInput(' ');
 
     expect(selections).toEqual([
-      { kind: 'toggle', pluginId: 'example-data', server: 'data', enabled: false },
+      { kind: 'toggle', pluginId: 'pythinker-datasource', server: 'data', enabled: false },
     ]);
   });
 
   it('defaults plugin removal confirmation to cancel', () => {
     const results: PluginRemoveConfirmResult[] = [];
     const picker = new PluginRemoveConfirmComponent({
-      id: 'example-data',
-      displayName: 'Example Data',
+      id: 'pythinker-datasource',
+      displayName: 'Pythinker Datasource',
       onDone: (result) => {
         results.push(result);
       },
     });
 
     const out = picker.render(120).map(strip);
-    expect(out).toContain(' Remove Example Data (example-data)?');
+    expect(out).toContain(' Remove Pythinker Datasource (pythinker-datasource)?');
     expect(out).toContain('  ? Cancel');
     expect(out).toContain('    Keep this plugin installed.');
     expect(out).toContain('    Remove only the install record; plugin files are left in place.');
@@ -781,8 +994,8 @@ describe('plugins selector dialogs', () => {
   it('confirms plugin removal only after choosing remove', () => {
     const results: PluginRemoveConfirmResult[] = [];
     const picker = new PluginRemoveConfirmComponent({
-      id: 'example-data',
-      displayName: 'Example Data',
+      id: 'pythinker-datasource',
+      displayName: 'Pythinker Datasource',
       onDone: (result) => {
         results.push(result);
       },

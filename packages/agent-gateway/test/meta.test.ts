@@ -1,11 +1,11 @@
-import { type ExperimentalFlagStateResponse, metaResponseSchema } from '../src/protocol/rest-meta';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { IConfigService } from '@pymodel/agent-core-v2';
 import { IFeatureManager } from '@pymodel/agent-core-v2/app/feature/featureManager';
 import { getFeatureRecipes } from '@pymodel/agent-core-v2/features/featureRegistry';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -13,15 +13,23 @@ import { authedFetch } from './helpers/auth';
 
 interface MetaBody {
   code: number;
-  data: {
-    experimental_flags?: Record<string, boolean>;
-    experimental_flag_states?: ExperimentalFlagStateResponse[];
-  };
+  data: { experimental_flags?: Record<string, boolean> };
 }
 
 describe('/api/v1/meta experimental_flags', () => {
   let server: RunningServer | undefined;
   let home: string | undefined;
+
+  beforeAll(async () => {
+    home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-meta-'));
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
+  });
 
   beforeEach(() => {
     vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
@@ -30,6 +38,9 @@ describe('/api/v1/meta experimental_flags', () => {
 
   afterEach(async () => {
     vi.unstubAllEnvs();
+  });
+
+  afterAll(async () => {
     if (server !== undefined) {
       await server.close();
       server = undefined;
@@ -41,18 +52,9 @@ describe('/api/v1/meta experimental_flags', () => {
   });
 
   async function boot(toml?: string): Promise<string> {
-    home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-meta-'));
-    if (toml !== undefined) {
-      await writeFile(join(home, 'config.toml'), toml, 'utf-8');
-    }
-    server = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logLevel: 'silent',
-    });
-    return `http://127.0.0.1:${server.port}`;
+    await writeFile(join(home as string, 'config.toml'), toml ?? '', 'utf-8');
+    await (server as RunningServer).core.accessor.get(IConfigService).reload();
+    return `http://127.0.0.1:${(server as RunningServer).port}`;
   }
 
   async function getMetaFlags(base: string): Promise<Record<string, boolean>> {
@@ -95,50 +97,6 @@ describe('/api/v1/meta experimental_flags', () => {
     expect(res.status).toBe(200);
 
     expect((await getMetaFlags(base))['tool-select']).toBe(true);
-  });
-
-  async function getMetaFlagState(base: string, id: string): Promise<ExperimentalFlagStateResponse> {
-    const res = await authedFetch(server as RunningServer, base, '/api/v1/meta');
-    const body = (await res.json()) as MetaBody;
-    const data = metaResponseSchema.parse(body.data);
-    const state = data.experimental_flag_states?.find((entry) => entry.id === id);
-    if (state === undefined) throw new Error(`flag state "${id}" missing from /meta`);
-    return state;
-  }
-
-  it('reports env-enabled + config-disabled as externally controlled and overridden', async () => {
-    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_TOOL_SELECT', '1');
-    const base = await boot('[experimental]\n"tool-select" = false\n');
-    expect(await getMetaFlagState(base, 'tool-select')).toEqual({
-      id: 'tool-select',
-      enabled: true,
-      source: 'env',
-      config_value: false,
-      default_enabled: false,
-      externally_controlled: true,
-      overridden: true,
-    });
-  });
-
-  it('reports env-enabled + config-enabled as externally controlled only', async () => {
-    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_TOOL_SELECT', '1');
-    const base = await boot('[experimental]\n"tool-select" = true\n');
-    expect(await getMetaFlagState(base, 'tool-select')).toMatchObject({
-      enabled: true,
-      source: 'env',
-      config_value: true,
-      externally_controlled: true,
-      overridden: false,
-    });
-  });
-
-  it('reports a default-sourced flag as neither controlled nor overridden', async () => {
-    const base = await boot();
-    const state = await getMetaFlagState(base, 'tool-select');
-    expect(state.source).toBe('default');
-    expect(state.config_value).toBeUndefined();
-    expect(state.externally_controlled).toBe(false);
-    expect(state.overridden).toBe(false);
   });
 
   it('keeps an env-forced flag on when the config section disables it', async () => {
@@ -212,7 +170,18 @@ describe('/api/v1/meta features', () => {
     meta: Record<string, unknown>;
   }
 
-  afterEach(async () => {
+  beforeAll(async () => {
+    home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-meta-features-'));
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
+  });
+
+  afterAll(async () => {
     if (server !== undefined) {
       await server.close();
       server = undefined;
@@ -224,15 +193,7 @@ describe('/api/v1/meta features', () => {
   });
 
   async function boot(): Promise<string> {
-    home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-meta-features-'));
-    server = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logLevel: 'silent',
-    });
-    return `http://127.0.0.1:${server.port}`;
+    return `http://127.0.0.1:${(server as RunningServer).port}`;
   }
 
   async function getMetaFeatures(base: string): Promise<FeatureWire[]> {

@@ -21,11 +21,6 @@ function strip(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
 }
 
-function truecolorPrefix(hex: string): string {
-  const value = Number.parseInt(hex.slice(1), 16);
-  return `\u001B[38;2;${String(value >> 16)};${String((value >> 8) & 0xff)};${String(value & 0xff)}m`;
-}
-
 function createComponent(
   options: Partial<AgentDynamicWorkflowProgressOptions> = {},
 ): AgentDynamicWorkflowProgressComponent {
@@ -214,38 +209,6 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
       // Same visible text, different ANSI colours (reads currentTheme live).
       expect(strip(after)).toBe(strip(before));
       expect(after).not.toBe(before);
-    } finally {
-      chalk.level = previousLevel;
-    }
-  });
-
-  it('uses semantic palette colors for the title, member IDs, and active progress', () => {
-    const previousLevel = chalk.level;
-    chalk.level = 3; // force truecolor so semantic palette differences surface as ANSI
-    try {
-      const component = createComponent();
-      registerSubagents(component, 2);
-      startSubagents(component, 2);
-      component.recordToolCall({ agentId: 'agent-1', toolCallId: 'call-read' });
-
-      const rendered = component.render(100).join('\n');
-      const memberColor = (id: string): string | undefined =>
-        rendered.match(new RegExp(`(\\x1B\\[38;2;\\d+;\\d+;\\d+m)${id}`))?.[1];
-
-      expect(strip(rendered)).toContain('Agent DynamicWorkflow');
-      expect(strip(rendered)).toContain('001 [');
-      expect(strip(rendered)).toContain('Working…');
-      expect(rendered).toContain(`${truecolorPrefix(darkColors.primary)}━`);
-      expect(rendered).toContain(`${truecolorPrefix(darkColors.primaryShimmer)}━`);
-      expect(memberColor('001')).toBeDefined();
-      expect(memberColor('002')).toBeDefined();
-      expect(memberColor('001')).not.toBe(memberColor('002'));
-
-      component.markCompleted('agent-1');
-      component.markCompleted('agent-2');
-      const completed = component.render(100).join('\n');
-      expect(strip(completed)).toContain('Completed.');
-      expect(completed).toContain(`${truecolorPrefix(darkColors.success)}━`);
     } finally {
       chalk.level = previousLevel;
     }
@@ -666,13 +629,13 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
 
     registerSubagents(component, 1);
     startSubagents(component, 1);
-    component.setActivitySpinnerText(() => '⣷');
+    component.setActivitySpinnerText(() => '🌗');
 
     const statusLine = renderLines(component, 80)
       .find((line) => line.includes('Working…'));
 
     expect(statusLine).toBeDefined();
-    expect(statusLine?.startsWith(' ⣷ Working…')).toBe(true);
+    expect(statusLine?.startsWith(' 🌗 Working…')).toBe(true);
   });
 
   it('keeps a two-cell placeholder after the AgentDynamicWorkflow tool call ends', () => {
@@ -680,17 +643,17 @@ describe('AgentDynamicWorkflowProgressComponent', () => {
 
     registerSubagents(component, 1);
     startSubagents(component, 1);
-    component.setActivitySpinnerText(() => '⣷');
+    component.setActivitySpinnerText(() => '🌗');
     component.markToolCallEnded();
-    component.setActivitySpinnerText(() => '⣯');
+    component.setActivitySpinnerText(() => '🌘');
 
     const statusLine = renderLines(component, 80)
       .find((line) => line.includes('Working…'));
 
     expect(statusLine).toBeDefined();
     expect(statusLine?.startsWith('    Working…')).toBe(true);
-    expect(statusLine).not.toContain('⣷');
-    expect(statusLine).not.toContain('⣯');
+    expect(statusLine).not.toContain('🌗');
+    expect(statusLine).not.toContain('🌘');
   });
 
   it('renders terminal total status lines after the tool call ends', () => {

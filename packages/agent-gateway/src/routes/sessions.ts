@@ -37,11 +37,11 @@ import { pageResponseSchema } from '../protocol/pagination';
 import { toProtocolMessage } from '../services/messages/messageProjection';
 import {
   archiveSessionResponseSchema,
-  deleteSessionSuccessResponseSchema,
   compactSessionRequestSchema,
   compactSessionResponseSchema,
   createSessionChildRequestSchema,
   createSessionRequestSchema,
+  deleteSessionResponseSchema,
   forkSessionRequestSchema,
   getSessionGoalResponseSchema,
   listSessionChildrenResponseSchema,
@@ -85,14 +85,6 @@ interface SessionRouteHost {
     options: { preHandler: unknown[]; schema?: Record<string, unknown> } | undefined,
     handler: (
       req: { id: string; query: unknown; params: unknown },
-      reply: { send(payload: unknown): unknown },
-    ) => Promise<void> | void,
-  ): unknown;
-  delete?(
-    path: string,
-    options: { preHandler: unknown[]; schema?: Record<string, unknown> } | undefined,
-    handler: (
-      req: { id: string; params: unknown },
       reply: { send(payload: unknown): unknown },
     ) => Promise<void> | void,
   ): unknown;
@@ -420,6 +412,7 @@ export function registerSessionsRoutes(
     },
     async (req, reply) => {
       const { session_id } = req.params;
+      const cursor = await deps.sessionEventCursor(session_id);
       const summary = await core.accessor.get(ISessionIndex).get(session_id);
       if (summary === undefined) {
         reply.send(
@@ -439,7 +432,6 @@ export function registerSessionsRoutes(
         );
         return;
       }
-      const cursor = await deps.sessionEventCursor(session_id);
       reply.send(
         okEnvelope(
           toWireSession(summary, cwd, resolveSessionFacts(core, session_id), cursor.seq),
@@ -563,7 +555,7 @@ export function registerSessionsRoutes(
         [ErrorCode.SESSION_NOT_FOUND]: {},
         [ErrorCode.SESSION_TITLE_UNAVAILABLE]: {},
       },
-      description: 'Request session title generation; this build returns SESSION_TITLE_UNAVAILABLE',
+      description: 'Generate the session title via the managed chat_title tool',
       tags: ['sessions'],
     },
     async (req, reply) => {
@@ -583,7 +575,7 @@ export function registerSessionsRoutes(
           reply.send(
             errEnvelope(
               ErrorCode.SESSION_TITLE_UNAVAILABLE,
-              'session title generation is unavailable in this build',
+              'session title generation is unavailable (no managed OAuth login, no prompt yet, or the backend request failed)',
               req.id,
             ),
           );
@@ -615,7 +607,7 @@ export function registerSessionsRoutes(
           sessionAbortResponseSchema,
           startBtwSessionResponseSchema,
           archiveSessionResponseSchema,
-          deleteSessionSuccessResponseSchema,
+          deleteSessionResponseSchema,
         ]),
       },
       errors: {
@@ -862,46 +854,17 @@ export function registerSessionsRoutes(
     sessionWarningsRoute.options,
     sessionWarningsRoute.handler as Parameters<SessionRouteHost['get']>[2],
   );
-
-  const deleteSessionRoute = defineRoute(
-    {
-      method: 'DELETE',
-      path: '/sessions/{session_id}',
-      params: sessionIdParamSchema,
-      success: { data: deleteSessionSuccessResponseSchema },
-      errors: {
-        [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
-        [ErrorCode.SESSION_NOT_FOUND]: {},
-      },
-      description: 'Delete a session permanently',
-      tags: ['sessions'],
-    },
-    async (req, reply) => {
-      const { session_id } = req.params;
-      const summary = await core.accessor.get(ISessionManager).status(session_id);
-      if (summary === undefined) {
-        reply.send(
-          errEnvelope(ErrorCode.SESSION_NOT_FOUND, `session ${session_id} does not exist`, req.id),
-        );
-        return;
-      }
-      try {
-        await core.accessor.get(ISessionManager).delete(session_id);
-        requestLog(req)?.info({ session_id }, 'session deleted');
-        reply.send(okEnvelope({ deleted: true as const }, req.id));
-      } catch (error) {
-        sendMappedError(reply, req, error);
-      }
-    },
-  );
-  app.delete?.(
-    deleteSessionRoute.path,
-    deleteSessionRoute.options,
-    deleteSessionRoute.handler as Parameters<NonNullable<SessionRouteHost['delete']>>[2],
-  );
 }
 
-type SessionAction = 'fork' | 'compact' | 'undo' | 'abort' | 'btw' | 'restore' | 'archive' | 'delete';
+type SessionAction =
+  | 'fork'
+  | 'compact'
+  | 'undo'
+  | 'abort'
+  | 'btw'
+  | 'restore'
+  | 'archive'
+  | 'delete';
 
 interface SessionActionExtra {
   readonly core: Scope;
@@ -973,10 +936,10 @@ async function undoSessionAction(
   await agent.accessor.get(IAgentConversationUndoService).undo(body.count);
   const history = agent.accessor.get(IAgentContextMemoryService).get();
   requestLog(req)?.info({ session_id: id, action: 'undo' }, 'session action completed');
-  const statusService = core.accessor.get(ISessionStatusService);
+  const legacy = core.accessor.get(ISessionStatusService);
   const [summary, status] = await Promise.all([
     core.accessor.get(ISessionIndex).get(id),
-    statusService.status(id),
+    legacy.status(id),
   ]);
   reply.send(
     okEnvelope(
@@ -1116,7 +1079,8 @@ export function resolveSessionFacts(core: Scope, sessionId: string): SessionFact
 
 function readLiveSessionModel(session: ISessionScopeHandle): string | undefined {
   const main = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
-  return main === undefined ? undefined : readLegacyStatus(main)?.model;
+  if (main === undefined) return undefined;
+  return readLegacyStatus(main)?.model;
 }
 
 async function resolveMainAgent(core: Scope, sessionId: string): Promise<IAgentScopeHandle> {

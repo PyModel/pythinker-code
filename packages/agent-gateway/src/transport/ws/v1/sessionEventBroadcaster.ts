@@ -1,7 +1,6 @@
 import { rm } from 'node:fs/promises';
 
 import type {
-  AgentActivityState,
   ApprovalResponse,
   Event2,
   IAgentScopeHandle,
@@ -15,19 +14,19 @@ import type {
 } from '@pymodel/agent-core-v2';
 import {
   IAgentLifecycleService,
+  IAgentLoopService,
   IEventBus,
   IEventService,
-  ISessionExpertTalkService,
+  INTERACTION_TAG_AGENT_ID,
+  INTERACTION_TAG_SESSION_ID,
   ISessionActivityView,
   ISessionIndex,
   ISessionManager,
   MAIN_AGENT_ID,
   getLiveSessionById,
-  listSessionPendingInteractions,
-  onSessionInteractionDidChangePending,
-  onSessionInteractionDidResolve,
+  interactions,
+  toDisposable,
 } from '@pymodel/agent-core-v2';
-import type { ExpertTalkStatusV1 } from '@pymodel/agent-core-v2';
 import type {
   ConfigWarningItem,
   DiUnitChangedEvent,
@@ -39,10 +38,10 @@ import type {
 } from './events';
 import { isVolatileEventType } from './events';
 import type { SessionCursor } from '../../../protocol/ws-control';
-import { z } from 'zod';
-
-import { configResponseSchema } from '../../../protocol/rest-config';
-import { modelCatalogChangedEventSchema } from '../../../protocol/events-zod';
+import {
+  configChangedEventSchema,
+  modelCatalogChangedEventSchema,
+} from '../../../protocol/events-zod';
 import type { InFlightTurn, SnapshotSubagent } from '../../../protocol/rest-snapshot';
 import {
   detachGrades,
@@ -63,11 +62,15 @@ import { toWireApproval } from '../../../routes/approvals';
 import { toWireQuestion } from '../../../protocol/question-wire';
 import { toWireWorkspace } from '../../../routes/workspaces';
 import { projectPromptContentParts } from '../../../services/messages/messageProjection';
-import { readLegacyStatus, toLegacyPhase } from '../../../services/legacyStatus/legacyStatus';
+import { readLegacyStatus } from '../../../services/legacyStatus/legacyStatus';
+import {
+  legacyApprovalsOf,
+  LegacyActivityTracker,
+  phaseFromDomainEvent,
+} from '../../../services/legacyStatus/legacyActivity';
 import type { TranscriptService } from '../../../services/transcript/transcriptService';
 import { InFlightTurnTracker } from './inFlightTurnTracker';
 import { SubagentRosterTracker } from './subagentRosterTracker';
-import { projectExpertTalkStatus } from '../../../routes/expertTalk';
 import {
   type EventEnvelope,
   type JournalLogger,
@@ -94,7 +97,6 @@ export interface SessionSnapshotState {
 export type BroadcastDelivery = 'subscription' | 'immediate';
 
 export interface BroadcastTarget {
-  readonly supportsExpertTalkEvents?: boolean;
   send(envelope: EventEnvelope, delivery?: BroadcastDelivery): void;
 }
 
@@ -128,8 +130,6 @@ interface SessionState {
     BroadcastTarget,
     { readonly spec: TranscriptGradeSpec; readonly transcriptSince?: Record<string, number> }
   >;
-  expertTalk?: ISessionExpertTalkService;
-  readonly expertTalkSeeded: Set<BroadcastTarget>;
 }
 
 export const DEFAULT_MAX_BUFFER_SIZE = 1000;
@@ -147,6 +147,7 @@ export class SessionEventBroadcaster {
   private readonly globalTargets = new Set<BroadcastTarget>();
   private readonly diEventTargets = new Set<BroadcastTarget>();
   private readonly pendingStates = new Map<string, Promise<SessionState | undefined>>();
+  private readonly activityTrackers = new Map<string, LegacyActivityTracker>();
   private readonly maxBufferSize: number;
   private readonly coreEventSubscription: IDisposable;
   private readonly deletionSubscription: IDisposable | undefined;
@@ -196,15 +197,6 @@ export class SessionEventBroadcaster {
     if (state === undefined) return false;
     const prev = state.targets.get(target);
     state.targets.set(target, { agentFilter: filter, transcriptGrades });
-    if (target.supportsExpertTalkEvents === true && state.expertTalk !== undefined) {
-      await state.expertTalk.ready;
-      state.queue = state.queue.then(() => {
-        if (!state.targets.has(target)) return;
-        this.sendExpertTalkSnapshot(state, target, state.expertTalk!.status());
-        state.expertTalkSeeded.add(target);
-      });
-      await state.queue;
-    }
     if (transcriptGrades !== undefined) {
       if (opts?.deferTranscriptReset === true) {
         state.transcriptSeeded.delete(target);
@@ -239,7 +231,6 @@ export class SessionEventBroadcaster {
     const store = service.forSessionLive(state.sessionId);
     if (store === undefined) return false;
     for (const descriptor of store.agents()) {
-      if (isExpertTalkParticipant(descriptor.agentId)) continue;
       const grade = gradeFor(spec, descriptor.agentId);
       if (grade === 'off') continue;
       if (needsResetOnTransition(gradeFor(prev?.transcriptGrades, descriptor.agentId), grade)) {
@@ -265,7 +256,6 @@ export class SessionEventBroadcaster {
     state.targets.delete(target);
     state.transcriptSeeded.delete(target);
     state.deferredTranscriptSeeds.delete(target);
-    state.expertTalkSeeded.delete(target);
   }
 
   unsubscribeTranscript(
@@ -304,7 +294,6 @@ export class SessionEventBroadcaster {
       Object.keys(spec).filter((agentId) => agentId !== '*' && gradeFor(spec, agentId) !== 'off'),
     );
     for (const descriptor of store.agents()) {
-      if (isExpertTalkParticipant(descriptor.agentId)) continue;
       if (gradeFor(spec, descriptor.agentId) !== 'off') backfill.add(descriptor.agentId);
     }
     await Promise.all(
@@ -315,7 +304,6 @@ export class SessionEventBroadcaster {
     const currentSpec = current.transcriptGrades;
     this.ensureTranscriptStream(state, store);
     for (const descriptor of store.agents()) {
-      if (isExpertTalkParticipant(descriptor.agentId)) continue;
       const grade = gradeFor(currentSpec, descriptor.agentId);
       if (grade === 'off') continue;
       const transcript = store.getAgent(descriptor.agentId);
@@ -364,11 +352,7 @@ export class SessionEventBroadcaster {
     if (service === undefined) return;
     const stream: TranscriptStream = {
       store,
-      knownAgents: new Set(
-        store.agents()
-          .map((descriptor) => descriptor.agentId)
-          .filter((agentId) => !isExpertTalkParticipant(agentId)),
-      ),
+      knownAgents: new Set(store.agents().map((d) => d.agentId)),
     };
     state.transcriptStream = stream;
 
@@ -395,7 +379,6 @@ export class SessionEventBroadcaster {
     state.lifecycleDisposables.push(
       store.onRosterChange((agents) => {
         for (const descriptor of agents) {
-          if (isExpertTalkParticipant(descriptor.agentId)) continue;
           if (stream.knownAgents.has(descriptor.agentId)) continue;
           stream.knownAgents.add(descriptor.agentId);
           const transcript = store.getAgent(descriptor.agentId);
@@ -531,8 +514,7 @@ export class SessionEventBroadcaster {
     const summary = await this.opts.core.accessor.get(ISessionIndex).get(sessionId);
     if (summary === undefined) return undefined;
     const journal = await SessionEventJournal.open(
-      this.opts.eventsDir,
-      summary.id,
+      sessionJournalPath(this.opts.eventsDir, sessionId),
       this.opts.logger,
     );
     const watermark = { seq: journal.seq, epoch: journal.epoch };
@@ -550,9 +532,16 @@ export class SessionEventBroadcaster {
     );
     for (const [sessionId, state] of this.sessions) {
       await disposeSessionState(state);
+      this.dropActivityTrackers(sessionId);
       this.opts.transcriptService?.dropSession(sessionId);
     }
     this.sessions.clear();
+  }
+
+  private dropActivityTrackers(sessionId: string): void {
+    for (const key of this.activityTrackers.keys()) {
+      if (key.startsWith(`${sessionId}:`)) this.activityTrackers.delete(key);
+    }
   }
 
   private async purgeSession(sessionId: string): Promise<void> {
@@ -562,6 +551,7 @@ export class SessionEventBroadcaster {
       this.sessions.delete(sessionId);
       state.targets.clear();
       await disposeSessionState(state);
+      this.dropActivityTrackers(sessionId);
     }
     this.opts.transcriptService?.dropSession(sessionId);
     await rm(sessionJournalPath(this.opts.eventsDir, sessionId), { force: true });
@@ -590,8 +580,7 @@ export class SessionEventBroadcaster {
     if (session === undefined) return undefined;
 
     const journal = await SessionEventJournal.open(
-      this.opts.eventsDir,
-      sessionId,
+      sessionJournalPath(this.opts.eventsDir, sessionId),
       this.opts.logger,
     );
     if (this.closed || getLiveSessionById(this.opts.core.accessor, sessionId) !== session) {
@@ -611,17 +600,16 @@ export class SessionEventBroadcaster {
       knownInteractions: new Map(),
       transcriptSeeded: new Set(),
       deferredTranscriptSeeds: new Map(),
-      expertTalkSeeded: new Set(),
     };
     this.sessions.set(sessionId, state);
     try {
       this.attachWorkView(session, state);
       this.attachAgents(sessionId, session, state);
-      this.attachInteractions(sessionId, session, state);
-      this.attachExpertTalk(session, state);
+      this.attachInteractions(sessionId, state);
     } catch (error) {
       this.sessions.delete(sessionId);
       await disposeSessionState(state);
+      this.dropActivityTrackers(sessionId);
       if (error instanceof Error && error.message === 'InstantiationService has been disposed') return undefined;
       throw error;
     }
@@ -646,8 +634,7 @@ export class SessionEventBroadcaster {
 
   private async createGlobalState(): Promise<SessionState | undefined> {
     const journal = await SessionEventJournal.open(
-      this.opts.eventsDir,
-      GLOBAL_SESSION_ID,
+      sessionJournalPath(this.opts.eventsDir, GLOBAL_SESSION_ID),
       this.opts.logger,
     );
     if (this.closed) {
@@ -667,7 +654,6 @@ export class SessionEventBroadcaster {
       knownInteractions: new Map(),
       transcriptSeeded: new Set(),
       deferredTranscriptSeeds: new Map(),
-      expertTalkSeeded: new Set(),
     };
     this.sessions.set(GLOBAL_SESSION_ID, state);
     return state;
@@ -799,7 +785,7 @@ export class SessionEventBroadcaster {
       if (payload === undefined) return;
       void this.dispatchGlobal({
         type: 'event.config.changed',
-        changed_fields: payload.changedFields,
+        changedFields: payload.changedFields,
         config: payload.config,
         agentId: 'main',
         sessionId: GLOBAL_SESSION_ID,
@@ -813,7 +799,9 @@ export class SessionEventBroadcaster {
       if (payload === undefined) return;
       void this.dispatchGlobal({
         type: 'event.model_catalog.changed',
-        ...payload,
+        changed: payload.changed,
+        unchanged: payload.unchanged,
+        failed: payload.failed,
         agentId: 'main',
         sessionId: GLOBAL_SESSION_ID,
       } as Event).catch((error: unknown) =>
@@ -842,7 +830,6 @@ export class SessionEventBroadcaster {
     state.queue = state.queue
       .then(() => this.dispatch(state, event, isVolatileEventType(event.type)))
       .catch((error: unknown) => this.logDispatchDropped(state.sessionId, event.type, error));
-    await state.queue;
   }
 
   private async dispatchSessionEvent(sessionId: string, event: Event): Promise<void> {
@@ -859,45 +846,6 @@ export class SessionEventBroadcaster {
     state.queue = state.queue
       .then(() => this.dispatch(state, event, isVolatileEventType(event.type)))
       .catch((error: unknown) => this.logDispatchDropped(state.sessionId, event.type, error));
-  }
-
-  private attachExpertTalk(session: ISessionScopeHandle, state: SessionState): void {
-    const expertTalk = session.accessor.get(ISessionExpertTalkService);
-    if (expertTalk === undefined) return;
-    state.expertTalk = expertTalk;
-    state.lifecycleDisposables.push(
-      expertTalk.onDidChange(({ status }) => {
-        state.queue = state.queue
-          .then(() => {
-            for (const target of state.expertTalkSeeded) {
-              if (!state.targets.has(target)) continue;
-              this.sendExpertTalkSnapshot(state, target, status);
-            }
-          })
-          .catch((error: unknown) =>
-            this.logDispatchDropped(state.sessionId, 'expert_talk.changed', error),
-          );
-      }),
-    );
-  }
-
-  private sendExpertTalkSnapshot(
-    state: SessionState,
-    target: BroadcastTarget,
-    status: ExpertTalkStatusV1,
-  ): void {
-    const event: Event = {
-      type: 'expert_talk.changed',
-      status: projectExpertTalkStatus(status),
-      agentId: MAIN_AGENT_ID,
-      sessionId: state.sessionId,
-    };
-    target.send(
-      this.buildEnvelope(state.journal.seq, state.sessionId, event, {
-        epoch: state.journal.epoch,
-        volatile: true,
-      }),
-    );
   }
 
   private attachWorkView(session: ISessionScopeHandle, state: SessionState): void {
@@ -933,13 +881,11 @@ export class SessionEventBroadcaster {
       state.agentDisposables.set(handle.id, this.attachAgent(sessionId, handle));
     };
     for (const agent of agents.list()) {
-      if (isExpertTalkParticipant(agent.agentId)) continue;
       const handle = agents.handleOf(agent.agentId);
       if (handle !== undefined) subscribeAgent(handle);
     }
     state.lifecycleDisposables.push(
       agents.onDidCreate((context) => {
-        if (isExpertTalkParticipant(context.agentId)) return;
         const handle = agents.handleOf(context.agentId);
         if (handle !== undefined) subscribeAgent(handle);
         this.enqueueDurable(state, {
@@ -954,6 +900,7 @@ export class SessionEventBroadcaster {
         if (d !== undefined) {
           d.dispose();
           state.agentDisposables.delete(agentId);
+          this.activityTrackers.delete(`${sessionId}:${agentId}`);
           this.enqueueDurable(state, {
             type: 'agent.disposed',
             agentId,
@@ -966,6 +913,13 @@ export class SessionEventBroadcaster {
 
   private attachAgent(sessionId: string, handle: IAgentScopeHandle): IDisposable {
     const eventBus = handle.accessor.get(IEventBus);
+    this.activityTrackers.set(
+      `${sessionId}:${handle.id}`,
+      new LegacyActivityTracker(
+        () => handle.accessor.get(IAgentLoopService).activitySnapshot(),
+        () => legacyApprovalsOf(handle),
+      ),
+    );
     let lastLegacyStatus: string | undefined;
     const emitLegacyStatus = (): void => {
       const snapshot = readLegacyStatus(handle);
@@ -1004,22 +958,6 @@ export class SessionEventBroadcaster {
 
     if (event.type === 'prompt.accepted') return;
 
-    if (event.type === 'agent.activity.updated') {
-      const snapshot = event as unknown as AgentActivityState;
-      const phase = toLegacyPhase(snapshot);
-      if (phase !== undefined) {
-        const wireEvent = {
-          type: 'agent.status.updated',
-          phase,
-          agentId,
-          sessionId,
-        } as unknown as Event;
-        state.queue = state.queue
-          .then(() => this.dispatch(state, wireEvent, true))
-          .catch((error: unknown) => this.logDispatchDropped(state.sessionId, wireEvent.type, error));
-      }
-      return;
-    }
     if (
       event.type === 'agent.status.updated' &&
       (event as { phase?: unknown }).phase !== undefined
@@ -1053,40 +991,62 @@ export class SessionEventBroadcaster {
         .then(() => this.dispatch(state, legacy, volatile))
         .catch((error: unknown) => this.logDispatchDropped(state.sessionId, legacy.type, error));
     }
+    const tracker = this.activityTrackers.get(`${sessionId}:${agentId}`);
+    if (tracker !== undefined) {
+      const phase = phaseFromDomainEvent(tracker, event);
+      if (phase !== undefined) {
+        const phaseEvent = {
+          type: 'agent.status.updated',
+          phase,
+          agentId,
+          sessionId,
+        } as unknown as Event;
+        state.queue = state.queue
+          .then(() => this.dispatch(state, phaseEvent, true))
+          .catch((error: unknown) => this.logDispatchDropped(state.sessionId, phaseEvent.type, error));
+      }
+    }
   }
 
   private attachInteractions(
     sessionId: string,
-    session: ISessionScopeHandle,
     state: SessionState,
   ): void {
-    const agents = session.accessor.get(IAgentLifecycleService);
-    for (const i of listSessionPendingInteractions(agents)) {
-      state.knownInteractions.set(i.id, { kind: i.kind, agentId: i.origin.agentId ?? 'main' });
+    const pendingOfSession = (): readonly Interaction[] =>
+      interactions.findAll({
+        resolved: false,
+        tags: { [INTERACTION_TAG_SESSION_ID]: sessionId },
+      });
+    for (const i of pendingOfSession()) {
+      state.knownInteractions.set(i.id, { kind: i.kind, agentId: interactionAgentId(i) });
     }
     state.lifecycleDisposables.push(
-      onSessionInteractionDidChangePending(agents, () => {
-        for (const i of listSessionPendingInteractions(agents)) {
-          if (state.knownInteractions.has(i.id)) continue;
-          state.knownInteractions.set(i.id, {
-            kind: i.kind,
-            agentId: i.origin.agentId ?? 'main',
-          });
-          const event = interactionRequestedEvent(i, sessionId);
+      toDisposable(
+        interactions.onDidChangePending(() => {
+          for (const i of pendingOfSession()) {
+            if (state.knownInteractions.has(i.id)) continue;
+            state.knownInteractions.set(i.id, {
+              kind: i.kind,
+              agentId: interactionAgentId(i),
+            });
+            const event = interactionRequestedEvent(i, sessionId);
+            if (event !== undefined) {
+              this.enqueueDurable(state, event);
+            }
+          }
+        }),
+      ),
+      toDisposable(
+        interactions.onDidResolve(({ id, response }) => {
+          const known = state.knownInteractions.get(id);
+          if (known === undefined) return;
+          state.knownInteractions.delete(id);
+          const event = interactionResolvedEvent(known.kind, id, response, sessionId, known.agentId);
           if (event !== undefined) {
             this.enqueueDurable(state, event);
           }
-        }
-      }),
-      onSessionInteractionDidResolve(agents, ({ id, response }) => {
-        const known = state.knownInteractions.get(id);
-        if (known === undefined) return;
-        state.knownInteractions.delete(id);
-        const event = interactionResolvedEvent(known.kind, id, response, sessionId, known.agentId);
-        if (event !== undefined) {
-          this.enqueueDurable(state, event);
-        }
-      }),
+        }),
+      ),
     );
   }
 
@@ -1279,6 +1239,11 @@ const TRANSCRIPT_PROJECTED_EVENT_TYPES: ReadonlySet<string> = new Set([
   'background.task.started',
   'background.task.terminated',
   'task.notified',
+  'subagent.spawned',
+  'subagent.started',
+  'subagent.completed',
+  'subagent.failed',
+  'subagent.suspended',
   'compaction.started',
   'compaction.blocked',
   'compaction.cancelled',
@@ -1323,8 +1288,13 @@ function suppressedByTranscript(
   return TRANSCRIPT_PROJECTED_EVENT_TYPES.has(envelope.type);
 }
 
+function interactionAgentId(interaction: Interaction): string {
+  const tag = interaction.tags[INTERACTION_TAG_AGENT_ID];
+  return typeof tag === 'string' ? tag : MAIN_AGENT_ID;
+}
+
 function interactionRequestedEvent(interaction: Interaction, sessionId: string): Event | undefined {
-  const agentId = interaction.origin.agentId ?? 'main';
+  const agentId = interactionAgentId(interaction);
   switch (interaction.kind) {
     case 'question':
       return {
@@ -1565,16 +1535,13 @@ function configWarningPayload(payload: unknown): { warnings: ConfigWarningItem[]
   return { warnings: items };
 }
 
-const coreConfigChangedPayloadSchema = z.object({
-  changedFields: z.array(z.string().min(1)),
-  config: configResponseSchema,
-});
+const configChangedPayloadSchema = configChangedEventSchema.omit({ type: true });
 const modelCatalogChangedPayloadSchema = modelCatalogChangedEventSchema.omit({ type: true });
 
 function configChangedPayload(
   payload: unknown,
 ): { changedFields: string[]; config: unknown } | undefined {
-  const parsed = coreConfigChangedPayloadSchema.safeParse(payload);
+  const parsed = configChangedPayloadSchema.safeParse(payload);
   if (!parsed.success) return undefined;
   return { changedFields: parsed.data.changedFields, config: parsed.data.config };
 }
@@ -1591,8 +1558,4 @@ function modelCatalogChangedPayload(
   const parsed = modelCatalogChangedPayloadSchema.safeParse(payload);
   if (!parsed.success) return undefined;
   return parsed.data;
-}
-
-function isExpertTalkParticipant(agentId: string): boolean {
-  return agentId.startsWith('expert-talk-');
 }

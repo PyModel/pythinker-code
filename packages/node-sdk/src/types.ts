@@ -1,15 +1,19 @@
+import type { HostUiCapability } from '@pymodel/agent-core-v2';
 import type {
   ExportSessionManifest,
-  ResumeSessionResult,
   ShellEnvironment,
+} from '@pymodel/agent-core-v2/app/sessionExport/sessionExport';
+import type { Pyaos } from '@pymodel/pyaos';
+import type { PythinkerHostIdentity, OAuthRefreshOutcome } from '@pymodel/pythinker-code-oauth';
+import type { ContentPart } from '@pymodel/kosong';
+
+import type { ResumeSessionResult } from '#/replay';
+import type { PermissionMode } from '#/permission';
+import type {
   TelemetryClient,
   TelemetryContextPatch,
   TelemetryProperties,
-} from '@pymodel/agent-core';
-import type { Pyaos } from '@pymodel/pyaos';
-import type { PythinkerHostIdentity } from '@pymodel/pythinker-code-oauth';
-import type { ContentPart } from '@pymodel/kosong';
-import type { HostUiCapability } from '@pymodel/agent-core-v2';
+} from '#/telemetry';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -25,66 +29,61 @@ export interface AgentRuntimeBinding {
 export type { CapabilityStatus } from '@pymodel/agent-core-v2/app/capability/types';
 
 export type {
-  ExpertTalkArmV1,
-  ExpertTalkBindingV1,
-  ExpertTalkConfigV1,
-  ExpertTalkFailureReason,
-  ExpertTalkListRunsOptions,
-  ExpertTalkPairV1,
-  ExpertTalkPairValidationV1,
-  ExpertTalkResultV1,
-  ExpertTalkRole,
-  ExpertTalkRunArtifactsV1,
-  ExpertTalkRunErrorV1,
-  ExpertTalkRunStatus,
-  ExpertTalkRunProgressV1,
-  ExpertTalkRunPageV1,
-  ExpertTalkRunV1,
-  ExpertTalkStageArtifactV1,
-  ExpertTalkStageProgressV1,
-  ExpertTalkToolProgressV1,
-  ExpertTalkStartResult,
-  ExpertTalkStatusV1,
-} from '@pymodel/agent-core-v2/session/expertTalk/expertTalk';
-
-export type {
   AgentReplayRecord,
+  ResumedAgentState,
+} from '#/replay';
+export type {
   AgentBackgroundTaskInfo,
+  BackgroundTaskInfo,
+  BackgroundTaskStatus,
+  ProcessBackgroundTaskInfo,
+  QuestionBackgroundTaskInfo,
+} from '#/task';
+export type {
   AppMcpServerAuthState,
   AppMcpServerConfig,
   AppMcpServerDescriptor,
   AppMcpServerInspection,
-  BackgroundConfig,
-  BackgroundTaskInfo,
-  BackgroundTaskStatus,
-  ConfigDiagnostics,
-  ContextMessage,
-  CronTaskSnapshot,
-  ExperimentalFeatureState,
-  ExperimentalFlagMap,
-  ExperimentalFlagSource,
-  ExportSessionManifest,
-  GoalBudgetLimits,
-  GoalBudgetReport,
-  GoalChange,
-  GoalChangeStats,
-  GetCronTasksResult,
-  GoalSnapshot,
-  GoalStatus,
-  GoalToolResult,
   GlobalMcpServerAuthState,
   GlobalMcpServerAuthStatus,
-  PythinkerConfig,
-  PythinkerConfigPatch,
-  LoopControl,
   McpManagedServerInfo,
   McpServerInfo,
   McpServerLocator,
   McpServerSource,
   McpStartupMetrics,
+  McpServerConfig,
+  McpTestResult,
+} from '#/mcp';
+export type {
+  BackgroundConfig,
+  ConfigDiagnostics,
+  PythinkerConfig,
+  PythinkerConfigPatch,
+  LoopControl,
   ModelAlias,
   PyModelServiceConfig,
   OAuthRef,
+  ProviderConfig,
+  ProviderType,
+  ServicesConfig,
+  ThinkingConfig,
+} from '#/config/index';
+export type { ContextMessage, PromptOrigin } from '#/context';
+export type {
+  ExperimentalFeatureState,
+  ExperimentalFlagMap,
+  ExperimentalFlagSource,
+} from '@pymodel/agent-core-v2/app/flag/flag';
+export type {
+  GoalBudgetLimits,
+  GoalBudgetReport,
+  GoalChange,
+  GoalChangeStats,
+  GoalSnapshot,
+  GoalStatus,
+  GoalToolResult,
+} from '@pymodel/agent-core-v2/features/goal/types';
+export type {
   PluginCommandDef,
   PluginGithubMetadata,
   PluginGithubRef,
@@ -92,23 +91,31 @@ export type {
   PluginMcpServerInfo,
   PluginSource,
   PluginSummary,
-  ProcessBackgroundTaskInfo,
-  PromptOrigin,
-  ProviderConfig,
-  ProviderType,
-  QuestionBackgroundTaskInfo,
   ReloadSummary,
-  ResumedAgentState,
-  ServicesConfig,
+} from '@pymodel/agent-core-v2/app/plugin/types';
+export type { SkillSummary } from '@pymodel/agent-core-v2/features/skill/catalog/types';
+export type { ToolInfo } from '#/tool';
+export type {
+  ExportSessionManifest,
   ShellEnvironment,
-  SkillSummary,
-  ThinkingConfig,
-  ToolInfo,
-  GlobalMcpServerConfig as McpServerConfig,
-  GlobalMcpServerTestResult as McpTestResult,
-} from '@pymodel/agent-core';
+} from '@pymodel/agent-core-v2/app/sessionExport/sessionExport';
 
-export type { PythinkerHostIdentity };
+export interface CronTaskSnapshot {
+  readonly id: string;
+  readonly cron: string;
+  readonly recurring: boolean;
+  readonly createdAt: number;
+  readonly lastFiredAt: number | undefined;
+  readonly nextFireAt: number | null;
+}
+
+export interface GetCronTasksResult {
+  readonly tasks: readonly CronTaskSnapshot[];
+}
+
+export type { PythinkerHostIdentity, OAuthRefreshOutcome };
+// Host UI capabilities are an agent-core-v2 seam (`BootstrapInput.args.uiCapabilities`);
+// hosts name them through `PythinkerHarnessOptions.uiCapabilities`, so the type is public here.
 export type { HostUiCapability };
 export type { TelemetryClient, TelemetryContextPatch, TelemetryProperties };
 export type { ContentPart, Role, ThinkingEffort, ToolCall } from '@pymodel/kosong';
@@ -116,7 +123,7 @@ export type { ContentPart, Role, ThinkingEffort, ToolCall } from '@pymodel/koson
 // from the v2 engine (v1 sessions report an empty command set).
 export type { AgentCommandInfo } from '@pymodel/agent-core-v2/agent/command/agentCommand';
 
-export type PermissionMode = 'yolo' | 'manual' | 'auto';
+export type { PermissionMode };
 
 /**
  * Trust state of a workspace directory. Only meaningful on the agent-core-v2
@@ -194,8 +201,16 @@ export interface PythinkerHarnessOptions {
   readonly autoLoadConfig?: boolean | undefined;
   readonly uiMode?: string;
   readonly skillDirs?: readonly string[];
+  /**
+   * UI surfaces this host can render, declared once per process and passed
+   * into the engine through `BootstrapInput.args.uiCapabilities`. Engine
+   * features gate on them at tool-table build time; nothing is persisted, so
+   * a session opened later by a host without the capability simply does not
+   * offer the dependent tool.
+   */
   readonly uiCapabilities?: readonly HostUiCapability[];
   readonly telemetry?: TelemetryClient | undefined;
+  readonly onOAuthRefresh?: ((outcome: OAuthRefreshOutcome) => void) | undefined;
   readonly sessionStartedProperties?: TelemetryProperties;
 }
 
@@ -209,10 +224,6 @@ export interface CreateSessionOptions {
   readonly metadata?: JsonObject | undefined;
   readonly pyaos?: Pyaos | undefined;
   readonly persistencePyaos?: Pyaos | undefined;
-  /** @deprecated Use `pyaos`. Accepted as a legacy alias when `pyaos` is not set. */
-  readonly kaos?: Pyaos | undefined;
-  /** @deprecated Use `persistencePyaos`. Accepted as a legacy alias when `persistencePyaos` is not set. */
-  readonly persistenceKaos?: Pyaos | undefined;
   readonly additionalDirs?: readonly string[];
   /**
    * Main-agent profile name (`--agent`): a builtin profile or one defined by
@@ -252,10 +263,6 @@ export interface ResumeSessionInput {
   readonly id: string;
   readonly pyaos?: Pyaos | undefined;
   readonly persistencePyaos?: Pyaos | undefined;
-  /** @deprecated Use `pyaos`. Accepted as a legacy alias when `pyaos` is not set. */
-  readonly kaos?: Pyaos | undefined;
-  /** @deprecated Use `persistencePyaos`. Accepted as a legacy alias when `persistencePyaos` is not set. */
-  readonly persistenceKaos?: Pyaos | undefined;
   readonly additionalDirs?: readonly string[];
   /** Re-select the session's already-bound main profile; a different name fails. */
   readonly agentProfile?: string;
@@ -397,8 +404,8 @@ export interface SessionStatus {
   readonly thinkingEffort: string;
   readonly permission: PermissionMode;
   readonly planMode: boolean;
-  readonly dynamicWorkflowMode?: boolean | undefined;
-  readonly towerMode?: boolean | undefined;
+  readonly dynamicWorkflowMode?: boolean;
+  readonly towerMode?: boolean;
   readonly contextTokens: number;
   readonly maxContextTokens: number;
   readonly contextUsage: number;

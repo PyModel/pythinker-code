@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ToolCall } from '#/kosong/contract/message';
+import type { ToolCall } from '#human/llm/message';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { runWillBeginStepHooks, type StubLoop } from '../../../agent/loop/stubs';
-import { AgentGoal, type GoalRuntime } from '#/features/goal/goalAgentRuntime';
+import { IAgentGoalService } from '#/features/goal/goalService';
+
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentDynamicWorkflowService } from '#/features/dynamic_workflow/agent/dynamic_workflow';
 import {
@@ -16,7 +17,7 @@ import {
 } from '../../../harness';
 import { stubAgentDynamicWorkflow } from '../stubs';
 
-type GoalServiceTestManager = GoalRuntime;
+type GoalServiceTestManager = IAgentGoalService;
 
 async function injectDynamic(ctx: TestAgentContext, isNewTurn: boolean): Promise<void> {
   await runWillBeginStepHooks(ctx.get(IAgentLoopService) as StubLoop, isNewTurn);
@@ -57,10 +58,9 @@ describe('GoalInjection content', () => {
 
   beforeEach(async () => {
     ctx = createTestAgent(agentService(IAgentDynamicWorkflowService, stubAgentDynamicWorkflow()));
-    goals = ctx.resolve(AgentGoal) as GoalServiceTestManager;
+    goals = ctx.get(IAgentGoalService);
     context = ctx.get(IAgentContextMemoryService);
     await ctx.restorePersisted();
-    await ctx.restoreRuntimes();
   });
 
   afterEach(async () => {
@@ -84,19 +84,13 @@ describe('GoalInjection content', () => {
   });
 
   it('activates injection after restore and removes it on close', async () => {
-    const local = createTestAgent(
-      agentService(IAgentDynamicWorkflowService, stubAgentDynamicWorkflow()),
-    );
-    const localGoals = local.resolve(AgentGoal) as GoalServiceTestManager;
+    const local = createTestAgent(agentService(IAgentDynamicWorkflowService, stubAgentDynamicWorkflow()));
+    await local.dispatcher.restore();
+    const localGoals = local.get(IAgentGoalService);
     const localContext = local.get(IAgentContextMemoryService);
     const localLoop = local.get(IAgentLoopService) as StubLoop;
     await localGoals.createGoal({ objective: 'work' });
 
-    await injectDynamic(local, true);
-    expect(lastGoalReminder(localContext)).toBeUndefined();
-
-    await local.restoreRuntimes();
-    await local.restoreRuntimes();
     await injectDynamic(local, true);
     expect(lastGoalReminder(localContext)).toContain('<untrusted_objective>');
     expect(localContext.get().filter((message) =>
@@ -270,10 +264,9 @@ describe('GoalInjection integration', () => {
         wireRecordPersistenceServices(persistence),
         agentService(IAgentDynamicWorkflowService, stubAgentDynamicWorkflow()),
       );
-      goals = ctx.resolve(AgentGoal) as GoalServiceTestManager;
+      goals = ctx.get(IAgentGoalService);
       profile = ctx.get(IAgentProfileService);
       await ctx.restorePersisted();
-      await ctx.restoreRuntimes();
     });
 
     afterEach(async () => {
