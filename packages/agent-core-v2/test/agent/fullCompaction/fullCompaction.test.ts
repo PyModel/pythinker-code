@@ -970,13 +970,13 @@ describe('FullCompaction', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     await failed;
 
-    expect(inputs).toHaveLength(8);
+    expect(inputs).toHaveLength(5);
     expect(inputs[1]!.length).toBeLessThan(inputs[0]!.length);
     expect(records).toContainEqual({
       event: 'compaction_failed',
       properties: expect.objectContaining({
         source: 'manual',
-        retry_count: 4,
+        retry_count: 1,
         error_type: 'APIEmptyResponseError',
       }),
     });
@@ -987,6 +987,136 @@ describe('FullCompaction', () => {
       { role: 'assistant', text: 'recent assistant two' },
     ]);
   });
+
+  it('honors loopControl.compactionMaxAttempts for retryable generation failures', async () => {
+    vi.useFakeTimers();
+    const records: TelemetryRecord[] = [];
+    const firstAttemptFailed = deferred<void>();
+    let attempts = 0;
+    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        firstAttemptFailed.resolve();
+      }
+      throw new APIConnectionError('socket hang up');
+    });
+    const ctx = testAgent({
+      generate,
+      telemetry: recordingTelemetry(records),
+      initialConfig: {
+        providers: {},
+        loopControl: { compactionMaxAttempts: 2 },
+      },
+    });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+    const failed = ctx.once('error');
+
+    await ctx.rpc.beginCompaction({});
+    await firstAttemptFailed.promise;
+    await vi.advanceTimersByTimeAsync(60_000);
+    await failed;
+
+    expect(attempts).toBe(2);
+    expect(records).toContainEqual({
+      event: 'compaction_failed',
+      properties: expect.objectContaining({
+        source: 'manual',
+        retry_count: 1,
+        error_type: 'APIConnectionError',
+      }),
+    });
+    vi.useRealTimers();
+    await ctx.expectResumeMatches();
+  });
+
+  it('fails a truncated compaction immediately when compactionMaxAttempts is 1', async () => {
+    let attempts = 0;
+    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+      attempts += 1;
+      return {
+        ...textResult('Partial summary.'),
+        finishReason: 'truncated',
+        rawFinishReason: 'length',
+      };
+    });
+    const ctx = testAgent({
+      generate,
+      initialConfig: {
+        providers: {},
+        loopControl: { compactionMaxAttempts: 1 },
+      },
+    });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+    const failed = ctx.once('error');
+
+    await ctx.rpc.beginCompaction({});
+    await failed;
+
+    expect(attempts).toBe(1);
+    expect(ctx.newEvents()).toContainEqual(
+      expect.objectContaining({
+        event: 'error',
+        args: expect.objectContaining({
+          code: 'compaction.failed',
+          name: 'Error2',
+        }),
+      }),
+    );
+    await ctx.expectResumeMatches();
+  });
+
+  it('counts requests across recovery paths against compactionMaxAttempts', async () => {
+    vi.useFakeTimers();
+    const firstAttemptFailed = deferred<void>();
+    let attempts = 0;
+    const generate: GenerateFn = requesterFromGenerateFn(async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        firstAttemptFailed.resolve();
+        throw new APIConnectionError('socket hang up');
+      }
+      return {
+        ...textResult('Partial summary.'),
+        finishReason: 'truncated',
+        rawFinishReason: 'length',
+      };
+    });
+    const ctx = testAgent({
+      generate,
+      initialConfig: {
+        providers: {},
+        loopControl: { compactionMaxAttempts: 2 },
+      },
+    });
+    ctx.configure({
+      provider: CATALOGUED_PROVIDER,
+      modelCapabilities: CATALOGUED_MODEL_CAPABILITIES,
+    });
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+    ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
+    const failed = ctx.once('error');
+
+    await ctx.rpc.beginCompaction({});
+    await firstAttemptFailed.promise;
+    await vi.advanceTimersByTimeAsync(60_000);
+    await failed;
+
+    expect(attempts).toBe(2);
+    vi.useRealTimers();
+    await ctx.expectResumeMatches();
+  });
+
+
 
   it('fails fast without shrinking when the provider filters the compaction response', async () => {
     const inputs: string[][] = [];
