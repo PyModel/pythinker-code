@@ -1,3 +1,7 @@
+function platformValue(sel: string | { value: string }): string {
+  return typeof sel === 'string' ? sel : sel.value;
+}
+
 import {
   applyOpenPlatformConfig,
   fetchOpenPlatformModels,

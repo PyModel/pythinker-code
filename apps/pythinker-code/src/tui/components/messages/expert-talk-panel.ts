@@ -86,8 +86,8 @@ export function buildExpertTalkStatusLines(
   }
 
   if (status.arm !== undefined) lines.push(currentTheme.fg('primary', 'Armed for the next message'));
-  if (status.pairValidation.state !== 'valid' && status.pairValidation.reason !== undefined) {
-    lines.push(currentTheme.fg('error', status.pairValidation.reason));
+  if (status.pairValidation?.state !== 'valid' && status.pairValidation?.reason !== undefined) {
+    lines.push(currentTheme.fg('error', status.pairValidation?.reason));
   }
 
   if (run !== undefined) {
@@ -322,8 +322,8 @@ export function buildExpertTalkExchangeLines(
   width = 120,
 ): readonly string[] {
   const safeWidth = Math.max(1, width);
-  const lead = displayModel(run.bindings[0].effectiveModelId, models);
-  const peer = displayModel(run.bindings[1].effectiveModelId, models);
+  const lead = displayModel((run.bindings ?? [])[0].effectiveModelId, models);
+  const peer = displayModel((run.bindings ?? [])[1].effectiveModelId, models);
   const columnWidth = Math.floor((safeWidth - GRID_GUTTER_WIDTH) / 2);
   const grid = columnWidth < MIN_AGENT_COLUMN_WIDTH
     ? renderAgentGrid(
