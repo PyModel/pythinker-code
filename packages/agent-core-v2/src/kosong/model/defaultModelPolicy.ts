@@ -1,0 +1,67 @@
+import type { ModelRecord, ModelsSection } from './model';
+
+const TOOL_USE_CAPABILITY = 'tool_use';
+
+export function isEligibleDefaultModel(record: ModelRecord): boolean {
+  const context = effectiveContextSize(record);
+  if (context !== undefined && context <= 0) return false;
+  const capabilities = effectiveCapabilities(record);
+  if (capabilities === undefined || capabilities.length === 0) return true;
+  return capabilities.some((entry) => entry.trim().toLowerCase() === TOOL_USE_CAPABILITY);
+}
+
+export function rankDefaultModelCandidates(models: ModelsSection): string[] {
+  return Object.entries(models)
+    .filter(([, record]) => isEligibleDefaultModel(record))
+    .map(([id, record]) => ({
+      id,
+      declaresToolUse: declaresToolUse(record),
+      context: effectiveContextSize(record) ?? 0,
+    }))
+    .toSorted((a, b) => {
+      if (a.declaresToolUse !== b.declaresToolUse) return a.declaresToolUse ? -1 : 1;
+      if (a.context !== b.context) return b.context - a.context;
+      const aParts = splitModelId(a.id);
+      const bParts = splitModelId(b.id);
+      if (aParts.providerId !== bParts.providerId) {
+        return aParts.providerId.localeCompare(bParts.providerId);
+      }
+      const byModelPart = bParts.modelPart.localeCompare(aParts.modelPart, 'en', {
+        numeric: true,
+      });
+      if (byModelPart !== 0) return byModelPart;
+      return a.id.localeCompare(b.id);
+    })
+    .map((candidate) => candidate.id);
+}
+
+function splitModelId(id: string): { readonly providerId: string; readonly modelPart: string } {
+  const slash = id.indexOf('/');
+  if (slash === -1) return { providerId: '', modelPart: id };
+  return { providerId: id.slice(0, slash), modelPart: id.slice(slash + 1) };
+}
+
+export function resolveDefaultModel(
+  models: ModelsSection,
+  current: string | undefined,
+  isReady: (id: string) => boolean = () => true,
+  lastUsed?: string,
+): string | undefined {
+  if (current !== undefined && isReady(current)) return current;
+  if (lastUsed !== undefined && isReady(lastUsed)) return lastUsed;
+  return rankDefaultModelCandidates(models).find((candidate) => isReady(candidate));
+}
+
+function effectiveCapabilities(record: ModelRecord): readonly string[] | undefined {
+  return record.overrides?.capabilities ?? record.capabilities;
+}
+
+function effectiveContextSize(record: ModelRecord): number | undefined {
+  return record.overrides?.maxContextSize ?? record.maxContextSize;
+}
+
+function declaresToolUse(record: ModelRecord): boolean {
+  const capabilities = effectiveCapabilities(record);
+  if (capabilities === undefined) return false;
+  return capabilities.some((entry) => entry.trim().toLowerCase() === TOOL_USE_CAPABILITY);
+}

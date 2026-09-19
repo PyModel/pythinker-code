@@ -1,0 +1,178 @@
+import { Disposable } from '#/_base/di/lifecycle';
+import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { AsyncEmitter, type Event, type IWaitUntil } from '#/_base/event';
+
+import { deepEqual, diffRecords, isEmptyDiff } from '../recordDiff';
+
+import { resolveDefaultModel } from './defaultModelPolicy';
+import { resolveModelForReady } from './modelAuth';
+import {
+  type DefaultModelChangedEvent,
+  IModelService,
+  type ModelRecord,
+  type ModelsChangedEvent,
+  type ModelsSection,
+} from './model';
+import { IProviderService } from '../provider/provider';
+import { IEventService } from '../../app/event/event';
+import { ConfigWarning } from '../../app/config/configEvents';
+
+const NO_ABORT = new AbortController().signal;
+
+export class ModelService extends Disposable implements IModelService {
+  declare readonly _serviceBrand: undefined;
+
+  private models: Readonly<Record<string, ModelRecord>> = {};
+  private defaultModel: string | undefined;
+  private lastUsedModel: string | undefined;
+  private settling: Promise<void> = Promise.resolve();
+  private hydrated = false;
+  private resolveReady!: () => void;
+  readonly ready: Promise<void> = new Promise<void>((resolve) => {
+    this.resolveReady = resolve;
+  });
+
+  constructor(
+    @IProviderService private readonly providers: IProviderService,
+    @IEventService private readonly events: IEventService,
+  ) {
+    super();
+  }
+
+  private readonly _onDidChangeModels = this._register(
+    new AsyncEmitter<ModelsChangedEvent & IWaitUntil>(),
+  );
+  readonly onDidChangeModels: Event<ModelsChangedEvent & IWaitUntil> =
+    this._onDidChangeModels.event;
+  private readonly _onDidChangeDefaultModel = this._register(
+    new AsyncEmitter<DefaultModelChangedEvent & IWaitUntil>(),
+  );
+  readonly onDidChangeDefaultModel: Event<DefaultModelChangedEvent & IWaitUntil> =
+    this._onDidChangeDefaultModel.event;
+  private readonly _onDidChangeLastUsedModel = this._register(
+    new AsyncEmitter<DefaultModelChangedEvent & IWaitUntil>(),
+  );
+  readonly onDidChangeLastUsedModel: Event<DefaultModelChangedEvent & IWaitUntil> =
+    this._onDidChangeLastUsedModel.event;
+
+  get settled(): Promise<void> {
+    return this.settling;
+  }
+
+  get(id: string): ModelRecord | undefined {
+    return this.models[id];
+  }
+
+  list(): Readonly<Record<string, ModelRecord>> {
+    return this.models;
+  }
+
+  getDefaultModel(): string | undefined {
+    return this.defaultModel;
+  }
+
+  getLastUsedModel(): string | undefined {
+    return this.lastUsedModel;
+  }
+
+  loadAll(models: ModelsSection, defaultModel: string | undefined, lastUsedModel: string | undefined): void {
+    void this.applyRecords(models);
+    void this.applyDefaultModel(defaultModel);
+    void this.applyLastUsedModel(lastUsedModel);
+    this.settling = this.settleDefaultModel();
+    if (!this.hydrated) {
+      this.hydrated = true;
+      this.resolveReady();
+    }
+  }
+
+  async replaceAll(models: ModelsSection): Promise<void> {
+    await this.ready;
+    await this.applyRecords(models);
+    await this.settleDefaultModel();
+  }
+
+  async set(id: string, model: ModelRecord): Promise<void> {
+    await this.ready;
+    if (deepEqual(this.models[id], model)) return;
+    await this.applyRecords({ ...this.models, [id]: model });
+    await this.settleDefaultModel();
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.ready;
+    if (!(id in this.models)) return;
+    const { [id]: _removed, ...rest } = this.models;
+    await this.applyRecords(rest);
+    await this.settleDefaultModel();
+  }
+
+  async setDefaultModel(id: string | undefined): Promise<void> {
+    await this.ready;
+    await this.applyDefaultModel(id);
+  }
+
+  async setLastUsedModel(id: string | undefined): Promise<void> {
+    await this.ready;
+    await this.applyLastUsedModel(id);
+  }
+
+  private settleDefaultModel(): Promise<void> {
+    const current = this.defaultModel;
+    const lastUsed = this.lastUsedModel;
+    const resolve = (id: string) =>
+      resolveModelForReady(id, this.models, this.providers.list(), this.providers.getDefaultProvider());
+    const next = resolveDefaultModel(
+      this.models,
+      current,
+      (id) => resolve(id).resolved,
+      lastUsed,
+    );
+    const currentResolution = current === undefined ? undefined : resolve(current);
+    if (
+      currentResolution !== undefined &&
+      currentResolution.resolved === false &&
+      next !== current
+    ) {
+      this.events.publish(
+        new ConfigWarning({
+          payload: {
+            warnings: [
+              {
+                domain: 'default_model',
+                message: `Default model "${current}" is no longer available (${currentResolution.reason}); switched to "${
+                  next ?? 'none'
+                }".`,
+              },
+            ],
+          },
+        }),
+      );
+    }
+    const settle = this.applyDefaultModel(next);
+    this.settling = settle;
+    return settle;
+  }
+
+  private async applyRecords(next: Readonly<Record<string, ModelRecord>>): Promise<void> {
+    const diff = diffRecords(this.models, next);
+    if (isEmptyDiff(diff)) return;
+    this.models = { ...next };
+    await this._onDidChangeModels.fireAsync(diff, NO_ABORT);
+  }
+
+  private async applyDefaultModel(id: string | undefined): Promise<void> {
+    if (this.defaultModel === id) return;
+    this.defaultModel = id;
+    await this._onDidChangeDefaultModel.fireAsync({ id }, NO_ABORT);
+  }
+
+  private async applyLastUsedModel(id: string | undefined): Promise<void> {
+    if (this.lastUsedModel === id) return;
+    this.lastUsedModel = id;
+    await this._onDidChangeLastUsedModel.fireAsync({ id }, NO_ABORT);
+  }
+}
+
+registerScopedService(LifecycleScope.App, IModelService, ModelService, ScopeActivation.OnScopeCreated, 'model');

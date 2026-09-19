@@ -1,5 +1,3 @@
-import type { PythinkerRegion } from '@pymodel/pythinker-code-oauth';
-
 import type { IPluginService } from '#/app/plugin/plugin';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 
@@ -15,5 +13,4 @@ export interface CapabilityEntryContext {
   readonly webbridgeBaseUrl?: string;
   readonly detectProbeTimeoutMs?: number;
   readonly commandTimeoutMs?: number;
-  readonly resolveRegion?: () => PythinkerRegion | Promise<PythinkerRegion>;
 }

@@ -59,5 +59,9 @@
   "engines": {
     "node": ">=24.15.0"
   },
-  "packageManager": "pnpm@10.33.0"
+  "packageManager": "pnpm@10.33.0",
+  "dependencies": {
+    "radashi": "^12.9.1",
+    "tar": "^7.5.22"
+  }
 }
