@@ -395,7 +395,7 @@ describe('openai requester thinking', () => {
       { type: 'summary', summary: 'zh5' },
       { type: 'encrypted', encrypted: 'cipher' },
     ]);
-    expect(markedAssistant['reasoning_content']).toBe('zh0');
+    expect(markedAssistant['reasoning_content']).toBe('zh2zh5');
 
     const inbound = stubOpenAIClient(
       chatCompletionChunks([
@@ -620,7 +620,7 @@ describe('openai requester thinking', () => {
       ),
     ).resolves.toEqual([
       { type: 'think', think: 'zh7' },
-      { type: 'think', think: 'zh2', detailsIndex: 0, hidden: true },
+      { type: 'think', think: 'zh7zh12', detailsIndex: 0, hidden: true },
       { type: 'think', think: 'zh5', detailsIndex: 1, hidden: true },
       { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 2 },
       { type: 'text', text: 'ok' },
