@@ -125,6 +125,7 @@ const noopLog = {
   level: 'off',
   setLevel: () => {},
   flush: async () => {},
+    flushLog: async () => {},
   error: () => {},
   warn: () => {},
   info: () => {},
@@ -167,6 +168,7 @@ function stubAttachStore(): AgentEventStore {
     registerSlice: () => Promise.resolve(() => {}),
     reset: () => Promise.resolve(),
     flush: () => Promise.resolve(),
+    flushLog: async () => {},
     close: () => Promise.resolve(),
   } as unknown as AgentEventStore;
 }
@@ -238,6 +240,7 @@ function recordingAppendLog(initial: readonly WireRecord[] = []): {
       return Promise.resolve();
     },
     flush: () => Promise.resolve(),
+    flushLog: async () => {},
     close: () => Promise.resolve(),
     acquire: () => ({ dispose: () => {} }),
     drainRetirements: () => Promise.resolve(),

@@ -339,6 +339,7 @@ export class InMemoryWireRecordPersistence implements WireRecordPersistence {
   flush(): Promise<void> {
     return Promise.resolve();
   }
+  async flushLog(_scope: string, _key: string): Promise<void> {}
 
   close(): Promise<void> {
     return Promise.resolve();
@@ -1005,6 +1006,7 @@ class PersistenceAppendLogStore implements IAppendLogStore {
   flush(): Promise<void> {
     return this.persistence.flush();
   }
+  async flushLog(_scope: string, _key: string): Promise<void> {}
 
   close(): Promise<void> {
     return this.persistence.close();

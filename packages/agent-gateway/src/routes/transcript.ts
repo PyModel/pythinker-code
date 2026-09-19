@@ -341,18 +341,22 @@ export function registerTranscriptRoutes(app: TranscriptRouteHost, deps: Transcr
       if (agent_id === undefined && !agentIds.includes(MAIN_AGENT_ID)) {
         agentIds.unshift(MAIN_AGENT_ID);
       }
-      const agents = [];
-      for (const agentId of agentIds) {
-        const snapshot = await transcriptService.readColdSnapshot(session_id, agentId);
-        if (snapshot === undefined) {
-          sendSessionNotFound(reply, req.id, session_id);
-          return;
-        }
-        const byId = new Map(snapshot.attachments.map((a) => [a.attachmentId, a]));
-        agents.push({
-          agent_id: agentId,
-          ...projectUserMessages(snapshot.items, (id) => byId.get(id)),
-        });
+      const agents = await mapBoundedOrdered(
+        agentIds,
+        USER_MESSAGES_COLD_CONCURRENCY,
+        async (agentId) => {
+          const snapshot = await transcriptService.readColdSnapshot(session_id, agentId);
+          if (snapshot === undefined) return undefined;
+          const byId = new Map(snapshot.attachments.map((a) => [a.attachmentId, a]));
+          return {
+            agent_id: agentId,
+            ...projectUserMessages(snapshot.items, (id) => byId.get(id)),
+          };
+        },
+      );
+      if (agents.some((entry) => entry === undefined)) {
+        sendSessionNotFound(reply, req.id, session_id);
+        return;
       }
       reply.send(okEnvelope({ agents }, req.id));
     },
