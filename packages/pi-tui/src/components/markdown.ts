@@ -44,7 +44,7 @@ const CJK_URL_TERMINATOR_REGEX =
  * Index at which to cut an autolink match, or -1 to keep it whole. Non-paren
  * CJK punctuation terminates the URL outside of full-width parens; full-width
  * parens only terminate it when unbalanced. Punctuation inside a balanced
- * parenthetical (e.g. the ，in （北京，1949年）) stays part of the URL —
+ * parenthetical (e.g. the ，in （\u5317\u4eac，1949\u5e74）) stays part of the URL —
  * prose parentheticals contain spaces and never survive marked's match this
  * far, so a balanced group is almost always deliberate URL content.
  */

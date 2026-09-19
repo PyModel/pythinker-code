@@ -916,7 +916,7 @@ describe("Editor component", () => {
 
 			// Move left over ，
 			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
-			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 2 }); // after 你好
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 2 }); // after \u4f60\u597d
 
 			// Move left over CJK
 			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
@@ -924,7 +924,7 @@ describe("Editor component", () => {
 
 			// Move right over CJK
 			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
-			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 2 }); // after 你好
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 2 }); // after \u4f60\u597d
 
 			// Move right over ，
 			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
@@ -952,7 +952,7 @@ describe("Editor component", () => {
 
 			// Move left over ，
 			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
-			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 7 }); // after 你好
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 7 }); // after \u4f60\u597d
 
 			// Move left over CJK
 			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
@@ -967,7 +967,7 @@ describe("Editor component", () => {
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 5 }); // after 'hello'
 
 			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
-			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 7 }); // after 你好
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 7 }); // after \u4f60\u597d
 
 			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 8 }); // after ，
@@ -1337,7 +1337,7 @@ describe("Editor component", () => {
 			// " " (1) + "a"*186 (186) + "CJK" (2) = 189 visible width
 			// maxWidth = 187: backtracking to the space would leave 186 + 2 = 188 > 187,
 			// so the algorithm must force-break before the wide char instead.
-			const line = ` ${"a".repeat(186)}你`;
+			const line = ` ${"a".repeat(186)}\u4f60`;
 			const chunks = wordWrapLine(line, 187);
 
 			for (const chunk of chunks) {

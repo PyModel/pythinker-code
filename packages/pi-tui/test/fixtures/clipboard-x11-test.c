@@ -123,7 +123,7 @@ int main(int argc, char** argv) {
             xcb_atom_t response_property = request->property;
             if (strcmp(argv[1], "direct-text") == 0) {
                 if (request->target == text) {
-                    const char value[] = "café 日本語";
+                    const char value[] = "café \u65e5\u672c\u8a9e";
                     xcb_change_property(connection, XCB_PROP_MODE_REPLACE, request->requestor,
                         request->property, text, 8, sizeof(value) - 1, value);
                 } else {

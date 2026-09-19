@@ -144,12 +144,12 @@ describe("wrapTextWithAnsi", () => {
 		it("should preserve color codes when wrapping CJK runs", () => {
 			const red = "\x1b[31m";
 			const reset = "\x1b[0m";
-			const text = `${red}This is an example 中文汉字测试段落内容中文汉字测试段落内容.${reset}`;
+			const text = `${red}This is an example \u4e2d\u6587\u6c49\u5b57\u6d4b\u8bd5\u6bb5\u843d\u5185\u5bb9\u4e2d\u6587\u6c49\u5b57\u6d4b\u8bd5\u6bb5\u843d\u5185\u5bb9.${reset}`;
 			const wrapped = wrapTextWithAnsi(text, 40);
 
 			assert.strictEqual(wrapped.length, 2);
-			assert.strictEqual(wrapped[0], `${red}This is an example 中文汉字测试段落内容`);
-			assert.strictEqual(wrapped[1], `${red}中文汉字测试段落内容.${reset}`);
+			assert.strictEqual(wrapped[0], `${red}This is an example \u4e2d\u6587\u6c49\u5b57\u6d4b\u8bd5\u6bb5\u843d\u5185\u5bb9`);
+			assert.strictEqual(wrapped[1], `${red}\u4e2d\u6587\u6c49\u5b57\u6d4b\u8bd5\u6bb5\u843d\u5185\u5bb9.${reset}`);
 			for (const line of wrapped) {
 				assert.ok(visibleWidth(line) <= 40);
 			}
