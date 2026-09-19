@@ -27,6 +27,7 @@ const host = vi.hoisted(() => {
     getConfig: vi.fn(),
     setConfig: vi.fn(async () => undefined),
     listSessions: vi.fn(async () => []),
+    listWorkspaceSkills: vi.fn(async () => []),
     resumeSession: vi.fn(),
     forkSession: vi.fn(),
     deleteSession: vi.fn(async () => undefined),
