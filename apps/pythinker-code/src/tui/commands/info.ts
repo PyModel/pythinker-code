@@ -108,7 +108,7 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
     // partial-failure status, never to the GitHub fallback in the outer catch.
     let attachmentFailed = false;
     try {
-      attachmentFailed = await submitFeedbackWithAttachments(host, res.feedbackId, level);
+      attachmentFailed = await submitFeedbackWithAttachments(host, Number(res.feedbackId), level);
     } catch {
       attachmentFailed = true;
     }

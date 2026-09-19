@@ -163,8 +163,41 @@ export class PythinkerAuthFacade {
   }
 
 
+
+  async createFeedbackUploadUrl(
+    _input: {
+      readonly feedbackId: number;
+      readonly filename: string;
+      readonly size: number;
+      readonly sha256: string;
+    },
+  ): Promise<
+    | {
+        readonly kind: 'ok';
+        readonly uploadId: number;
+        readonly parts: readonly {
+          readonly partNumber: number;
+          readonly url: string;
+          readonly method: string;
+          readonly size: number;
+        }[];
+      }
+    | { readonly kind: 'error'; readonly message: string }
+  > {
+    return { kind: 'error', message: 'feedback upload is not available' };
+  }
+
+  async completeFeedbackUpload(
+    _input: {
+      readonly uploadId: number;
+      readonly parts: readonly { readonly partNumber: number; readonly etag: string }[];
+    },
+  ): Promise<{ readonly kind: 'ok' } | { readonly kind: 'error'; readonly message: string }> {
+    return { kind: 'error', message: 'feedback upload is not available' };
+  }
+
   async submitFeedback(_input: unknown): Promise<
-    | { readonly kind: 'ok'; readonly feedbackId: string }
+    | { readonly kind: 'ok'; readonly feedbackId: number }
     | { readonly kind: 'error'; readonly message: string }
   > {
     return { kind: 'error', message: 'feedback is not available' };
