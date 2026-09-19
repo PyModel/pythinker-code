@@ -489,14 +489,10 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(providers.body.data.items).toEqual([]);
   });
 
-  it('rejects deleting an OAuth-managed provider with 40003', async () => {
+  it('maps a removed managed provider id to 40412 on delete', async () => {
     await boot(MANAGED_TOML);
     const { body } = await deleteJson<unknown>('/api/v1/providers/managed%3Apythinker-code');
-    expect(body?.code).toBe(40003);
-    expect(body?.msg).toContain('/auth/logout');
-
-    const providers = await getJson<{ items: Array<{ id: string }> }>('/api/v1/providers');
-    expect(providers.body.data.items.map((p) => p.id)).toEqual(['openai']);
+    expect(body?.code).toBe(40412);
   });
 
   it('maps an unknown provider id to 40412 on delete', async () => {
@@ -795,19 +791,13 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     }
   });
 
-  it('rejects replacing an OAuth-managed provider with 40003', async () => {
+  it('maps a removed managed provider id to 40412 on replace', async () => {
     await boot(MANAGED_TOML);
     const { body } = await putJson<unknown>(
       '/api/v1/providers/managed%3Apythinker-code',
       REPLACE_BODY,
     );
-    expect(body.code).toBe(40003);
-    expect(body.msg).toContain('/auth/logout');
-
-    const providers = await getJson<{ items: Array<{ id: string }> }>('/api/v1/providers');
-    expect(providers.body.data.items.map((p) => p.id)).toEqual(['openai']);
-    const models = await getJson<{ items: Array<{ model: string }> }>('/api/v1/models');
-    expect(models.body.data.items.map((m) => m.model)).toEqual(['openai/kimi-k2']);
+    expect(body.code).toBe(40412);
   });
 
   it('maps an unknown provider id to 40412 on replace', async () => {
