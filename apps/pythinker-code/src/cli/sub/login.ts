@@ -16,7 +16,7 @@ export function registerLoginCommand(parent: Command): void {
     .description('Authenticate with Pythinker Code CLI via the device-code flow.')
     .option(
       '--region <region>',
-      'Login region: "mainland-cn" (kimi.com) or "global" (kimi.ai).',
+      'Login region: "mainland-cn" or "global".',
     )
     .action(async (opts: { region?: string }) => {
       await runLoginFlow({
