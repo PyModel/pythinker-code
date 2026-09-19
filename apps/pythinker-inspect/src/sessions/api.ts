@@ -1,3 +1,4 @@
+import { joinApiUrl } from '../httpUrl';
 /**
  * REST client for the v2 session list endpoint: `GET {baseUrl}/api/v2/sessions`.
  *
@@ -175,7 +176,7 @@ async function requestData(
   const doFetch = opts.fetchImpl ?? fetch;
   const query = params.toString();
   const res = await doFetch(
-    `${opts.baseUrl}/api/v2/sessions${query === '' ? '' : `?${query}`}`,
+    joinApiUrl(opts.baseUrl, `/api/v2/sessions${query === '' ? '' : `?${query}`}`),
     { headers },
   );
   const body: unknown = await res.json();
@@ -210,7 +211,7 @@ export async function fetchV2SessionsPage(
 ): Promise<V2SessionPage> {
   const data = await requestData(opts, buildParams(opts));
   if (!Array.isArray(data['items'])) {
-    throw new Error('v2 sessions: unexpected response shape');
+    throw new TypeError('v2 sessions: unexpected response shape');
   }
   const items = (data['items'] as unknown[])
     .map(parseSession)
@@ -232,7 +233,7 @@ export async function fetchV2SessionGroups(
   if (opts.groupPageSize !== undefined) params.set('group.page_size', String(opts.groupPageSize));
   const data = await requestData(opts, params);
   if (!Array.isArray(data['groups'])) {
-    throw new Error('v2 sessions: unexpected response shape');
+    throw new TypeError('v2 sessions: unexpected response shape');
   }
   const groups: V2SessionGroup[] = [];
   for (const value of data['groups'] as unknown[]) {

@@ -34,7 +34,7 @@ describe('fetchFsSuggest', () => {
   it('posts the roots suggestion request and maps items', async () => {
     const { calls, fetchImpl } = fakeFetch(okEnvelope(resultData));
     const result = await fetchFsSuggest({
-      baseUrl: 'http://h:1/',
+      baseUrl: 'http://127.0.0.1:1/',
       token: 'tok',
       roots: ['/repo', '/extra'],
       query: 'apps/de',
@@ -47,7 +47,7 @@ describe('fetchFsSuggest', () => {
       fetchImpl,
     });
 
-    expect(calls[0]!.url).toBe('http://h:1/api/v1/fs:suggest');
+    expect(calls[0]!.url).toBe('http://127.0.0.1:1/api/v1/fs:suggest');
     expect(calls[0]!.init?.method).toBe('POST');
     expect(calls[0]!.init?.headers).toEqual({
       'content-type': 'application/json',
@@ -76,7 +76,7 @@ describe('fetchFsSuggest', () => {
 
   it('omits optional fields and authorization when not configured', async () => {
     const { calls, fetchImpl } = fakeFetch(okEnvelope({ items: [], truncated: false }));
-    await fetchFsSuggest({ baseUrl: 'http://h:1', roots: ['/repo'], query: '', fetchImpl });
+    await fetchFsSuggest({ baseUrl: 'http://127.0.0.1:1', roots: ['/repo'], query: '', fetchImpl });
     expect(calls[0]!.init?.headers).toEqual({ 'content-type': 'application/json' });
     expect(JSON.parse(calls[0]!.init?.body as string)).toEqual({
       roots: ['/repo'],
@@ -87,14 +87,14 @@ describe('fetchFsSuggest', () => {
   it('throws on a non-zero envelope code', async () => {
     const { fetchImpl } = fakeFetch({ code: 40409, msg: 'root missing', data: null });
     await expect(
-      fetchFsSuggest({ baseUrl: 'http://h:1', roots: ['/missing'], query: 'x', fetchImpl }),
+      fetchFsSuggest({ baseUrl: 'http://127.0.0.1:1', roots: ['/missing'], query: 'x', fetchImpl }),
     ).rejects.toThrow(/40409/);
   });
 
   it('throws on a malformed payload', async () => {
     const { fetchImpl } = fakeFetch(okEnvelope({ truncated: false }));
     await expect(
-      fetchFsSuggest({ baseUrl: 'http://h:1', roots: ['/repo'], query: 'x', fetchImpl }),
+      fetchFsSuggest({ baseUrl: 'http://127.0.0.1:1', roots: ['/repo'], query: 'x', fetchImpl }),
     ).rejects.toThrow(/unexpected response shape/);
   });
 });

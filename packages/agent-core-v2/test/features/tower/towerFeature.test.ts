@@ -1,4 +1,5 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { stringify as stringifyToml } from 'smol-toml';
@@ -142,7 +143,7 @@ describe('TowerFeature — config-sourced flag assembly', () => {
 
   beforeEach(() => {
     disposables = new DisposableStore();
-    homeDir = `/tmp/pythinker-code-tower-assembly-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    homeDir = mkdtempSync(join(tmpdir(), 'pythinker-code-tower-'));
     _clearScopedRegistryForTests();
     _clearFeatureRecipesForTests();
     registerScopedService(
@@ -161,7 +162,10 @@ describe('TowerFeature — config-sourced flag assembly', () => {
     );
     registerFeature(TowerFeature);
   });
-  afterEach(() => disposables.dispose());
+  afterEach(() => {
+    disposables.dispose();
+    try { rmSync(homeDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
 
   async function makeRealFlags(preseed?: Record<string, unknown>) {
     const ix = disposables.add(new TestInstantiationService());
@@ -225,9 +229,12 @@ describe('tower flag — resolution', () => {
 
   beforeEach(() => {
     disposables = new DisposableStore();
-    homeDir = `/tmp/pythinker-code-tower-flag-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    homeDir = mkdtempSync(join(tmpdir(), 'pythinker-code-tower-'));
   });
-  afterEach(() => disposables.dispose());
+  afterEach(() => {
+    disposables.dispose();
+    try { rmSync(homeDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
 
   function makeFlags(env: Readonly<Record<string, string | undefined>> = {}) {
     const ix = disposables.add(new TestInstantiationService());

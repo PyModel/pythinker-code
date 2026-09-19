@@ -588,9 +588,9 @@ function locationFromVertexAIBaseUrl(baseUrl: string | undefined): string | unde
   const url = nonEmpty(baseUrl);
   if (url === undefined) return undefined;
   try {
-    const host = new URL(url).hostname;
-    const suffix = '-aiplatform.googleapis.com';
-    return host.endsWith(suffix) ? nonEmpty(host.slice(0, -suffix.length)) : undefined;
+    const host = new URL(url).hostname.toLowerCase();
+    const match = /^([a-z0-9-]+)-aiplatform\.googleapis\.com$/.exec(host);
+    return match === null ? undefined : nonEmpty(match[1]);
   } catch {
     return undefined;
   }

@@ -38,6 +38,7 @@ import {
 } from '../sessions/api';
 import { SESSION_VIEWS, sessionViewById, type SessionView } from '../sessions/views';
 import { Badge, ErrorLine, relTime } from '../ui';
+import { joinApiUrl } from '../httpUrl';
 
 const STORAGE_KEY = 'pythinker-inspect.session-table';
 
@@ -198,7 +199,7 @@ export function Sidebar({
     }
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (token !== '') headers['authorization'] = `Bearer ${token}`;
-    const res = await fetch(`${baseUrl}/api/v1/sessions`, {
+    const res = await fetch(joinApiUrl(baseUrl, '/api/v1/sessions'), {
       method: 'POST',
       headers,
       body,

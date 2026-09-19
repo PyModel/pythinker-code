@@ -66,7 +66,29 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
           camelPatch['defaultPermissionMode'] = 'yolo';
         }
         delete camelPatch['yolo'];
+        const allowedDomains = new Set([
+          'providers',
+          'defaultProvider',
+          'defaultModel',
+          'models',
+          'thinking',
+          'planMode',
+          'defaultPermissionMode',
+          'defaultPlanMode',
+          'permission',
+          'hooks',
+          'services',
+          'mergeAllAvailableSkills',
+          'extraSkillDirs',
+          'loopControl',
+          'background',
+          'subagent',
+          'secondaryModel',
+          'experimental',
+          'telemetry',
+        ]);
         for (const domain of Object.keys(camelPatch)) {
+          if (!allowedDomains.has(domain)) continue;
           await config.set(domain, camelPatch[domain]);
         }
         const response = toConfigResponse(config.getAll());

@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -17,8 +17,7 @@ let dir: string;
 let filePath: string;
 
 beforeEach(() => {
-  dir = join(tmpdir(), `pythinker-tui-config-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  mkdirSync(dir, { recursive: true });
+  dir = mkdtempSync(join(tmpdir(), 'pythinker-tui-config-'));
   filePath = join(dir, 'tui.toml');
 });
 

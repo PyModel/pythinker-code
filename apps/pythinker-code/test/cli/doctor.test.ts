@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -14,8 +14,7 @@ import {
 let dir: string;
 
 beforeEach(async () => {
-  dir = join(tmpdir(), `pythinker-doctor-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  await mkdir(dir, { recursive: true });
+  dir = await mkdtemp(join(tmpdir(), 'pythinker-doctor-'));
 });
 
 afterEach(async () => {

@@ -1,3 +1,4 @@
+import { joinApiUrl } from '../httpUrl';
 export type FsSuggestKind = 'file' | 'directory' | 'symlink';
 
 export interface FsSuggestItem {
@@ -61,7 +62,7 @@ async function postSuggest(
     headers['authorization'] = `Bearer ${opts.token}`;
   }
   const doFetch = opts.fetchImpl ?? fetch;
-  const res = await doFetch(`${opts.baseUrl.replace(/\/$/, '')}/api/v1/fs:suggest`, {
+  const res = await doFetch(joinApiUrl(opts.baseUrl, '/api/v1/fs:suggest'), {
     method: 'POST',
     headers,
     body: JSON.stringify(body),

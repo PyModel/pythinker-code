@@ -56,7 +56,7 @@ describe('fetchSearchPage', () => {
   it('posts the snake_case body with bearer auth and maps hits to camelCase', async () => {
     const { calls, fetchImpl } = fakeFetch(okEnvelope(pageData));
     const page = await fetchSearchPage({
-      baseUrl: 'http://h:1',
+      baseUrl: 'http://127.0.0.1:1',
       token: 'tok',
       query: 'apple',
       role: 'assistant',
@@ -67,7 +67,7 @@ describe('fetchSearchPage', () => {
     });
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe('http://h:1/api/v1/search');
+    expect(calls[0]!.url).toBe('http://127.0.0.1:1/api/v1/search');
     expect(calls[0]!.init?.method).toBe('POST');
     expect(calls[0]!.init?.headers).toEqual({
       'content-type': 'application/json',
@@ -103,7 +103,7 @@ describe('fetchSearchPage', () => {
 
   it('omits the authorization header when no token is configured', async () => {
     const { calls, fetchImpl } = fakeFetch(okEnvelope(pageData));
-    await fetchSearchPage({ baseUrl: 'http://h:1', query: 'apple', fetchImpl });
+    await fetchSearchPage({ baseUrl: 'http://127.0.0.1:1', query: 'apple', fetchImpl });
     expect(calls[0]!.init?.headers).toEqual({ 'content-type': 'application/json' });
   });
 
@@ -112,7 +112,7 @@ describe('fetchSearchPage', () => {
       okEnvelope({ ...pageData, has_more: false, incomplete: 'candidate_cap' }),
     );
     const page = await fetchSearchPage({
-      baseUrl: 'http://h:1',
+      baseUrl: 'http://127.0.0.1:1',
       query: 'C++',
       mode: 'literal',
       fetchImpl,
@@ -127,14 +127,14 @@ describe('fetchSearchPage', () => {
 
   it('leaves incomplete undefined for absent or unexpected values', async () => {
     const { fetchImpl } = fakeFetch(okEnvelope(pageData));
-    const page = await fetchSearchPage({ baseUrl: 'http://h:1', query: 'apple', fetchImpl });
+    const page = await fetchSearchPage({ baseUrl: 'http://127.0.0.1:1', query: 'apple', fetchImpl });
     expect(page.incomplete).toBeUndefined();
 
     const { fetchImpl: fetchImpl2 } = fakeFetch(
       okEnvelope({ ...pageData, incomplete: 'something_else' }),
     );
     const page2 = await fetchSearchPage({
-      baseUrl: 'http://h:1',
+      baseUrl: 'http://127.0.0.1:1',
       query: 'apple',
       fetchImpl: fetchImpl2,
     });
@@ -144,7 +144,7 @@ describe('fetchSearchPage', () => {
   it('serializes container into the body (session only, and session + agent)', async () => {
     const { calls, fetchImpl } = fakeFetch(okEnvelope(pageData));
     await fetchSearchPage({
-      baseUrl: 'http://h:1',
+      baseUrl: 'http://127.0.0.1:1',
       query: 'apple',
       container: { sessionId: 's1' },
       fetchImpl,
@@ -156,7 +156,7 @@ describe('fetchSearchPage', () => {
 
     const { calls: calls2, fetchImpl: fetchImpl2 } = fakeFetch(okEnvelope(pageData));
     await fetchSearchPage({
-      baseUrl: 'http://h:1',
+      baseUrl: 'http://127.0.0.1:1',
       query: 'apple',
       container: { sessionId: 's1', agentId: 'main' },
       fetchImpl: fetchImpl2,
@@ -169,12 +169,12 @@ describe('fetchSearchPage', () => {
 
   it('parses source: live and source: index', async () => {
     const { fetchImpl } = fakeFetch(okEnvelope({ ...pageData, source: 'live' }));
-    const page = await fetchSearchPage({ baseUrl: 'http://h:1', query: 'apple', fetchImpl });
+    const page = await fetchSearchPage({ baseUrl: 'http://127.0.0.1:1', query: 'apple', fetchImpl });
     expect(page.source).toBe('live');
 
     const { fetchImpl: fetchImpl2 } = fakeFetch(okEnvelope({ ...pageData, source: 'index' }));
     const page2 = await fetchSearchPage({
-      baseUrl: 'http://h:1',
+      baseUrl: 'http://127.0.0.1:1',
       query: 'apple',
       fetchImpl: fetchImpl2,
     });
@@ -183,12 +183,12 @@ describe('fetchSearchPage', () => {
 
   it('leaves source undefined for absent or unknown values', async () => {
     const { fetchImpl } = fakeFetch(okEnvelope(pageData));
-    const page = await fetchSearchPage({ baseUrl: 'http://h:1', query: 'apple', fetchImpl });
+    const page = await fetchSearchPage({ baseUrl: 'http://127.0.0.1:1', query: 'apple', fetchImpl });
     expect(page.source).toBeUndefined();
 
     const { fetchImpl: fetchImpl2 } = fakeFetch(okEnvelope({ ...pageData, source: 'whatever' }));
     const page2 = await fetchSearchPage({
-      baseUrl: 'http://h:1',
+      baseUrl: 'http://127.0.0.1:1',
       query: 'apple',
       fetchImpl: fetchImpl2,
     });
@@ -201,14 +201,14 @@ describe('fetchSearchPage', () => {
       msg: 'query must be a non-empty string',
       data: null,
     });
-    await expect(fetchSearchPage({ baseUrl: 'http://h:1', query: '', fetchImpl })).rejects.toThrow(
+    await expect(fetchSearchPage({ baseUrl: 'http://127.0.0.1:1', query: '', fetchImpl })).rejects.toThrow(
       /40001/,
     );
   });
 
   it('throws on a malformed payload', async () => {
     const { fetchImpl } = fakeFetch(okEnvelope({ has_more: false }));
-    await expect(fetchSearchPage({ baseUrl: 'http://h:1', query: 'x', fetchImpl })).rejects.toThrow(
+    await expect(fetchSearchPage({ baseUrl: 'http://127.0.0.1:1', query: 'x', fetchImpl })).rejects.toThrow(
       /unexpected response shape/,
     );
   });

@@ -1577,10 +1577,14 @@ function buildAgentTaskNotification(
 }
 
 function generateTaskId(kind: string): string {
-  const bytes = randomBytes(8);
   let suffix = '';
-  for (let index = 0; index < 8; index++) {
-    suffix += TASK_ID_ALPHABET[bytes[index]! % TASK_ID_ALPHABET.length];
+  while (suffix.length < 8) {
+    const bytes = randomBytes(16);
+    for (const byte of bytes) {
+      if (byte >= 252) continue;
+      suffix += TASK_ID_ALPHABET[byte % TASK_ID_ALPHABET.length]!;
+      if (suffix.length === 8) break;
+    }
   }
   return `${kind}-${suffix}`;
 }

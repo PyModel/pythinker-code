@@ -1,3 +1,4 @@
+import { joinApiUrl } from '../httpUrl';
 /**
  * REST client for the pending-interactions endpoints:
  * `GET/POST {baseUrl}/api/v1/sessions/{sessionId}/approvals[/...]` and
@@ -82,7 +83,7 @@ async function call<T>(
   if (body !== undefined) headers['content-type'] = 'application/json';
   const doFetch = opts.fetchImpl ?? fetch;
   const res = await doFetch(
-    `${opts.baseUrl}/api/v1/sessions/${encodeURIComponent(opts.sessionId)}${path}`,
+    joinApiUrl(opts.baseUrl, `/api/v1/sessions/${encodeURIComponent(opts.sessionId)}${path}`),
     {
       method,
       headers,

@@ -13,6 +13,7 @@
  * of truth for the wire shape, local code consumes the domain model types.
  */
 
+import { joinApiUrl } from '../httpUrl';
 import {
   transcriptOpsCatchupResponseSchema,
   transcriptPlanResponseSchema,
@@ -44,9 +45,9 @@ export function transcriptAttachmentUrl(
 ): string {
   if (source.kind === 'url') return source.url;
   if (source.kind === 'file') {
-    return `${baseUrl}/api/v1/files/${encodeURIComponent(source.fileId)}`;
+    return joinApiUrl(baseUrl, `/api/v1/files/${encodeURIComponent(source.fileId)}`);
   }
-  return `${baseUrl}/api/v1/sessions/${encodeURIComponent(sessionId)}/media/${encodeURIComponent(source.fileId)}`;
+  return joinApiUrl(baseUrl, `/api/v1/sessions/${encodeURIComponent(sessionId)}/media/${encodeURIComponent(source.fileId)}`);
 }
 
 export async function fetchTranscriptAttachment(
@@ -110,7 +111,7 @@ export async function fetchTranscriptPage(
   }
   const doFetch = opts.fetchImpl ?? fetch;
   const res = await doFetch(
-    `${opts.baseUrl}/api/v1/sessions/${encodeURIComponent(opts.sessionId)}/transcript?${params.toString()}`,
+    joinApiUrl(opts.baseUrl, `/api/v1/sessions/${encodeURIComponent(opts.sessionId)}/transcript?${params.toString()}`),
     { headers },
   );
   const envelope = (await res.json()) as { code: number; msg: string; data: unknown };
@@ -183,7 +184,7 @@ export async function fetchTranscriptOps(
   }
   const doFetch = opts.fetchImpl ?? fetch;
   const res = await doFetch(
-    `${opts.baseUrl}/api/v1/sessions/${encodeURIComponent(opts.sessionId)}/transcript/ops?${params.toString()}`,
+    joinApiUrl(opts.baseUrl, `/api/v1/sessions/${encodeURIComponent(opts.sessionId)}/transcript/ops?${params.toString()}`),
     { headers },
   );
   const envelope = (await res.json()) as { code: number; msg: string; data: unknown };
@@ -252,7 +253,7 @@ export async function fetchTranscriptPlan(
   }
   const doFetch = opts.fetchImpl ?? fetch;
   const res = await doFetch(
-    `${opts.baseUrl}/api/v1/sessions/${encodeURIComponent(opts.sessionId)}/transcript/plan?${params.toString()}`,
+    joinApiUrl(opts.baseUrl, `/api/v1/sessions/${encodeURIComponent(opts.sessionId)}/transcript/plan?${params.toString()}`),
     { headers },
   );
   const envelope = (await res.json()) as { code: number; msg: string; data: unknown };

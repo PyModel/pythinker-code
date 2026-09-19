@@ -172,14 +172,6 @@ function splitClipboardPathLines(text: string): string[] {
 }
 
 function readImagePath(path: string): ClipboardImage | null {
-  let stat: ReturnType<typeof statSync>;
-  try {
-    stat = statSync(path);
-  } catch {
-    return null;
-  }
-  if (!stat.isFile()) return null;
-
   let bytes: Buffer;
   try {
     bytes = readFileSync(path);

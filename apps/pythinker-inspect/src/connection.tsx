@@ -70,11 +70,25 @@ function readInitialConfig(): ConnectionConfig {
   return { url: '', token: '' };
 }
 
-/** Resolve the configured (possibly relative) URL to an absolute base for the client. */
+/** Resolve the configured (possibly relative) URL to an absolute base for the client.
+ * Inspect only talks to loopback debug gateways — reject non-http(s) and non-loopback hosts. */
 export function resolveBaseUrl(url: string): string {
   const trimmed = url.trim().replace(/\/$/, '');
-  if (trimmed === '') return window.location.origin;
-  return trimmed;
+  const candidate = trimmed === '' ? window.location.origin : trimmed;
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    throw new Error(`Invalid inspect server URL: ${candidate}`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Inspect server URL must be http(s): ${candidate}`);
+  }
+  const host = parsed.hostname.replaceAll(/^\[|\]$/g, '').toLowerCase();
+  if (host !== 'localhost' && host !== '127.0.0.1' && host !== '::1') {
+    throw new Error(`Inspect server URL must target loopback: ${candidate}`);
+  }
+  return parsed.origin;
 }
 
 interface ConnectionValue {

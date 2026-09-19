@@ -6,15 +6,16 @@ import { appRoot } from './paths.mjs';
 
 const execFileAsync = promisify(execFile);
 
-export function commandForExecFile(command, args, platform = process.platform, env = process.env) {
+export function commandForExecFile(command, args, platform = process.platform, _env = process.env) {
   if (platform !== 'win32' || !/\.(?:bat|cmd)$/i.test(command)) {
     return { command, args };
   }
+  // Fixed shell binary — never take ComSpec from the environment (CodeQL).
   const shellCommand = [command, ...args]
     .map((arg) => `"${String(arg).replaceAll('"', '""')}"`)
     .join(' ');
   return {
-    command: env.ComSpec ?? 'cmd.exe',
+    command: 'cmd.exe',
     args: ['/d', '/s', '/c', `"${shellCommand}"`],
     options: { windowsVerbatimArguments: true },
   };

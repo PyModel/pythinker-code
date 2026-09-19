@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -195,9 +195,8 @@ auto_install = false
 });
 
 async function writeTuiConfig(text: string): Promise<void> {
-  const dir = join(tmpdir(), `pythinker-tui-reload-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = await mkdtemp(join(tmpdir(), 'pythinker-tui-reload-'));
   tempDirs.push(dir);
-  await mkdir(dir, { recursive: true });
   process.env['PYTHINKER_CODE_HOME'] = dir;
   await writeFile(join(dir, 'tui.toml'), text, 'utf-8');
 }

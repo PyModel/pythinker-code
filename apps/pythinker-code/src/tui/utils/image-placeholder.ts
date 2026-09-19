@@ -41,7 +41,6 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import { copyFileSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { PromptPart, Session } from '@pymodel/pythinker-code-sdk';
@@ -664,15 +663,19 @@ export function persistOriginalImageSync(
     const hash = createHash('sha256').update(bytes).digest('hex').slice(0, 32);
     const target = join(targetDir, `${hash}.${imageExtensionForMime(mime)}`);
     mkdirSync(targetDir, { recursive: true });
-    const existing = statSync(target, { throwIfNoEntry: false });
-    // Content-addressed: an existing entry with the right size IS this image.
-    if (existing === undefined || existing.size !== bytes.length) {
-      writeFileSync(target, bytes);
+    try {
+      writeFileSync(target, bytes, { flag: 'wx' });
+    } catch (error) {
+      const code = error instanceof Error && 'code' in error ? (error as NodeJS.ErrnoException).code : undefined;
+      if (code !== 'EEXIST') throw error;
     }
     sweepCacheSync(targetDir, maxTotalBytes);
-    // The just-written file may itself have been evicted by the sweep when a
-    // single original exceeds the cap; report persistence honestly.
-    return statSync(target, { throwIfNoEntry: false }) === undefined ? null : target;
+    try {
+      const existing = statSync(target);
+      return existing.isFile() && existing.size === bytes.length ? target : null;
+    } catch {
+      return null;
+    }
   } catch {
     return null;
   }
@@ -706,7 +709,7 @@ function sweepCacheSync(dir: string, maxTotalBytes: number): void {
 
 /** Mirrors agent-core-v2's `originalImageCacheDir` (not re-exported through the SDK). */
 function originalImageTempDir(): string {
-  return join(tmpdir(), 'pythinker-code-original-images');
+  return join(getCacheDir(), 'original-images');
 }
 
 /**

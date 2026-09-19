@@ -77,6 +77,18 @@ function stdioConfig(args: string[] = [stdioFixture]) {
   };
 }
 
+
+async function writeDelayedImportRunner(target: string): Promise<string> {
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'mcp-delayed-'));
+  const runner = join(dir, 'delayed-import.mjs');
+  const href = pathToFileURL(target).href;
+  await writeFile(runner, `setTimeout(() => import(${JSON.stringify(href)}), 250);\n`, 'utf8');
+  return runner;
+}
+
 describe('McpConnectionManager', () => {
   it('connects servers in parallel and exposes connected entries with their tool count', async () => {
     const cm = createManager();
@@ -321,15 +333,13 @@ describe('McpConnectionManager', () => {
     cm.onStatusChange((entry) => {
       seen.push({ name: entry.name, status: entry.status });
     });
-    const delayedMockServer = `setTimeout(() => import(${JSON.stringify(
-      pathToFileURL(stdioFixture).href,
-    )}), 250)`;
+    const delayedRunner = await writeDelayedImportRunner(stdioFixture);
 
     const connect = cm.connectAll({
       slow: {
         transport: 'stdio',
         command: process.execPath,
-        args: ['-e', delayedMockServer],
+        args: [delayedRunner],
         startupTimeoutMs: 2_000,
       },
     });
@@ -388,16 +398,14 @@ describe('McpConnectionManager', () => {
     cm.onStatusChange((entry) => {
       seen.push({ name: entry.name, status: entry.status });
     });
-    const delayedMockServer = `setTimeout(() => import(${JSON.stringify(
-      pathToFileURL(stdioFixture).href,
-    )}), 250)`;
+    const delayedRunner = await writeDelayedImportRunner(stdioFixture);
 
     try {
       await cm.connectAll({
         slow: {
           transport: 'stdio',
           command: process.execPath,
-          args: ['-e', delayedMockServer],
+          args: [delayedRunner],
           startupTimeoutMs: 5_000,
         },
       });

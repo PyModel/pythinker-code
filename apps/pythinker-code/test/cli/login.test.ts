@@ -117,7 +117,7 @@ describe('pythinker login', () => {
 
     const writtenChunks = stderrSpy.mock.calls.map((call: unknown[]) => String(call[0]));
     expect(writtenChunks.some((chunk: string) => chunk.includes('ABCD-EFGH'))).toBe(true);
-    expect(writtenChunks.some((chunk: string) => chunk.includes('https://example.com/v'))).toBe(
+    expect(writtenChunks.some((chunk: string) => chunk.includes('https://example.com/v?code=ABCD-EFGH') || /https:\/\/example\.com\/v(?:\s|$)/.test(chunk))).toBe(
       true,
     );
     expect(openUrl).toHaveBeenCalledWith('https://example.com/v?code=ABCD-EFGH');
@@ -157,7 +157,7 @@ describe('pythinker login', () => {
 
     const writtenChunks = stderrSpy.mock.calls.map((call: unknown[]) => String(call[0]));
     expect(writtenChunks.some((chunk: string) => chunk.includes('ABCD-EFGH'))).toBe(true);
-    expect(writtenChunks.some((chunk: string) => chunk.includes('https://example.com/v'))).toBe(
+    expect(writtenChunks.some((chunk: string) => chunk.includes('https://example.com/v?code=ABCD-EFGH') || /https:\/\/example\.com\/v(?:\s|$)/.test(chunk))).toBe(
       true,
     );
     expect(openUrl).toHaveBeenCalledWith('https://example.com/v?code=ABCD-EFGH');

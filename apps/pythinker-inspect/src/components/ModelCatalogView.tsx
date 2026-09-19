@@ -27,6 +27,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { useConnection } from '../connection';
 import { ActionButton, Badge, ErrorLine, errorMessage } from '../ui';
+import { joinApiUrl } from '../httpUrl';
 
 interface FlatEntry {
   readonly item: ModelCatalogItem;
@@ -324,7 +325,7 @@ function ModelSection({
     try {
       const headers: Record<string, string> = { 'content-type': 'application/json' };
       if (config.token.trim() !== '') headers['authorization'] = `Bearer ${config.token.trim()}`;
-      const res = await fetch(`${baseUrl}/api/v1/sessions`, {
+      const res = await fetch(joinApiUrl(baseUrl, '/api/v1/sessions'), {
         method: 'POST',
         headers,
         body: JSON.stringify({ metadata: { cwd: cwd.trim() } }),

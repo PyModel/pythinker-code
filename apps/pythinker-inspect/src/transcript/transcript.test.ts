@@ -49,16 +49,16 @@ function stepHeader(stepId: string, ordinal: number): StepHeader {
 describe('transcript attachments', () => {
   it('maps each attachment locator to its transport route', () => {
     expect(
-      transcriptAttachmentUrl('http://h:1', 's 1', { kind: 'file', fileId: 'f 1' }),
-    ).toBe('http://h:1/api/v1/files/f%201');
+      transcriptAttachmentUrl('http://127.0.0.1:1', 's 1', { kind: 'file', fileId: 'f 1' }),
+    ).toBe('http://127.0.0.1:1/api/v1/files/f%201');
     expect(
-      transcriptAttachmentUrl('http://h:1', 's 1', {
+      transcriptAttachmentUrl('http://127.0.0.1:1', 's 1', {
         kind: 'session_media',
         fileId: 'f 1',
       }),
-    ).toBe('http://h:1/api/v1/sessions/s%201/media/f%201');
+    ).toBe('http://127.0.0.1:1/api/v1/sessions/s%201/media/f%201');
     expect(
-      transcriptAttachmentUrl('http://h:1', 's1', {
+      transcriptAttachmentUrl('http://127.0.0.1:1', 's1', {
         kind: 'url',
         url: 'https://example.com/a.png',
       }),
@@ -69,7 +69,7 @@ describe('transcript attachments', () => {
     const fetchImpl = vi.fn(async () => new Response('media-bytes', { status: 200 }));
 
     const blob = await fetchTranscriptAttachment({
-      baseUrl: 'http://h:1',
+      baseUrl: 'http://127.0.0.1:1',
       token: 'tok',
       sessionId: 's1',
       source: { kind: 'session_media', fileId: 'f_1' },
@@ -77,7 +77,7 @@ describe('transcript attachments', () => {
     });
 
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://h:1/api/v1/sessions/s1/media/f_1',
+      'http://127.0.0.1:1/api/v1/sessions/s1/media/f_1',
       { headers: { authorization: 'Bearer tok' } },
     );
     await expect(blob.text()).resolves.toBe('media-bytes');
@@ -188,7 +188,7 @@ function makeWs(handlers: Partial<ConstructorParameters<typeof TranscriptWs>[0][
     reconnects: 0,
   };
   const ws = new TranscriptWs({
-    url: 'http://h:1',
+    url: 'http://127.0.0.1:1',
     token: 'tok',
     sessionId: 's1',
     agentId: 'main',
@@ -237,7 +237,7 @@ describe('fetchTranscriptPage', () => {
   it('requests the endpoint with cursor params and bearer auth, unwraps the envelope', async () => {
     const { calls, fetchImpl } = fakeFetch(okEnvelope(pageData));
     const page = await fetchTranscriptPage({
-      baseUrl: 'http://h:1',
+      baseUrl: 'http://127.0.0.1:1',
       token: 'tok',
       sessionId: 's 1',
       agentId: 'main',
@@ -261,14 +261,14 @@ describe('fetchTranscriptPage', () => {
   it('throws on a non-zero envelope code', async () => {
     const { fetchImpl } = fakeFetch({ code: 40401, msg: 'session not found', data: null });
     await expect(
-      fetchTranscriptPage({ baseUrl: 'http://h:1', sessionId: 's9', agentId: 'main', fetchImpl }),
+      fetchTranscriptPage({ baseUrl: 'http://127.0.0.1:1', sessionId: 's9', agentId: 'main', fetchImpl }),
     ).rejects.toThrow('session not found');
   });
 
   it('throws when the payload fails schema validation', async () => {
     const { fetchImpl } = fakeFetch(okEnvelope({ agent_id: 'main', items: 'nope' }));
     await expect(
-      fetchTranscriptPage({ baseUrl: 'http://h:1', sessionId: 's1', agentId: 'main', fetchImpl }),
+      fetchTranscriptPage({ baseUrl: 'http://127.0.0.1:1', sessionId: 's1', agentId: 'main', fetchImpl }),
     ).rejects.toThrow('unexpected response shape');
   });
 });
@@ -289,7 +289,7 @@ describe('fetchTranscriptOps', () => {
   it('requests the ops endpoint with since_seq and unwraps batches in order', async () => {
     const { calls, fetchImpl } = fakeFetch(okEnvelope(catchupData));
     const res = await fetchTranscriptOps({
-      baseUrl: 'http://h:1',
+      baseUrl: 'http://127.0.0.1:1',
       token: 'tok',
       sessionId: 's1',
       agentId: 'main',
@@ -309,7 +309,7 @@ describe('fetchTranscriptOps', () => {
       okEnvelope({ ...catchupData, batches: [], latest_seq: 500, complete: false }),
     );
     const res = await fetchTranscriptOps({
-      baseUrl: 'http://h:1',
+      baseUrl: 'http://127.0.0.1:1',
       sessionId: 's1',
       agentId: 'main',
       sinceSeq: 5,
@@ -323,7 +323,7 @@ describe('fetchTranscriptOps', () => {
     const { fetchImpl } = fakeFetch({ code: 40404, msg: 'unknown route', data: null });
     await expect(
       fetchTranscriptOps({
-        baseUrl: 'http://h:1',
+        baseUrl: 'http://127.0.0.1:1',
         sessionId: 's1',
         agentId: 'main',
         sinceSeq: 5,
@@ -349,7 +349,7 @@ describe('fetchTranscriptPlan', () => {
   it('requests the plan endpoint with agent_id/tool_call_id and maps the snake_case payload', async () => {
     const { calls, fetchImpl } = fakeFetch(okEnvelope({ agent_id: 'main', plans: [planEntry] }));
     const plans = await fetchTranscriptPlan({
-      baseUrl: 'http://h:1',
+      baseUrl: 'http://127.0.0.1:1',
       token: 'tok',
       sessionId: 's 1',
       agentId: 'main',
@@ -385,7 +385,7 @@ describe('fetchTranscriptPlan', () => {
       }),
     );
     const plans = await fetchTranscriptPlan({
-      baseUrl: 'http://h:1',
+      baseUrl: 'http://127.0.0.1:1',
       sessionId: 's1',
       agentId: 'main',
       fetchImpl,
@@ -408,7 +408,7 @@ describe('fetchTranscriptPlan', () => {
     });
     await expect(
       fetchTranscriptPlan({
-        baseUrl: 'http://h:1',
+        baseUrl: 'http://127.0.0.1:1',
         sessionId: 's1',
         agentId: 'main',
         toolCallId: 'call_nope',
@@ -421,7 +421,7 @@ describe('fetchTranscriptPlan', () => {
     const { fetchImpl } = fakeFetch(okEnvelope({ agent_id: 'main', plans: 'nope' }));
     await expect(
       fetchTranscriptPlan({
-        baseUrl: 'http://h:1',
+        baseUrl: 'http://127.0.0.1:1',
         sessionId: 's1',
         agentId: 'main',
         fetchImpl,
@@ -437,7 +437,7 @@ describe('TranscriptWs', () => {
     FakeWs.reset();
     makeWs();
     const sock = FakeWs.instances[0]!;
-    expect(sock.url).toBe('ws://h:1/api/v1/ws');
+    expect(sock.url).toBe('ws://127.0.0.1:1/api/v1/ws');
     expect(sock.protocols).toEqual(['pythinker-code.bearer.tok']);
     sock.open();
     expect(sock.sentFrames()[0]).toMatchObject({
@@ -502,7 +502,7 @@ describe('TranscriptWs', () => {
     FakeWs.reset();
     let watermark: number | undefined;
     new TranscriptWs({
-      url: 'http://h:1',
+      url: 'http://127.0.0.1:1',
       sessionId: 's1',
       agentId: 'main',
       WebSocketImpl: FakeWs,
@@ -541,7 +541,7 @@ describe('TranscriptWs', () => {
     FakeWs.reset();
     const seen = { ops: 0 };
     new TranscriptWs({
-      url: 'http://h:1',
+      url: 'http://127.0.0.1:1',
       sessionId: 's1',
       agentId: 'main',
       WebSocketImpl: FakeWs,
