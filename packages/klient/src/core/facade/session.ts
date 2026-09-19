@@ -7,36 +7,24 @@
  * wire).
  */
 
-import type { AgentActivityState } from '@pymodel/agent-core-v2/agent/activityView/activityView';
 import type {
   ApprovalRequest,
   ApprovalResponse,
-} from '@pymodel/agent-core-v2/session/approval/approval';
+} from '@pymodel/agent-core-v2/agent/interaction/approval';
 import type {
   Interaction,
   InteractionKind,
-} from '@pymodel/agent-core-v2/features/interaction/interaction';
+} from '@pymodel/agent-core-v2/human/interaction/interaction';
 import type {
   QuestionRequest,
   QuestionResult,
-} from '@pymodel/agent-core-v2/session/question/question';
+} from '@pymodel/agent-core-v2/agent/interaction/question';
 import type {
   AgentMeta,
   SessionMeta,
   SessionMetaPatch,
 } from '@pymodel/agent-core-v2/session/sessionMetadata/sessionMetadata';
 import type { SkillSummary } from '@pymodel/agent-core-v2/features/skill/catalog/types';
-import type {
-  ExpertTalkArmV1,
-  ExpertTalkConfigV1,
-  ExpertTalkPairV1,
-  ExpertTalkRunV1,
-  ExpertTalkListRunsOptions,
-  ExpertTalkRunPageV1,
-  ExpertTalkStartInput,
-  ExpertTalkStartResult,
-  ExpertTalkStatusV1,
-} from '@pymodel/agent-core-v2/session/expertTalk/expertTalk';
 
 import type { ScopeRef } from '../channel.js';
 import type { McpServerConfig } from '../../contract/mcp.js';
@@ -85,24 +73,10 @@ export interface SessionSkillsFacade {
   list(): Promise<readonly SkillSummary[]>;
 }
 
-export interface SessionExpertTalkFacade {
-  get(): Promise<ExpertTalkStatusV1>;
-  configure(pair: ExpertTalkPairV1, expectedVersion?: string): Promise<ExpertTalkConfigV1>;
-  clear(expectedVersion?: string): Promise<ExpertTalkConfigV1>;
-  arm(expectedVersion?: string): Promise<ExpertTalkArmV1>;
-  disarm(armId?: string): Promise<void>;
-  start(input: Omit<ExpertTalkStartInput, 'clientId'>): Promise<ExpertTalkStartResult>;
-  listRuns(options?: ExpertTalkListRunsOptions): Promise<ExpertTalkRunPageV1>;
-  getRun(runId: string): Promise<ExpertTalkRunV1>;
-  cancel(runId: string): Promise<ExpertTalkRunV1>;
-  retry(runId: string): Promise<ExpertTalkStartResult>;
-}
-
 /**
- * Derived session lifecycle phase. The engine retired its `sessionActivity`
- * service (#1751) — busy is now derived from agent activity views — so the
- * facade composes the phase from the pending interaction lists and each
- * agent's `agentActivityView`, keeping the retired service's precedence.
+ * Derived session lifecycle phase. The facade reads the engine's session
+ * activity view (busy + pending interaction) and maps it onto the v1
+ * precedence: pending approvals and questions first, then busy, then idle.
  */
 export type SessionStatus = 'running' | 'idle' | 'awaiting_approval' | 'awaiting_question';
 
@@ -110,8 +84,9 @@ export interface SessionFacade {
   get(): Promise<SessionMeta>;
   setTitle(title: string): Promise<void>;
   /**
-   * Request a generated title from the main agent's first prompts.
-   * Returns `undefined` when no title-generation backend is available.
+   * Generate and apply a title from the main agent's first prompts via the
+   * managed `chat_title` tool. `undefined` when generation is unavailable
+   * (no managed OAuth login, no prompt yet, or a custom title is set).
    * `force` regenerates anyway, overwriting a generated or custom title.
    * `source` picks the conversation excerpt: `user_prompts` (default),
    * `first_turn` (opening prompt + first reply; strict), or `digest`
@@ -136,16 +111,11 @@ export interface SessionFacade {
   readonly questions: SessionQuestionsFacade;
   readonly interactions: SessionInteractionsFacade;
   readonly skills: SessionSkillsFacade;
-  readonly expertTalk: SessionExpertTalkFacade;
   /** Agent id → metadata for every agent registered in this session. */
   agents(): Promise<Readonly<Record<string, AgentMeta>>>;
 }
 
-export function createSessionFacade(
-  call: ScopedCaller,
-  sessionId: string,
-  clientId: string,
-): SessionFacade {
+export function createSessionFacade(call: ScopedCaller, sessionId: string): SessionFacade {
   const scope: ScopeRef = { sessionId };
   const read = (): Promise<SessionMeta> =>
     call(scope, 'sessionMetadata', 'read', []) as Promise<SessionMeta>;
@@ -169,29 +139,13 @@ export function createSessionFacade(
     setArchived: (archived) =>
       call(scope, 'sessionMetadata', 'setArchived', [archived]) as Promise<void>,
     status: async () => {
-      const pending = (kind: 'approval' | 'question') =>
-        call(scope, 'sessionInteractionService', 'listPending', [kind]) as Promise<
-          readonly unknown[]
-        >;
-      if ((await pending('approval')).length > 0) return 'awaiting_approval';
-      if ((await pending('question')).length > 0) return 'awaiting_question';
-      const meta = await read();
-      for (const agentId of Object.keys(meta.agents ?? {})) {
-        try {
-          const state = (await call(
-            { sessionId, agentId },
-            'agentActivityView',
-            'state',
-            [],
-          )) as AgentActivityState;
-          if (state.turn !== undefined || state.background.length > 0) return 'running';
-        } catch {
-          // Agents stay registered after their live handle is gone; the scope
-          // probe fails for a dead agent, so treat it as not active — the same
-          // view the retired service had from iterating live handles only.
-        }
-      }
-      return 'idle';
+      const activity = (await call(scope, 'sessionActivityView', 'state', [])) as {
+        readonly busy: boolean;
+        readonly pendingInteraction: 'none' | 'approval' | 'question';
+      };
+      if (activity.pendingInteraction === 'approval') return 'awaiting_approval';
+      if (activity.pendingInteraction === 'question') return 'awaiting_question';
+      return activity.busy ? 'running' : 'idle';
     },
     close: () => call({}, 'sessionManager', 'close', [sessionId]) as Promise<void>,
     archive: () => call({}, 'sessionManager', 'archive', [sessionId]) as Promise<void>,
@@ -234,28 +188,6 @@ export function createSessionFacade(
     skills: {
       list: () =>
         call(scope, 'sessionSkillCatalog', 'list', []) as Promise<readonly SkillSummary[]>,
-    },
-
-    expertTalk: {
-      get: () => call(scope, 'sessionExpertTalkService', 'status', []) as Promise<ExpertTalkStatusV1>,
-      configure: (pair, expectedVersion) =>
-        call(scope, 'sessionExpertTalkService', 'configure', [pair, expectedVersion]) as Promise<ExpertTalkConfigV1>,
-      clear: (expectedVersion) =>
-        call(scope, 'sessionExpertTalkService', 'clear', [expectedVersion]) as Promise<ExpertTalkConfigV1>,
-      arm: (expectedVersion) =>
-        call(scope, 'sessionExpertTalkService', 'arm', [clientId, expectedVersion]) as Promise<ExpertTalkArmV1>,
-      disarm: (armId) =>
-        call(scope, 'sessionExpertTalkService', 'disarm', [clientId, armId]) as Promise<void>,
-      start: (input) =>
-        call(scope, 'sessionExpertTalkService', 'start', [{ ...input, clientId }]) as Promise<ExpertTalkStartResult>,
-      listRuns: (options) =>
-        call(scope, 'sessionExpertTalkService', 'listRuns', [options]) as Promise<ExpertTalkRunPageV1>,
-      getRun: (runId) =>
-        call(scope, 'sessionExpertTalkService', 'getRun', [runId]) as Promise<ExpertTalkRunV1>,
-      cancel: (runId) =>
-        call(scope, 'sessionExpertTalkService', 'cancel', [runId]) as Promise<ExpertTalkRunV1>,
-      retry: (runId) =>
-        call(scope, 'sessionExpertTalkService', 'retry', [runId]) as Promise<ExpertTalkStartResult>,
     },
 
     agents: async () => {

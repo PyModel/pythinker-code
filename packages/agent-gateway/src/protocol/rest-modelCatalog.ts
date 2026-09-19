@@ -4,7 +4,7 @@ import { PROVIDER_ID_PATTERN } from '@pymodel/agent-core-v2';
 import {
   modelCatalogItemSchema,
   providerCatalogItemSchema,
-} from '@pymodel/agent-core-v2/kosong/model/catalog';
+} from '@pymodel/agent-core-v2/llm-adapter/model/catalog';
 
 export const listModelsResponseSchema = z.object({
   items: z.array(modelCatalogItemSchema),
@@ -143,6 +143,7 @@ export const catalogProviderItemSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   wire_type: providerWireTypeSchema.nullable(),
+  base_url: z.string().nullable(),
   guessed: z.boolean(),
   needs_base_url: z.boolean(),
   rejected: z.boolean(),

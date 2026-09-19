@@ -31,6 +31,8 @@ function makeHost() {
       setStep: vi.fn(),
       flushNow: vi.fn(),
       resetToolUi: vi.fn(),
+      clearNotifyPanel: vi.fn(),
+      markNotifyPanelEnded: vi.fn(),
       finalizeTurn: vi.fn(),
       finalizeLiveTextBuffers: vi.fn(),
       completeToolResult: vi.fn(),
@@ -45,6 +47,9 @@ function makeHost() {
     showStatus: vi.fn(),
     showNotice: vi.fn(),
     track: vi.fn(),
+    recordSessionActivity: vi.fn(),
+    noteStepUsage: vi.fn(),
+    noteCompactionFinished: vi.fn(),
     mountEditorReplacement: vi.fn(),
     restoreEditor: vi.fn(),
     restoreInputText: vi.fn(),
@@ -53,7 +58,7 @@ function makeHost() {
     sendQueuedMessage: vi.fn(),
     shiftQueuedMessage: vi.fn(),
     btwPanelController: { routeEvent: vi.fn(() => false) },
-    surveyController: { notifyToolCallStarted: vi.fn(), notifyCompactionFinished: vi.fn() },
+    surveyController: { notifyToolCallStarted: vi.fn(), notifyToolCallEnded: vi.fn(), notifyCompactionFinished: vi.fn() },
     tasksBrowserController: {},
   };
   return { host: host as any };

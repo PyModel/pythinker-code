@@ -3,15 +3,15 @@ import type { AutocompleteItem, SlashCommand } from '@pymodel/pi-tui';
 export type SlashCommandAvailability = 'always' | 'idle-only';
 
 export interface PythinkerSlashCommand<Name extends string = string> extends SlashCommand {
+  readonly requiresEngineV2?: boolean;
   readonly name: Name;
   readonly aliases: readonly string[];
   readonly description: string;
   readonly priority?: number;
   readonly availability?: SlashCommandAvailability | ((args: string) => SlashCommandAvailability);
-  /** When set, the command is hidden from the palette and blocked unless this flag is enabled. */
+  /** When set, the command is hidden from the palette and blocked unless this flag is enabled.
+   * A plain string: the gating flag may live in either engine's registry (v1 core or v2 domain). */
   readonly experimentalFlag?: string;
-  /** When set, the command is hidden and unresolved on the legacy engine. */
-  readonly requiresEngineV2?: boolean;
   /**
    * Generic argument autocompletion. `argumentPrefix` is the text typed after
    * `/<command> `; return suggestions or `null`. Declared as a plain function

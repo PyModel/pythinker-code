@@ -8,7 +8,6 @@ import {
 } from '@pymodel/pythinker-telemetry';
 import {
   createPythinkerHarness,
-  createPythinkerHarnessV2,
   type PythinkerHarness,
   type SessionSummary,
   type TelemetryClient,
@@ -18,7 +17,6 @@ import type { Command } from 'commander';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from '#/cli/telemetry';
 import { createPythinkerCodeHostIdentity } from '#/cli/version';
-import { isPythinkerV2Enabled } from '../experimental-v2';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -26,7 +24,7 @@ interface WritableLike {
 
 export interface ForkedSessionResult {
   readonly id: string;
-  readonly title?: string;
+  readonly title?: string | undefined;
 }
 
 export interface ForkDeps {
@@ -41,7 +39,7 @@ export interface ForkDeps {
 
 export interface ForkOptions {
   readonly yes: boolean;
-  readonly cwd?: string;
+  readonly cwd?: string | undefined;
 }
 
 export async function handleFork(
@@ -49,26 +47,26 @@ export async function handleFork(
   sessionId: string | undefined,
   opts: ForkOptions,
 ): Promise<void> {
-  try {
-    let resolvedId = normalizeOptionalSessionId(sessionId);
-    if (resolvedId === undefined) {
-      const sessions = await deps.listSessions(opts.cwd ?? deps.cwd());
-      const latest = sessions[0];
-      if (latest === undefined) {
-        deps.stderr.write('No previous session found to fork.\n');
-        return deps.exit(1);
-      }
-      if (!opts.yes) {
-        const confirmed = await deps.confirmPreviousSession(latest);
-        if (!confirmed) {
-          deps.stdout.write('Fork cancelled.\n');
-          return;
-        }
-      }
-      resolvedId = latest.id;
+  let resolvedId = normalizeOptionalSessionId(sessionId);
+  if (resolvedId === undefined) {
+    const sessions = await deps.listSessions(opts.cwd ?? deps.cwd());
+    const latest = sessions[0];
+    if (latest === undefined) {
+      deps.stderr.write('No previous session found to fork.\n');
+      deps.exit(1);
     }
+    if (!opts.yes) {
+      const confirmed = await deps.confirmPreviousSession(latest);
+      if (!confirmed) {
+        deps.stdout.write('Fork cancelled.\n');
+        return;
+      }
+    }
+    resolvedId = latest.id;
+  }
 
-    const startedAt = Date.now();
+  const startedAt = Date.now();
+  try {
     const forked = await deps.forkSession(resolvedId);
     const elapsedMs = Date.now() - startedAt;
     const title = forked.title === undefined ? '' : ` ("${forked.title}")`;
@@ -121,7 +119,7 @@ function createDefaultForkDeps(overrides: Partial<ForkDeps> = {}): ForkDeps & {
   };
   const getHarness = (): PythinkerHarness => {
     const currentTelemetryBootstrap = getTelemetryBootstrap();
-    harness ??= (isPythinkerV2Enabled() ? createPythinkerHarnessV2 : createPythinkerHarness)({
+    harness ??= createPythinkerHarness({
       homeDir: currentTelemetryBootstrap.homeDir,
       identity,
       telemetry: telemetryClient,

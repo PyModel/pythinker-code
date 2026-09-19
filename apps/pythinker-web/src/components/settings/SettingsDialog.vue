@@ -41,6 +41,7 @@ import Banner from '../ui/Banner.vue';
 import Field from '../ui/Field.vue';
 import type { IconName } from '../../lib/icons';
 import ProvidersPanel from './ProvidersPanel.vue';
+import PluginsPanel from './PluginsPanel.vue';
 import SecondaryModelPicker from './SecondaryModelPicker.vue';
 
 const { t } = useI18n();
@@ -105,7 +106,7 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-type SettingsTab = 'general' | 'agent' | 'expertOpinion' | 'account' | 'providers' | 'advanced' | 'update' | 'lab' | 'archived';
+type SettingsTab = 'general' | 'agent' | 'expertOpinion' | 'account' | 'providers' | 'plugins' | 'advanced' | 'update' | 'lab' | 'archived';
 
 const activeTab = ref<SettingsTab>(props.initialTab ?? 'general');
 const fontScale = computed(() => uiFontScaleForSize(props.uiFontSize));
@@ -117,6 +118,7 @@ const tabs: { id: SettingsTab; labelKey: string; icon: IconName }[] = [
   { id: 'expertOpinion', labelKey: 'settings.tabs.expertOpinion', icon: 'sparkles' },
   { id: 'account', labelKey: 'settings.tabs.account', icon: 'user' },
   { id: 'providers', labelKey: 'settings.tabs.providers', icon: 'bolt' },
+  { id: 'plugins', labelKey: 'settings.tabs.plugins', icon: 'tool' },
   { id: 'lab', labelKey: 'settings.tabs.lab', icon: 'flask' },
   { id: 'archived', labelKey: 'settings.tabs.archived', icon: 'archive' },
   ...(desktopBridge === undefined
@@ -1010,6 +1012,11 @@ function archiveTime(iso: string): string {
             :discard-token="providerDiscardToken"
             @dirty-change="providerDirty = $event"
           />
+        </section>
+
+        <!-- Plugins marketplace -->
+        <section v-show="activeTab === 'plugins'" class="panel">
+          <PluginsPanel />
         </section>
 
         <!-- Agent defaults -->

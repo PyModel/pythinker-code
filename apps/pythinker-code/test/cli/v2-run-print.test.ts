@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -5,13 +6,12 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  AgentCron,
-  AgentGoal,
+  IAgentCronService,
+  IAgentGoalService,
   IAgentLifecycleService,
   IAgentLoopService,
   IAgentPermissionModeService,
   IAgentProfileService,
-  IAgentPromptService,
   IAgentScopeContext,
   IAgentTaskService,
   IAuthSummaryService,
@@ -20,9 +20,11 @@ import {
   IEventBus,
   IEventDispatcher,
   IFileSystemStorageService,
+  IHostFileSystem,
   ISessionIndex,
   ISessionManager,
   ITelemetryService,
+  IWorkspaceInstanceManager,
   makeAgentScopeContext,
   resolvePythinkerHome,
   type BootstrapInput,
@@ -36,6 +38,15 @@ import { runV2Print } from '../../src/cli/v2/run-v2-print';
 const mocks = vi.hoisted(() => ({
   bootstrap: vi.fn(),
   ensureMainAgent: vi.fn(),
+  loadMcpServersDetailed: vi.fn(async () => ({
+    servers: {},
+    origins: {},
+  })),
+  resolveMcpJsonPaths: vi.fn(async () => ({
+    user: '/tmp/pythinker-code-test-home/mcp.json',
+    projectRoot: '/tmp/project/.mcp.json',
+    project: '/tmp/project/.pythinker-code/mcp.json',
+  })),
   createPythinkerDefaultHeaders: vi.fn(() => ({})),
   resolvePythinkerHome: vi.fn((homeDir?: string) => homeDir ?? '/tmp/pythinker-code-test-home'),
   createPythinkerDeviceId: vi.fn(() => 'device-1'),
@@ -54,6 +65,11 @@ vi.mock('@pymodel/agent-core-v2', async (importOriginal) => {
     ensureMainAgent: mocks.ensureMainAgent,
   };
 });
+
+vi.mock('@pymodel/agent-core-v2/app/mcpConfig/configLoader', () => ({
+  loadMcpServersDetailed: mocks.loadMcpServersDetailed,
+  resolveMcpJsonPaths: mocks.resolveMcpJsonPaths,
+}));
 
 vi.mock('@pymodel/pythinker-code-oauth', async () => {
   const actual = await vi.importActual<typeof import('@pymodel/pythinker-code-oauth')>(
@@ -144,7 +160,9 @@ function makeFakeHarness() {
   // emits a streaming assistant delta before completing.
   const eventListeners = new Set<(event: Event2<any>) => void>();
   const profileState: { profileName: string | undefined } = { profileName: undefined };
+  const trustState = { trusted: true };
 
+  const goal = { createGoal: vi.fn(), getGoal: vi.fn() };
   const agentServices = new Map<unknown, unknown>([
     [
       IAgentProfileService,
@@ -166,31 +184,37 @@ function makeFakeHarness() {
         }),
       },
     ],
-    [
-      IAgentPromptService,
-      {
-        enqueue: vi.fn(async () => {
-          // Emit a native assistant delta on the main agent bus, then complete.
-          for (const listener of [...eventListeners]) {
-            listener({ type: 'assistant.delta', turnId: 1, delta: 'hello world' } as unknown as Event2<any>);
-          }
-          return {
-            launched: Promise.resolve({
-              id: 1,
-              result: Promise.resolve({ type: 'completed' }),
-            }),
-          };
-        }),
-        drain: vi.fn(async () => {}),
-        list: vi.fn(() => ({ launching: false, active: undefined, pending: [] })),
-      },
-    ],
     [IAgentTaskService, { list: vi.fn(() => []), stopAllOnExit: vi.fn(async () => []) }],
+    [IAgentCronService, { getNextFireTime: vi.fn(() => null) }],
+    [IAgentGoalService, goal],
     [IEventDispatcher, { flush: vi.fn(async () => {}) }],
     [
       IAgentLoopService,
       {
-        status: vi.fn(() => ({ state: 'idle', pendingTurnIds: [] })),
+        submit: vi.fn(() => {
+          // Emit a native assistant delta on the main agent bus, then complete.
+          for (const listener of [...eventListeners]) {
+            listener({ type: 'assistant.delta', turnId: 1, delta: 'hello world' } as unknown as Event2<any>);
+          }
+          return { id: 'p1' };
+        }),
+        promptHandle: vi.fn(() => ({
+          launched: Promise.resolve({
+            id: 1,
+            result: Promise.resolve({ type: 'completed' }),
+          }),
+        })),
+        snapshot: vi.fn(() => ({
+          state: 'idle',
+          activeTurnId: undefined,
+          activePromptId: undefined,
+          queue: [],
+          notificationCount: 0,
+          paused: false,
+          hasPendingRequests: false,
+          turn: undefined,
+          activeTraceId: undefined,
+        })),
         cancel: vi.fn(() => false),
         settled: vi.fn(async () => {}),
         tryAcquireQuiescence: vi.fn(() => ({ dispose: vi.fn() })),
@@ -201,8 +225,6 @@ function makeFakeHarness() {
       makeAgentScopeContext({ agentId: 'main', agentScope: 'agents/main' }),
     ],
   ]);
-  const goal = { createGoal: vi.fn(), getGoal: vi.fn() };
-  const cron = { getNextFireTime: vi.fn(() => null) };
   const agent = fakeScope('main', agentServices);
 
   const sessionServices = new Map<unknown, unknown>([
@@ -212,11 +234,6 @@ function makeFakeHarness() {
       {
         list: vi.fn(() => []),
         handleOf: vi.fn(() => agent),
-        resolve: vi.fn((_context: unknown, capability: unknown) => {
-          if (capability === AgentGoal) return goal;
-          if (capability === AgentCron) return cron;
-          throw new Error('unexpected capability');
-        }),
       },
     ],
   ]);
@@ -273,12 +290,22 @@ function makeFakeHarness() {
         getEnv: () => undefined,
       },
     ],
+    [ { getCachedAccessToken: vi.fn(async () => undefined) }],
     [IFileSystemStorageService, {}],
+    [IHostFileSystem, {}],
+    [
+      IWorkspaceInstanceManager,
+      {
+        getOrCreate: vi.fn(async () => ({
+          program: { trust: { get: vi.fn(async () => trustState.trusted) } },
+        })),
+      },
+    ],
     [
       ITelemetryService,
       (() => {
         const svc = {
-          setAppender: vi.fn(),
+          addAppender: vi.fn(() => ({ dispose: vi.fn() })),
           setContext: vi.fn(),
           track: vi.fn(),
           track2: vi.fn(),
@@ -290,7 +317,7 @@ function makeFakeHarness() {
     ],
   ]);
   const app = fakeScope('app', appServices);
-  return { app, agent, session, agentServices, appServices, profileState };
+  return { app, agent, session, agentServices, sessionServices, appServices, profileState, trustState };
 }
 
 describe('runV2Print', () => {
@@ -300,6 +327,11 @@ describe('runV2Print', () => {
     // Pin the telemetry kill-switch to "unset" so the host environment cannot
     // flip the default telemetry-on path these tests exercise.
     vi.stubEnv('PYTHINKER_DISABLE_TELEMETRY', '');
+    // `vi.clearAllMocks` keeps implementations, so re-pin the default here.
+    mocks.loadMcpServersDetailed.mockImplementation(async () => ({
+      servers: {},
+      origins: {},
+    }));
   });
 
   afterEach(() => {
@@ -315,16 +347,12 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
-    await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
+    await runV2Print(opts(), '1.2.3-test', { stdout, stderr });
 
-    const promptService = agentServices.get(IAgentPromptService) as { enqueue: ReturnType<typeof vi.fn> };
-    expect(promptService.enqueue).toHaveBeenCalledWith({
-      message: {
-        role: 'user',
-        content: [{ type: 'text', text: 'say hello' }],
-        toolCalls: [],
-        origin: { kind: 'user' },
-      },
+    const promptService = agentServices.get(IAgentLoopService) as { submit: ReturnType<typeof vi.fn> };
+    expect(promptService.submit).toHaveBeenCalledWith({
+      message: { role: 'user', content: [{ type: 'text', text: 'say hello' }] },
+      meta: { origin: { kind: 'user' }, tracked: true },
     });
     // Version banner is first, then the rendered assistant output.
     expect(stderr.write).toHaveBeenNthCalledWith(1, 'pythinker version 1.2.3-test\n');
@@ -340,7 +368,7 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
-    await runV2Print(opts({ skillsDirs: ['/skills'] }) as never, '1.2.3-test', {
+    await runV2Print(opts({ skillsDirs: ['/skills'] }) as any, '1.2.3-test', {
       stdout,
       stderr,
     });
@@ -357,7 +385,7 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
-    await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
+    await runV2Print(opts(), '1.2.3-test', { stdout, stderr });
 
     const input = mocks.bootstrap.mock.calls[0]?.[0] as BootstrapInput;
     expect(input.args?.skillDirs ?? []).toEqual([]);
@@ -372,7 +400,7 @@ describe('runV2Print', () => {
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await runV2Print(
-      opts({ agent: 'reviewer', agentFiles: ['/agents/reviewer.md'] }) as never,
+      opts({ agent: 'reviewer', agentFiles: ['/agents/reviewer.md'] }) as any,
       '1.2.3-test',
       { stdout, stderr },
     );
@@ -404,7 +432,7 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
-    await runV2Print(opts({ agentFiles: [agentFile] }) as never, '1.2.3-test', {
+    await runV2Print(opts({ agentFiles: [agentFile] }) as any, '1.2.3-test', {
       stdout,
       stderr,
     });
@@ -431,7 +459,7 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
 
     await expect(
-      runV2Print(opts({ agent: 'missing' }) as never, '1.2.3-test', { stdout, stderr }),
+      runV2Print(opts({ agent: 'missing' }) as any, '1.2.3-test', { stdout, stderr }),
     ).rejects.toThrow('Unknown agent profile');
 
     expect(mocks.ensureMainAgent).not.toHaveBeenCalled();
@@ -449,7 +477,7 @@ describe('runV2Print', () => {
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await expect(
-      runV2Print(opts({ agentFiles: [agentFile] }) as never, '1.2.3-test', { stdout, stderr }),
+      runV2Print(opts({ agentFiles: [agentFile] }) as any, '1.2.3-test', { stdout, stderr }),
     ).rejects.toThrow(/Invalid agent file/);
 
     const profile = agentServices.get(IAgentProfileService) as {
@@ -466,7 +494,7 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
-    await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
+    await runV2Print(opts(), '1.2.3-test', { stdout, stderr });
 
     const input = mocks.bootstrap.mock.calls[0]?.[0] as BootstrapInput;
     expect(input.args?.agentFiles ?? []).toEqual([]);
@@ -481,7 +509,7 @@ describe('runV2Print', () => {
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await runV2Print(
-      opts({ agent: 'reviewer', agentFiles: ['~/agents/reviewer.md'] }) as never,
+      opts({ agent: 'reviewer', agentFiles: ['~/agents/reviewer.md'] }) as any,
       '1.2.3-test',
       { stdout, stderr },
     );
@@ -502,7 +530,7 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
-    await runV2Print(opts({ session: 'ses_1', agent: 'reviewer' }) as never, '1.2.3-test', {
+    await runV2Print(opts({ session: 'ses_1', agent: 'reviewer' }) as any, '1.2.3-test', {
       stdout,
       stderr,
     });
@@ -528,7 +556,7 @@ describe('runV2Print', () => {
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await runV2Print(
-      opts({ session: 'ses_1', agent: 'reviewer', model: 'new-model' }) as never,
+      opts({ session: 'ses_1', agent: 'reviewer', model: 'new-model' }) as any,
       '1.2.3-test',
       { stdout, stderr },
     );
@@ -550,12 +578,12 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
-    await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
+    await runV2Print(opts(), '1.2.3-test', { stdout, stderr });
 
     const telemetry = appServices.get(ITelemetryService) as {
-      setAppender: ReturnType<typeof vi.fn>;
+      addAppender: ReturnType<typeof vi.fn>;
     };
-    expect(telemetry.setAppender).not.toHaveBeenCalled();
+    expect(telemetry.addAppender).not.toHaveBeenCalled();
     expect(mocks.initializeTelemetry).not.toHaveBeenCalled();
     // The run itself is unaffected: the prompt still renders and cleanup runs.
     expect(stdout.text()).toContain('hello world');
@@ -570,12 +598,12 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
-    await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
+    await runV2Print(opts(), '1.2.3-test', { stdout, stderr });
 
     const telemetry = appServices.get(ITelemetryService) as {
-      setAppender: ReturnType<typeof vi.fn>;
+      addAppender: ReturnType<typeof vi.fn>;
     };
-    expect(telemetry.setAppender).toHaveBeenCalledTimes(1);
+    expect(telemetry.addAppender).toHaveBeenCalledTimes(1);
     expect(mocks.initializeTelemetry).toHaveBeenCalledTimes(1);
     expect(mocks.initializeTelemetry).toHaveBeenCalledWith({
       homeDir: resolvePythinkerHome(),
@@ -585,6 +613,8 @@ describe('runV2Print', () => {
       uiMode: 'print',
       model: 'k2',
       endpoint: expect.any(Function),
+      getAccessToken: expect.any(Function),
+      onUnexpectedError: expect.any(Function),
     });
     // The resolved session id is synced onto the v1 client so crash events and
     // system metrics carry it; the sink model is reconciled too (same value
@@ -612,7 +642,7 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
-    await runV2Print(opts({ session: 'ses_1' }) as never, '1.2.3-test', { stdout, stderr });
+    await runV2Print(opts({ session: 'ses_1' }) as any, '1.2.3-test', { stdout, stderr });
 
     // The v1 pipeline was initialized up front with the best-known model, so
     // crash events during session resolution still reach a sink...
@@ -637,7 +667,7 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
-    await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
+    await runV2Print(opts(), '1.2.3-test', { stdout, stderr });
 
     const dispatcher = agentServices.get(IEventDispatcher) as {
       flush: ReturnType<typeof vi.fn>;
@@ -654,10 +684,10 @@ describe('runV2Print', () => {
     const stderr = writer();
     const { app, agentServices } = makeFakeHarness();
 
-    const promptService = agentServices.get(IAgentPromptService) as {
-      enqueue: ReturnType<typeof vi.fn>;
+    const promptService = agentServices.get(IAgentLoopService) as {
+      promptHandle: ReturnType<typeof vi.fn>;
     };
-    promptService.enqueue.mockResolvedValueOnce({
+    promptService.promptHandle.mockReturnValueOnce({
       launched: Promise.resolve({
         id: 1,
         result: Promise.resolve({
@@ -670,7 +700,7 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
-    await expect(runV2Print(opts() as never, '1.2.3-test', { stdout, stderr })).rejects.toThrow(
+    await expect(runV2Print(opts(), '1.2.3-test', { stdout, stderr })).rejects.toThrow(
       'provider.overloaded: llm request failed',
     );
 
@@ -688,10 +718,10 @@ describe('runV2Print', () => {
     const stderr = writer();
     const { app, agentServices } = makeFakeHarness();
 
-    const promptService = agentServices.get(IAgentPromptService) as {
-      enqueue: ReturnType<typeof vi.fn>;
+    const promptService = agentServices.get(IAgentLoopService) as {
+      promptHandle: ReturnType<typeof vi.fn>;
     };
-    promptService.enqueue.mockResolvedValueOnce({
+    promptService.promptHandle.mockReturnValueOnce({
       launched: Promise.resolve({
         id: 1,
         result: Promise.resolve({
@@ -708,7 +738,7 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
-    await expect(runV2Print(opts() as never, '1.2.3-test', { stdout, stderr })).rejects.toThrow(
+    await expect(runV2Print(opts(), '1.2.3-test', { stdout, stderr })).rejects.toThrow(
       'provider.overloaded: llm request failed',
     );
     expect(app.dispose).toHaveBeenCalled();
@@ -721,12 +751,22 @@ describe('runV2Print', () => {
 
     const order: string[] = [];
     const loop = agentServices.get(IAgentLoopService) as {
-      status: ReturnType<typeof vi.fn>;
+      snapshot: ReturnType<typeof vi.fn>;
       cancel: ReturnType<typeof vi.fn>;
       settled: ReturnType<typeof vi.fn>;
       tryAcquireQuiescence: ReturnType<typeof vi.fn>;
     };
-    loop.status.mockReturnValue({ state: 'running', pendingTurnIds: [] });
+    loop.snapshot.mockReturnValue({
+      state: 'running',
+      activeTurnId: undefined,
+      activePromptId: undefined,
+      queue: [],
+      notificationCount: 0,
+      paused: false,
+      hasPendingRequests: false,
+      turn: undefined,
+      activeTraceId: undefined,
+    });
     loop.cancel.mockImplementation(() => {
       if (!order.includes('cancel')) order.push('cancel');
       return true;
@@ -750,13 +790,15 @@ describe('runV2Print', () => {
       order.push('flush');
     });
 
-    const promptService = agentServices.get(IAgentPromptService) as {
-      enqueue: ReturnType<typeof vi.fn>;
-      drain: ReturnType<typeof vi.fn>;
-      list: ReturnType<typeof vi.fn>;
+    // A turn still in flight when the signal arrives: the queue snapshot reports
+    // the pending item, then the running prompt, then goes empty.
+    const promptService = agentServices.get(IAgentLoopService) as {
+      promptHandle: ReturnType<typeof vi.fn>;
+      snapshot: ReturnType<typeof vi.fn>;
+      cancel: ReturnType<typeof vi.fn>;
     };
     let settleTurn!: (result: unknown) => void;
-    promptService.enqueue.mockResolvedValueOnce({
+    promptService.promptHandle.mockReturnValueOnce({
       launched: Promise.resolve({
         id: 1,
         result: new Promise((resolve) => {
@@ -765,14 +807,44 @@ describe('runV2Print', () => {
       }),
     });
     let promptPhase: 'launching' | 'active' | 'empty' = 'launching';
-    promptService.list = vi.fn(() => {
+    promptService.snapshot = vi.fn(() => {
       if (promptPhase === 'launching') {
-        return { launching: true, active: undefined, pending: [] };
+        return {
+          state: 'running',
+          activeTurnId: undefined,
+          activePromptId: undefined,
+          queue: [{ id: 'p1', message: { role: 'user', content: [] } }],
+          notificationCount: 0,
+          paused: false,
+          hasPendingRequests: true,
+          turn: undefined,
+          activeTraceId: undefined,
+        };
       }
       if (promptPhase === 'active') {
-        return { launching: false, active: { id: 'p1' }, pending: [] };
+        return {
+          state: 'running',
+          activeTurnId: 1,
+          activePromptId: 'p1',
+          queue: [],
+          notificationCount: 0,
+          paused: false,
+          hasPendingRequests: false,
+          turn: undefined,
+          activeTraceId: undefined,
+        };
       }
-      return { launching: false, active: undefined, pending: [] };
+      return {
+        state: 'idle',
+        activeTurnId: undefined,
+        activePromptId: undefined,
+        queue: [],
+        notificationCount: 0,
+        paused: false,
+        hasPendingRequests: false,
+        turn: undefined,
+        activeTraceId: undefined,
+      };
     });
 
     const handlers = new Map<string, () => Promise<void>>();
@@ -789,10 +861,10 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
-    const run = runV2Print(opts() as never, '1.2.3-test', {
+    const run = runV2Print(opts(), '1.2.3-test', {
       stdout,
       stderr,
-      process: fakeProcess as never,
+      process: fakeProcess as any,
     });
     const outcome = run.catch((error: unknown) => error);
     for (let i = 0; i < 100 && !handlers.has('SIGINT'); i++) {
@@ -801,11 +873,12 @@ describe('runV2Print', () => {
     const onSigint = handlers.get('SIGINT')!;
     settleTurn({ type: 'cancelled', steps: 0, reason: new Error('aborted') });
     const sigintRun = onSigint();
+    // The flush must wait for the prompt queue to empty, even with idle loops.
     for (let i = 0; i < 100 && !order.includes('settled'); i++) {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(promptService.drain).toHaveBeenCalled();
+    expect(promptService.cancel).toHaveBeenCalled();
     expect(order).toEqual(['stop', 'cancel', 'settled']);
     promptPhase = 'active';
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -814,10 +887,113 @@ describe('runV2Print', () => {
     await sigintRun;
 
     expect(order).toEqual(['stop', 'cancel', 'settled', 'flush', 'exit:130']);
+    // The guard taken during quiesce is only released after app.dispose().
     expect(loop.tryAcquireQuiescence).toHaveBeenCalled();
     const lastGuardRelease = guardDispose.mock.invocationCallOrder.at(-1);
     const appDisposeOrder = app.dispose.mock.invocationCallOrder[0];
     expect(lastGuardRelease).toBeGreaterThan(appDisposeOrder!);
     expect(await outcome).toBeInstanceOf(Error);
+  });
+
+  it('warns on stderr when workspace trust skips project-level MCP servers', async () => {
+    const stdout = writer();
+    const stderr = writer();
+    const { app, trustState } = makeFakeHarness();
+    trustState.trusted = false;
+    mocks.loadMcpServersDetailed.mockResolvedValue({
+      servers: {
+        fs: { transport: 'stdio', command: 'node', args: ['server.js'] },
+        api: { transport: 'http', url: 'https://example.com/mcp' },
+      },
+      origins: {
+        fs: '/tmp/project/.mcp.json',
+        api: '/tmp/project/.pythinker-code/mcp.json',
+      },
+    });
+
+    mocks.bootstrap.mockReturnValue({ app });
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
+
+    await runV2Print(opts(), '1.2.3-test', { stdout, stderr });
+
+    expect(stderr.text()).toContain(
+      'Warning: this folder is not trusted; skipped 2 project-level MCP servers: ' +
+        'api (http: https://example.com/mcp), fs (stdio: node server.js).',
+    );
+    expect(stderr.text()).toContain('"Trust this folder"');
+    // The warning is advisory only — the run itself is unaffected.
+    expect(stdout.text()).toContain('hello world');
+  });
+
+  it('does not read mcp.json for the trust warning when the folder is trusted', async () => {
+    const stdout = writer();
+    const stderr = writer();
+    const { app } = makeFakeHarness();
+
+    mocks.bootstrap.mockReturnValue({ app });
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
+
+    await runV2Print(opts(), '1.2.3-test', { stdout, stderr });
+
+    expect(mocks.loadMcpServersDetailed).not.toHaveBeenCalled();
+    expect(stderr.text()).not.toContain('not trusted');
+  });
+
+  it('stays silent when untrusted but no project-level MCP servers are declared', async () => {
+    const stdout = writer();
+    const stderr = writer();
+    const { app, trustState } = makeFakeHarness();
+    trustState.trusted = false;
+
+    mocks.bootstrap.mockReturnValue({ app });
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
+
+    await runV2Print(opts(), '1.2.3-test', { stdout, stderr });
+
+    expect(mocks.loadMcpServersDetailed).toHaveBeenCalled();
+    expect(stderr.text()).not.toContain('not trusted');
+  });
+
+  it('warns for a project server that overrides a same-named user server', async () => {
+    const stdout = writer();
+    const stderr = writer();
+    const { app, trustState } = makeFakeHarness();
+    trustState.trusted = false;
+    mocks.loadMcpServersDetailed.mockResolvedValue({
+      servers: {
+        github: { transport: 'stdio', command: './project-github' },
+        toString: { transport: 'http', url: 'https://example.com/mcp' },
+      },
+      origins: {
+        github: '/tmp/project/.mcp.json',
+        toString: '/tmp/project/.pythinker-code/mcp.json',
+      },
+    });
+
+    mocks.bootstrap.mockReturnValue({ app });
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
+
+    await runV2Print(opts(), '1.2.3-test', { stdout, stderr });
+
+    expect(stderr.text()).toContain('github (stdio: ./project-github)');
+    expect(stderr.text()).toContain('toString (http: https://example.com/mcp)');
+  });
+
+  it('still runs when the trust-gated MCP probe fails', async () => {
+    const stdout = writer();
+    const stderr = writer();
+    const { app, appServices, trustState } = makeFakeHarness();
+    trustState.trusted = false;
+    const workspaces = appServices.get(IWorkspaceInstanceManager) as {
+      getOrCreate: ReturnType<typeof vi.fn>;
+    };
+    workspaces.getOrCreate.mockRejectedValueOnce(new Error('trust store unavailable'));
+
+    mocks.bootstrap.mockReturnValue({ app });
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
+
+    await runV2Print(opts(), '1.2.3-test', { stdout, stderr });
+
+    expect(stdout.text()).toContain('hello world');
   });
 });

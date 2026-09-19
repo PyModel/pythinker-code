@@ -20,6 +20,8 @@ const props = withDefaults(
     fileId?: string;
     mediaType?: string;
     size?: number;
+    /** 1-based ordinal badge for image/video chips. */
+    ordinal?: number;
     /** Composer: upload in flight — spinner replaces the ext badge. */
     uploading?: boolean;
     /** Composer: upload failed — chip tinted, info icon replaces the badge. */
@@ -28,14 +30,29 @@ const props = withDefaults(
     removable?: boolean;
     /** Accessible label for the remove button. */
     removeLabel?: string;
+    /** Composer: show a mention-into-input control for media. */
+    mentionable?: boolean;
+    /** Accessible label for the mention button. */
+    mentionLabel?: string;
+    /** Composer: allow Alt+Arrow / HTML5 drag reorder. */
+    reorderable?: boolean;
+    /** True while this chip is the active drag source. */
+    dragging?: boolean;
   }>(),
-  { uploading: false, error: false, removable: false },
+  { uploading: false, error: false, removable: false, mentionable: false, reorderable: false, dragging: false },
 );
 
 const emit = defineEmits<{
   /** Primary action (preview media / download file) — the parent decides. */
   activate: [];
   remove: [];
+  mention: [];
+  /** Relative step for Alt+ArrowLeft/Right reorder (-1 / +1). */
+  reorderStep: [delta: number];
+  dragStart: [event: DragEvent];
+  dragOver: [event: DragEvent];
+  drop: [event: DragEvent];
+  dragEnd: [];
 }>();
 
 const { t } = useI18n();
@@ -140,6 +157,40 @@ function closeTip(): void {
   tipOpen.value = false;
 }
 
+function onActivateKeydown(event: KeyboardEvent): void {
+  if (!props.reorderable || !event.altKey) return;
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    emit('reorderStep', -1);
+    return;
+  }
+  if (event.key === 'ArrowRight') {
+    event.preventDefault();
+    emit('reorderStep', 1);
+  }
+}
+
+function onDragStart(event: DragEvent): void {
+  if (!props.reorderable || props.uploading) {
+    event.preventDefault();
+    return;
+  }
+  tipOpen.value = false;
+  emit('dragStart', event);
+}
+
+function onDragOver(event: DragEvent): void {
+  if (!props.reorderable) return;
+  event.preventDefault();
+  emit('dragOver', event);
+}
+
+function onDrop(event: DragEvent): void {
+  if (!props.reorderable) return;
+  event.preventDefault();
+  emit('drop', event);
+}
+
 watch(tipOpen, (open) => {
   const method = open ? 'addEventListener' : 'removeEventListener';
   window[method]('resize', positionTip);
@@ -157,14 +208,19 @@ onUnmounted(() => {
   <span
     ref="anchorRef"
     class="att-chip"
-    :class="{ 'is-error': error, uploading }"
+    :class="{ 'is-error': error, uploading, 'is-reorderable': reorderable, 'is-dragging': dragging }"
     :title="title"
     :data-kind="kind"
+    :draggable="reorderable && !uploading"
     @mouseenter="showTip"
     @mouseleave="scheduleClose"
     @focusin="showTip"
     @focusout="scheduleClose"
     @keydown.esc="closeTip"
+    @dragstart="onDragStart"
+    @dragover="onDragOver"
+    @drop="onDrop"
+    @dragend="emit('dragEnd')"
   >
     <button
       type="button"
@@ -172,7 +228,9 @@ onUnmounted(() => {
       :aria-label="title"
       :aria-haspopup="media ? 'dialog' : undefined"
       :aria-expanded="media ? tipOpen : undefined"
+      :aria-keyshortcuts="reorderable ? 'Alt+ArrowLeft Alt+ArrowRight' : undefined"
       @click="emit('activate')"
+      @keydown="onActivateKeydown"
     >
       <span class="att-tile">
         <AuthMedia
@@ -186,11 +244,22 @@ onUnmounted(() => {
         <Icon v-else-if="kind === 'video'" name="play" size="sm" />
         <Icon v-else-if="kind === 'image'" name="image" size="sm" />
         <Icon v-else :name="fileIcon" size="sm" />
+        <span v-if="ordinal !== undefined" class="att-ord" aria-hidden="true">{{ ordinal }}</span>
       </span>
       <span class="att-name">{{ displayName }}</span>
       <Spinner v-if="uploading" size="sm" :label="t('composer.uploading')" />
       <span v-else-if="error" class="att-err"><Icon name="info" size="sm" /></span>
     </button>
+    <Tooltip v-if="mentionable" :text="mentionLabel ?? t('composer.mentionNamed', { name: displayName })">
+      <button
+        type="button"
+        class="att-mention"
+        :aria-label="mentionLabel ?? t('composer.mentionNamed', { name: displayName })"
+        @click="emit('mention')"
+      >
+        <span class="att-mention-glyph" aria-hidden="true">@</span>
+      </button>
+    </Tooltip>
     <Tooltip v-if="removable" :text="removeLabel ?? t('composer.remove')">
       <button type="button" class="att-rm" :aria-label="removeLabel ?? t('composer.remove')" @click="emit('remove')">
         <Icon name="close" size="sm" />
@@ -267,6 +336,13 @@ onUnmounted(() => {
 .att-chip:hover {
   border-color: var(--color-line-strong);
 }
+.att-chip.is-reorderable {
+  cursor: grab;
+}
+.att-chip.is-dragging {
+  opacity: 0.55;
+  cursor: grabbing;
+}
 .att-activate {
   display: inline-flex;
   align-items: center;
@@ -285,6 +361,7 @@ onUnmounted(() => {
   border-radius: 999px;
 }
 .att-tile {
+  position: relative;
   width: 20px;
   height: 20px;
   border-radius: 50%;
@@ -292,9 +369,24 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  overflow: visible;
   color: var(--color-text-muted);
   background: var(--color-surface-sunken);
+}
+.att-ord {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 12px;
+  height: 12px;
+  padding: 0 2px;
+  border-radius: 999px;
+  background: var(--color-accent);
+  color: var(--color-on-accent, #fff);
+  font-size: 8px;
+  line-height: 12px;
+  text-align: center;
+  font-weight: var(--weight-medium);
 }
 .att-tile :deep(.att-thumb) {
   width: 100%;
@@ -319,6 +411,7 @@ onUnmounted(() => {
   align-items: center;
   color: var(--color-danger);
 }
+.att-mention,
 .att-rm {
   flex: none;
   display: flex;
@@ -333,13 +426,20 @@ onUnmounted(() => {
   color: var(--color-text-faint);
   cursor: pointer;
 }
+.att-mention:hover,
 .att-rm:hover {
   background: var(--color-hover);
   color: var(--color-text);
 }
+.att-mention:focus-visible,
 .att-rm:focus-visible {
   outline: none;
   box-shadow: var(--p-focus-ring);
+}
+.att-mention-glyph {
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  line-height: 1;
 }
 
 .att-tip {

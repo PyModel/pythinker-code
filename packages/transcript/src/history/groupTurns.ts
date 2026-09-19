@@ -4,7 +4,7 @@ import type { TranscriptFrame, TranscriptUserOrigin } from '../model/frame';
 import type { TranscriptItem, TranscriptMarker } from '../model/item';
 import type { TurnOrigin } from '../model/turn';
 import { daemonFileRefFromPairingPart } from '../contract/mediaRef';
-import { projectTranscriptUserOrigin } from '../contract/origin';
+import { projectTranscriptUserOrigin, projectTranscriptUserTurnOrigin } from '../contract/origin';
 
 export type HistoryMediaSource =
   | { readonly kind: 'url'; readonly url: string }
@@ -13,7 +13,7 @@ export type HistoryMediaSource =
 
 export type HistoryContentPart =
   | { readonly type: 'text'; readonly text: string }
-  | { readonly type: 'think'; readonly think: string }
+  | { readonly type: 'think'; readonly think: string; readonly hidden?: boolean }
   | { readonly type: 'image' | 'video' | 'audio'; readonly source: HistoryMediaSource; readonly name?: string }
   | {
       readonly type: 'file';
@@ -37,7 +37,7 @@ export interface HistoryMessage {
   readonly toolCalls?: readonly HistoryToolCall[];
   readonly toolCallId?: string;
   readonly isError?: boolean;
-  readonly origin?: { readonly kind: string; readonly attachments?: unknown };
+  readonly origin?: { readonly kind: string };
 }
 
 interface TurnDraft {
@@ -70,11 +70,17 @@ export function groupMessagesIntoSnapshot(
   messages: readonly HistoryMessage[],
   options?: {
     readonly taskOriginTurnTaskIds?: ReadonlySet<string>;
-    readonly steeredMessageIndexes?: ReadonlySet<number>;
+    readonly steeredContents?: ReadonlyMap<string, ReadonlyMap<string, number>>;
+    readonly steeredByMessageId?: ReadonlyMap<string, readonly string[]>;
+    readonly turnPromptIds?: ReadonlySet<string>;
   },
 ): AgentTranscriptSnapshot {
   const items: TranscriptItem[] = [];
   const attachments: TranscriptAttachment[] = [];
+  const steeredContents = new Map(
+    [...(options?.steeredContents ?? [])].map(([key, byKind]) => [key, new Map(byKind)]),
+  );
+  const steeredByMessageId = new Map(options?.steeredByMessageId);
   let turn: TurnDraft | undefined;
   let pendingNotificationFrames: {
     text: string;
@@ -215,7 +221,7 @@ export function groupMessagesIntoSnapshot(
   };
 
   let prevNonTaskRole: string | undefined;
-  for (const [messageIndex, message] of messages.entries()) {
+  for (const message of messages) {
     if (message.role === 'system') continue;
     const originKind = message.origin?.kind;
     const isTaskOrigin =
@@ -234,7 +240,25 @@ export function groupMessagesIntoSnapshot(
         }
         continue;
       }
-      if (options?.steeredMessageIndexes?.has(messageIndex)) {
+      const markerKey = originKind !== undefined ? MARKER_USER_ORIGINS[originKind] : undefined;
+      if (markerKey !== undefined && !isUserSlashPrompt(message)) {
+        pushMarker(markerKey, { text: textOf(message), origin: message.origin });
+        continue;
+      }
+      const contentKey = JSON.stringify(message.content ?? []);
+      const steerKind = originKind ?? 'user';
+      const opensAsTurnPrompt =
+        message.id !== undefined && options?.turnPromptIds?.has(message.id) === true;
+      const steeredPromptIds =
+        !opensAsTurnPrompt && message.id !== undefined
+          ? steeredByMessageId.get(message.id)
+          : undefined;
+      const steeredById = steeredPromptIds !== undefined;
+      if (steeredById && message.id !== undefined) steeredByMessageId.delete(message.id);
+      const steeredByKind = opensAsTurnPrompt || steeredById ? undefined : steeredContents.get(contentKey);
+      const steeredRemaining = steeredByKind?.get(steerKind) ?? 0;
+      if (steeredById || (steeredByKind !== undefined && steeredRemaining > 0)) {
+        if (!steeredById) steeredByKind!.set(steerKind, steeredRemaining - 1);
         const bundled = bundledSkillActivations(message);
         const parts = message.content ?? [];
         bundled.forEach((activation, index) => {
@@ -249,12 +273,15 @@ export function groupMessagesIntoSnapshot(
           text: opening.text,
           taskId: undefined,
           attachmentIds: opening.attachmentIds,
-          steered: true,
           origin: projectTranscriptUserOrigin(message.origin),
+          promptIds:
+            steeredPromptIds !== undefined && steeredPromptIds.length > 0
+              ? steeredPromptIds
+              : undefined,
+          steered: true,
         });
         continue;
       }
-      const markerKey = originKind !== undefined ? MARKER_USER_ORIGINS[originKind] : undefined;
       if (markerKey !== undefined) {
         const opening = isUserSlashPrompt(message) ? foldTurnOpeningInput(message) : undefined;
         pushMarker(markerKey, { text: opening?.text ?? textOf(message), origin: message.origin });
@@ -329,7 +356,7 @@ export function groupMessagesIntoSnapshot(
       for (const part of message.content ?? []) {
         if (part.type === 'text' && 'text' in part && typeof part.text === 'string' && part.text.length > 0) {
           step.frames.push({ kind: 'text', frameId: nextFrameId(), role: 'assistant', text: part.text });
-        } else if (part.type === 'think' && 'think' in part && typeof part.think === 'string' && part.think.length > 0) {
+        } else if (part.type === 'think' && 'think' in part && typeof part.think === 'string' && part.think.length > 0 && part.hidden !== true) {
           step.frames.push({ kind: 'thinking', frameId: nextFrameId(), text: part.think });
         }
       }
@@ -451,6 +478,7 @@ function mapOrigin(message: HistoryMessage): TurnOrigin {
     case 'shell_command':
       return { kind: 'user', payload: origin };
     case 'user':
+      return projectTranscriptUserTurnOrigin(origin);
     case undefined:
       return { kind: 'user' };
     default:
@@ -489,7 +517,7 @@ interface OriginFileAttachment {
 
 function originFileAttachments(message: HistoryMessage): readonly OriginFileAttachment[] {
   if (message.origin?.kind !== 'user' && message.origin?.kind !== 'skill_activation') return [];
-  const attachments = message.origin.attachments;
+  const attachments = (message.origin as { readonly attachments?: unknown }).attachments;
   if (!Array.isArray(attachments)) return [];
   return attachments.filter(
     (attachment): attachment is OriginFileAttachment =>

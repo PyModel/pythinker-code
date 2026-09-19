@@ -284,6 +284,10 @@ function toWsUrl(base: string): string {
   if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
     throw new Error(`unsupported URL scheme for WS transport: ${base}`);
   }
+  const host = url.hostname.replaceAll(/^\[|\]$/g, '').toLowerCase();
+  if (host !== 'localhost' && host !== '127.0.0.1' && host !== '::1') {
+    throw new Error(`WS transport must target loopback: ${base}`);
+  }
   if (!url.pathname.endsWith('/api/v1/ws')) {
     url.pathname = `${url.pathname.replace(/\/$/, '')}/api/v1/ws`;
   }

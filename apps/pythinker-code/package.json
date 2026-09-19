@@ -1,6 +1,6 @@
 {
   "name": "@pymodel/pythinker-code",
-  "version": "2.1.0",
+  "version": "0.42.0",
   "description": "The Starting Point for Next-Gen Agents",
   "license": "MIT",
   "author": "PyModel",
@@ -50,7 +50,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "pnpm -C ../pythinker-web run build && tsdown && tsdown --config tsdown.dist-worker.config.ts && node scripts/copy-native-assets.mjs && node scripts/copy-web-assets.mjs && node scripts/check-web-assets.mjs",
+    "build": "tsdown && tsdown --config tsdown.dist-worker.config.ts && node scripts/copy-native-assets.mjs && node scripts/check-web-assets.mjs",
     "prebuild": "node scripts/build-vis-asset.mjs",
     "catalog:update": "node scripts/update-catalog.mjs --out dist/built-in-catalog.json",
     "smoke": "node scripts/smoke.mjs",
@@ -62,7 +62,7 @@
     "release:native:resolve": "node scripts/native/resolve-release.mjs",
     "test:native:smoke": "node scripts/native/smoke.mjs",
     "dev": "node scripts/dev.mjs",
-    "dev:cli-only": "tsx --tsconfig ./tsconfig.dev.json --import ../../build/register-raw-text-loader.mjs ./src/main.ts",
+    "dev:cli-only": "tsx --import ../../build/register-raw-text-loader.mjs ./src/main.ts",
     "dev:server": "PYTHINKER_CODE_DEV_SERVER=1 tsx --tsconfig ./tsconfig.dev.json --import ../../build/register-raw-text-loader.mjs ./src/main.ts web --no-open --debug-endpoints",
     "dev:agent-gateway": "PYTHINKER_CODE_DEV_SERVER=1 tsx --tsconfig ./tsconfig.dev.json --import ../../build/register-raw-text-loader.mjs ./src/main.ts web --no-open --debug-endpoints",
     "dev:agent-gateway:multi": "PYTHINKER_CODE_DEV_SERVER=1 tsx --tsconfig ./tsconfig.dev.json --import ../../build/register-raw-text-loader.mjs ./src/main.ts web --no-open --debug-endpoints",
@@ -86,6 +86,7 @@
     "@pymodel/acp-server": "workspace:^",
     "@pymodel/agent-core-v2": "workspace:^",
     "@pymodel/agent-gateway": "workspace:^",
+    "@pymodel/migration-legacy": "workspace:^",
     "@pymodel/minidb": "workspace:^",
     "@pymodel/pi-tui": "workspace:^",
     "@pymodel/pythinker-code-oauth": "workspace:^",
@@ -102,17 +103,20 @@
     "cli-highlight": "^2.1.11",
     "commander": "^13.1.0",
     "jimp": "^1.6.1",
+    "lovely-mermaid": "0.3.3",
     "pathe": "^2.0.3",
     "postject": "1.0.0-alpha.6",
-    "qrcode": "^1.5.4",
     "semver": "^7.7.4",
-    "smol-toml": "^1.7.1",
+    "smol-toml": "^1.6.1",
     "tsx": "^4.23.5",
-    "ws": "^8.21.3",
     "yazl": "^3.3.1",
-    "zod": "^4.3.6"
+    "zod": "catalog:"
   },
   "engines": {
     "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "ws": "^8.21.3"
   }
 }

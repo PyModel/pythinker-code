@@ -2,12 +2,12 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/state/state';
-import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/kosong/contract/capability';
-import { type SamplingOptions, type ThinkingEffort } from '#/kosong/contract/provider';
-import { IModelCatalog, type Model } from '#/kosong/model/catalog';
-import { type ModelOverrides } from '#/kosong/model/model.types';
-import { type ModelRequestParams } from '#/kosong/model/modelRequester';
-import { IProtocolAdapterRegistry } from '#/kosong/protocol/protocol';
+import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm-adapter/contract/capability';
+import { type ThinkingEffort } from '#human/llm/thinking';
+import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
+import { type ModelOverrides } from '#/llm-adapter/model/model.types';
+import { type ModelRequestParams, type SamplingOptions } from '#/llm-adapter/model/model-requester';
+import { IProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocol';
 import {
   drivesThinkingThroughTraits,
   modelSupportsThinkingEffort,
@@ -16,25 +16,16 @@ import {
   resolveThinkingEffortForModel,
   resolveThinkingKeep,
   requiresStrictThinkingValidation,
-  defaultThinkingEffortForModel,
   type ThinkingConfig,
-} from '#/kosong/model/thinking';
-import { rankDefaultModelCandidates } from '#/kosong/model/defaultModelPolicy';
-import { resolveModelForReady } from '#/kosong/model/modelAuth';
-import { IModelService } from '#/kosong/model/model';
-import { IProviderService } from '#/kosong/provider/provider';
+} from '#/llm-adapter/model/thinking';
 import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
 import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { renderAgentProfilePrompt } from '#/app/agentProfileCatalog/profile-shared';
-import { ISessionNotify } from '#/features/notify/sessionNotify';
-import { NOTIFY_USER_TOOL_NAME } from '#/features/notify/tools/notify-user/notify-user';
 import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
 import { ErrorCodes, Error2 } from "#/errors";
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import type { LoopControl } from '#/agent/loop/configSection';
-import { TurnStarted } from '#/agent/loop/turnEvents';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -47,12 +38,11 @@ import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolic
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { ResolvedAgentProfile, SystemPromptContext } from '#/agent/profile/profile';
-import { IAgentScopeContext, scopedModel } from '#/agent/scopeContext/scopeContext';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
 
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import {
   extractAgentsMdPathsFromSystemPrompt,
@@ -73,11 +63,13 @@ import { IAgentProfileService, ProfileError, ProfileErrors } from './profile';
 import { TOOLS_SECTION, type ToolsConfig } from '#/agent/toolPolicy/configSection';
 import { isToolActiveComposed, findInactiveToolPatterns, literalToolNames, type InactiveToolPattern } from '#/agent/toolPolicy/evaluate';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { ISessionNotify } from '#/features/notify/sessionNotify';
+import { NOTIFY_USER_TOOL_NAME } from '#/features/notify/tools/notify-user/notify-user';
+import { renderAgentProfilePrompt } from '#/app/agentProfileCatalog/profile-shared';
 import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
 import {
   profileActiveToolsKey,
   ConfigUpdate,
-  ModelFallbackSwitched,
   ProfileBind,
   profileKey,
   ToolsResetActiveTools,
@@ -89,14 +81,8 @@ import {
 } from './profileOps';
 
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
-import { ILogService } from '#/_base/log/log';
-import { IEventBus } from '#/app/event/eventBus';
 
-export interface WarningEvent {
-  readonly type: 'warning';
-  readonly message: string;
-  readonly code?: string;
-}
+export type { WarningEvent } from '#/errors';
 
 function describeInactiveToolPattern(
   context: string,
@@ -150,15 +136,12 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
 
   private activeProfile: ResolvedAgentProfile | undefined;
 
-  private currentTurnId: number | undefined;
-
   private frozenSkillListing: string | undefined;
   private frozenPluginSections: string | undefined;
 
   constructor(
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IAgentTelemetryContextService private readonly telemetryContext: IAgentTelemetryContextService,
     @IConfigService private readonly config: IConfigService,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
     @IProtocolAdapterRegistry private readonly protocolAdapters: IProtocolAdapterRegistry,
@@ -179,10 +162,6 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     @IPluginService private readonly plugins: IPluginService,
     @IAgentIdentity private readonly identity: IAgentIdentity,
     @IAgentAgentsMdReminderService private readonly agentsMdReminder: IAgentAgentsMdReminderService,
-    @IModelService private readonly models: IModelService,
-    @IProviderService private readonly providers: IProviderService,
-    @ILogService private readonly log: ILogService,
-    @IEventBus private readonly eventBus: IEventBus,
   ) {
     super();
     this.states.contributeState(profileKey);
@@ -193,11 +172,6 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     this.states.contributeState(profileEmittedToolPatternWarningsKey);
     this.states.contributeState(profileEmittedPluginBudgetWarningsKey);
     this.configure({});
-    this._register(
-      this.eventBus.subscribe(TurnStarted, (event) => {
-        this.currentTurnId = event.turnId;
-      }),
-    );
     this._register(
       this.dispatcher.hooks.onDidRestore.register('profile', async (_ctx, next) => {
         this.syncTelemetryModelContext(this.modelAlias);
@@ -319,7 +293,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
         `model is required to bind profile "${input.profile}" (no default model configured)`,
       );
     }
-    const model = scopedModel(this.scopeContext, this.modelCatalog, alias);
+    const model = this.modelCatalog.get(alias);
 
     if (input.strictThinking === true && input.thinking !== undefined) {
       this.assertThinkingEffortSupported(input.thinking, model, alias);
@@ -365,95 +339,18 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   }
 
   async setModel(alias: string): Promise<ProfileSetModelResult> {
-    const model = scopedModel(this.scopeContext, this.modelCatalog, alias);
+    const model = this.modelCatalog.get(alias);
     if (this.profileName === undefined) {
       await this.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: alias });
       this.telemetry.track2('model_switch', { model: alias });
     } else if (this.modelAlias !== alias) {
-      const previousEffort = this.thinkingLevel;
       this.update({ modelAlias: alias });
-      this.clampThinkingEffortForModel(previousEffort, model, alias);
       this.telemetry.track2('model_switch', { model: alias });
     }
     return {
       model: alias,
       providerName: model.providerName,
     };
-  }
-
-  private clampThinkingEffortForModel(
-    previousEffort: ThinkingEffort,
-    model: Model,
-    alias: string,
-  ): void {
-    if (previousEffort === 'off') return;
-    if (
-      modelSupportsThinkingEffort(previousEffort, model, this.strictThinkingValidation(model))
-    ) {
-      return;
-    }
-    const clamped = defaultThinkingEffortForModel(model);
-    this.update({ thinkingLevel: clamped });
-    this.telemetry.track2('thinking_toggle', {
-      enabled: clamped !== 'off',
-      effort: clamped,
-      from: previousEffort,
-    });
-    void this.dispatcher.dispatch(
-      new WarningIssued({
-        agentId: this.scopeContext.agentId,
-        code: 'thinking-effort-clamped',
-        message: `Thinking effort "${previousEffort}" is not supported by model "${alias}"; clamped to "${clamped}".`,
-      }),
-    );
-  }
-
-  private ensureResolvableModel(turnId?: number): void {
-    const alias = this.modelAlias;
-    if (alias === undefined) return;
-    const resolution = resolveModelForReady(
-      alias,
-      this.models.list(),
-      this.providers.list(),
-      this.providers.getDefaultProvider(),
-    );
-    if (resolution.resolved) return;
-    const reason = resolution.reason;
-    const resolvedTo = rankDefaultModelCandidates(this.models.list()).find(
-      (candidate) =>
-        resolveModelForReady(
-          candidate,
-          this.models.list(),
-          this.providers.list(),
-          this.providers.getDefaultProvider(),
-        ).resolved,
-    );
-    this.log.warn('Bound model is not resolvable; applying default-model policy', {
-      requestedModel: alias,
-      reason,
-      resolvedTo,
-    });
-    if (resolvedTo === undefined || resolvedTo === alias) return;
-    this.update({ modelAlias: resolvedTo });
-    this.telemetry.track2('model_fallback_triggered', {
-      turn_id: turnId ?? this.currentTurnId ?? 0,
-      from_model: alias,
-      to_model: resolvedTo,
-    });
-    void this.dispatcher.dispatch(
-      new ModelFallbackSwitched({
-        turnId: turnId ?? this.currentTurnId,
-        fromModel: alias,
-        toModel: resolvedTo,
-      }),
-    );
-    void this.dispatcher.dispatch(
-      new WarningIssued({
-        agentId: this.scopeContext.agentId,
-        code: 'model-fallback',
-        message: `Model "${alias}" is no longer available (${reason}); switched to "${resolvedTo}".`,
-      }),
-    );
   }
 
   setThinking(level: string): void {
@@ -545,10 +442,9 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     return this.resolveThinkingState(this.tryResolveRawModel()).effective;
   }
 
-  resolveModelContext(turnId?: number): ProfileModelContext {
-    this.ensureResolvableModel(turnId);
+  resolveModelContext(): ProfileModelContext {
     const modelAlias = this.model;
-    const model = scopedModel(this.scopeContext, this.modelCatalog, modelAlias);
+    const model = this.modelCatalog.get(modelAlias);
     const loopControl = this.config.get<LoopControl>('loopControl');
     return {
       modelAlias,
@@ -558,6 +454,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       thinkingLevel: this.resolveThinkingState(model).effective,
       reservedContextSize: loopControl?.reservedContextSize,
       compactionTriggerRatio: loopControl?.compactionTriggerRatio,
+      compactionMaxAttempts: loopControl?.compactionMaxAttempts,
     };
   }
 
@@ -572,7 +469,6 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     };
     return {
       cacheKey: this.sessionContext.sessionId,
-      conversationId: this.sessionContext.sessionId,
       sampling:
         sampling.temperature === undefined && sampling.topP === undefined ? undefined : sampling,
       thinkingEffort: thinking.effective,
@@ -586,6 +482,11 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
 
   getModelCapabilities(): ModelCapability {
     return this.tryResolveRawModel()?.capabilities ?? UNKNOWN_CAPABILITY;
+  }
+
+  getModelProviderType(alias?: string): string | undefined {
+    const effective = alias ?? this.modelAlias ?? this.config.get<string>('defaultModel');
+    return this.resolveModelForThinking(effective)?.providerType;
   }
 
   getMaxOutputSize(): number | undefined {
@@ -668,7 +569,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       return;
     }
     const model = this.tryResolveRawModel();
-    this.telemetryContext.set({
+    this.telemetry.setContext({
       model: modelAlias,
       provider_type: model?.providerType ?? model?.protocol,
       protocol: model?.protocol,
@@ -819,7 +720,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   private resolveModelForThinking(alias: string | undefined): Model | undefined {
     if (alias === undefined) return undefined;
     try {
-      return scopedModel(this.scopeContext, this.modelCatalog, alias);
+      return this.modelCatalog.get(alias);
     } catch {
       return undefined;
     }
@@ -944,7 +845,8 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       productName: (await this.identity.resolved()).displayName,
       replyStyleGuide: this.bootstrap.args.replyStyleGuide,
       notifyUserActive:
-        this.notify.enabled && this.isToolActiveForProfile(profile, NOTIFY_USER_TOOL_NAME),
+        this.notify.enabled &&
+        this.isToolActiveForProfile(profile, NOTIFY_USER_TOOL_NAME),
     };
   }
 

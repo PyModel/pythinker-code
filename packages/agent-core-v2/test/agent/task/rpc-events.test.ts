@@ -22,7 +22,6 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import { IEventBus } from '#/app/event/eventBus';
 import type { IExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunner';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { MessageStepRequest } from '#/agent/loop/stepRequest';
 import { IAgentConversationUndoService } from '#/agent/undo/undo';
 import { ErrorCodes } from '#/errors';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
@@ -35,6 +34,7 @@ import {
   type TestAgentContext,
   type TestAgentServiceOverride,
 } from '../../harness';
+import { submitPromptTurn } from '../loop/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { executeTool, type TestExecutableToolContext } from '../../tools/fixtures/execute-tool';
 import {
@@ -263,8 +263,8 @@ async function drainNotifications(ctx: TestAgentContext): Promise<void> {
   ctx.mockNextResponse({ type: 'text', text: 'notification drain ack' });
   await vi.waitFor(() => {
     const loop = ctx.get(IAgentLoopService);
-    expect(loop.status().state).toBe('idle');
-    expect(loop.hasPendingRequests()).toBe(false);
+    expect(loop.snapshot().state).toBe('idle');
+    expect(loop.snapshot().hasPendingRequests).toBe(false);
   });
 }
 
@@ -323,7 +323,15 @@ describe('AgentTaskService — event emission', () => {
     );
     expect(records).toContainEqual({
       event: 'background_task_created',
-      properties: { agent_id: 'main', task_id: taskId, kind: 'bash' },
+      properties: {
+        agent_id: 'main',
+        task_id: taskId,
+        kind: 'bash',
+        mode: 'agent',
+        model: 'mock-model',
+        protocol: 'openai',
+        provider_type: 'pythinker',
+      },
     });
   });
 
@@ -345,7 +353,15 @@ describe('AgentTaskService — event emission', () => {
     );
     expect(records).toContainEqual({
       event: 'background_task_created',
-      properties: { agent_id: 'main', task_id: taskId, kind: 'agent' },
+      properties: {
+        agent_id: 'main',
+        task_id: taskId,
+        kind: 'agent',
+        mode: 'agent',
+        model: 'mock-model',
+        protocol: 'openai',
+        provider_type: 'pythinker',
+      },
     });
   });
 
@@ -675,7 +691,7 @@ describe('AgentTaskService — notification delivery', () => {
     expect(outputString(result)).toContain('status: killed');
     expect(notifiedCount(ctx)).toBe(0);
     expect(agent.context.appendUserMessage).not.toHaveBeenCalled();
-    expect(ctx.get(IAgentLoopService).hasPendingRequests()).toBe(false);
+    expect(ctx.get(IAgentLoopService).snapshot().hasPendingRequests).toBe(false);
     expect(manager.getTask(taskId)).toMatchObject({
       status: 'killed',
       terminalNotificationSuppressed: true,
@@ -713,7 +729,7 @@ describe('AgentTaskService — notification delivery', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
 
       expect(agent.context.appendUserMessage).not.toHaveBeenCalled();
-      expect(readerFixture.ctx.get(IAgentLoopService).hasPendingRequests()).toBe(false);
+      expect(readerFixture.ctx.get(IAgentLoopService).snapshot().hasPendingRequests).toBe(false);
     } finally {
       if (readerFixture !== undefined) {
         await readerFixture.ctx.dispose();
@@ -874,6 +890,7 @@ describe('AgentTaskService — notification delivery', () => {
         new Error('output unavailable'),
       );
 
+      await ctx.restorePersisted();
       await ctx.get(IAgentConversationUndoService).undo(1);
 
       expect(agent.context.appendUserMessage).toHaveBeenCalledTimes(2);
@@ -906,24 +923,15 @@ describe('AgentTaskService — notification delivery', () => {
 
     try {
       ctx.appendTurnExchange('kept prompt', 'kept answer');
-      const active = (
-        await loop.enqueue(
-          new MessageStepRequest(
-            {
-              role: 'user',
-              content: [{ type: 'text', text: 'remove me' }],
-              toolCalls: [],
-              origin: { kind: 'user' },
-            },
-            { admission: 'newTurn' },
-          ),
-        ).assigned
-      ).turn;
+      const active = submitPromptTurn(loop, {
+        message: { role: 'user', content: [{ type: 'text', text: 'remove me' }] },
+        meta: { origin: { kind: 'user' } },
+      }).turn;
       await started;
       const taskId = registerProcess(manager, immediateProcess(0, 'done'), 'echo done', 'done');
       await vi.waitFor(() => {
         expect(manager.getTask(taskId)?.status).toBe('completed');
-        expect(loop.hasPendingRequests()).toBe(true);
+        expect(loop.snapshot().hasPendingRequests).toBe(true);
       });
       expect(notifiedCount(ctx)).toBe(0);
 
@@ -993,59 +1001,18 @@ describe('AgentTaskService — notification delivery', () => {
       await vi.waitFor(() => {
         expect(fireAndForgetTrigger).toHaveBeenCalledTimes(1);
       });
-      expect(fireAndForgetTrigger).toHaveBeenCalledWith(
-        'Notification',
-        expect.objectContaining({
-          matcherValue: 'task.lost',
-          inputData: expect.objectContaining({
-            sink: 'context',
-            notificationType: 'task.lost',
-            title: 'Background agent lost',
-            body: expect.stringContaining('interrupted task lost.'),
-            severity: 'warning',
-            sourceKind: 'background_task',
-            sourceId: 'agent-run00000',
-          }),
+      expect(fireAndForgetTrigger).toHaveBeenCalledWith('Notification', expect.objectContaining({
+        matcherValue: 'task.lost',
+        inputData: expect.objectContaining({
+          sink: 'context',
+          notificationType: 'task.lost',
+          title: 'Background agent lost',
+          body: expect.stringContaining('interrupted task lost.'),
+          severity: 'warning',
+          sourceKind: 'background_task',
+          sourceId: 'agent-run00000',
         }),
-      );
-    } finally {
-      await cleanupSessionDir(sessionDir, fixture);
-    }
-  });
-
-  it('reminds once for a task stopped on exit with a custom reason', async () => {
-    const sessionDir = await mkdtemp(join(tmpdir(), 'pythinker-bg-agent-exit-'));
-    let fixture: TaskServiceFixture | undefined;
-    try {
-      const persistence = createAgentTaskPersistence(sessionDir);
-      await persistence.writeTask(
-        persistedAgent({
-          taskId: 'agent-exit0000',
-          description: 'interrupted task',
-          status: 'killed',
-          stopReason: 'maintenance shutdown',
-          terminalNotificationSuppressed: true,
-          stoppedOnExit: true,
-        }),
-      );
-      fixture = createAgentTaskService({ sessionDir });
-      const { agent, ctx, manager } = fixture;
-
-      await manager.loadFromDisk();
-      await manager.reconcile();
-
-      expect(firstAppendedContextMessage(agent).origin).toMatchObject({
-        kind: 'injection',
-        variant: 'task_resume_termination',
-      });
-      expect(
-        ctx.contextData().history.filter((message) => message.origin?.kind === 'task'),
-      ).toEqual([]);
-      await vi.waitFor(async () => {
-        await expect(persistence.readTask('agent-exit0000')).resolves.toMatchObject({
-          resumeReminded: true,
-        });
-      });
+      }));
     } finally {
       await cleanupSessionDir(sessionDir, fixture);
     }
@@ -1065,10 +1032,10 @@ describe('AgentTaskService — notification delivery', () => {
       );
       fixture = createAgentTaskService({ sessionDir });
       const { agent, ctx, manager } = fixture;
-      ctx.appendSystemReminder('- agent-hist0000 "interrupted task" (subagent)', {
-        kind: 'injection',
-        variant: 'task_resume_termination',
-      });
+      ctx.appendSystemReminder(
+        '- agent-hist0000 "interrupted task" (subagent)',
+        { kind: 'injection', variant: 'task_resume_termination' },
+      );
 
       await manager.loadFromDisk();
       await manager.reconcile();

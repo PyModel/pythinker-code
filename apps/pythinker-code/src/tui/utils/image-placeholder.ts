@@ -41,7 +41,6 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import { copyFileSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { PromptPart, Session } from '@pymodel/pythinker-code-sdk';
@@ -204,7 +203,7 @@ export function pendingMediaIngestions(
   store: ImageAttachmentStore,
   timeoutMs: number,
 ): Promise<void> | undefined {
-  const mediaIngestions: Promise<void>[] = [];
+  const pendings: Promise<void>[] = [];
   PLACEHOLDER_REGEX.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = PLACEHOLDER_REGEX.exec(text)) !== null) {
@@ -213,13 +212,13 @@ export function pendingMediaIngestions(
     if (idStr === undefined) continue;
     const attachment = store.get(Number.parseInt(idStr, 10));
     if (attachment?.kind === kind && attachment.pending !== undefined) {
-      mediaIngestions.push(attachment.pending);
+      pendings.push(attachment.pending);
     }
   }
-  if (mediaIngestions.length === 0) return undefined;
+  if (pendings.length === 0) return undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
-    Promise.allSettled(mediaIngestions).then(() => undefined),
+    Promise.allSettled(pendings).then(() => undefined),
     new Promise<void>((resolve) => {
       timer = setTimeout(resolve, timeoutMs);
     }),
@@ -664,15 +663,19 @@ export function persistOriginalImageSync(
     const hash = createHash('sha256').update(bytes).digest('hex').slice(0, 32);
     const target = join(targetDir, `${hash}.${imageExtensionForMime(mime)}`);
     mkdirSync(targetDir, { recursive: true });
-    const existing = statSync(target, { throwIfNoEntry: false });
-    // Content-addressed: an existing entry with the right size IS this image.
-    if (existing === undefined || existing.size !== bytes.length) {
-      writeFileSync(target, bytes);
+    try {
+      writeFileSync(target, bytes, { flag: 'wx' });
+    } catch (error) {
+      const code = error instanceof Error && 'code' in error ? (error as NodeJS.ErrnoException).code : undefined;
+      if (code !== 'EEXIST') throw error;
     }
     sweepCacheSync(targetDir, maxTotalBytes);
-    // The just-written file may itself have been evicted by the sweep when a
-    // single original exceeds the cap; report persistence honestly.
-    return statSync(target, { throwIfNoEntry: false }) === undefined ? null : target;
+    try {
+      const existing = statSync(target);
+      return existing.isFile() && existing.size === bytes.length ? target : null;
+    } catch {
+      return null;
+    }
   } catch {
     return null;
   }
@@ -704,9 +707,9 @@ function sweepCacheSync(dir: string, maxTotalBytes: number): void {
   }
 }
 
-/** Mirrors agent-core's `originalImageCacheDir` (not re-exported through the SDK). */
+/** Mirrors agent-core-v2's `originalImageCacheDir` (not re-exported through the SDK). */
 function originalImageTempDir(): string {
-  return join(tmpdir(), 'pythinker-code-original-images');
+  return join(getCacheDir(), 'original-images');
 }
 
 /**

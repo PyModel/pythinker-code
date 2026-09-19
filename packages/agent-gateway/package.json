@@ -1,8 +1,8 @@
 {
   "name": "@pymodel/agent-gateway",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
-  "description": "Pythinker Code server backed by the DI × Scope agent engine (agent-core-v2)",
+  "description": "Pythinker Code server backed by the DI \u00d7 Scope agent engine (agent-core-v2)",
   "type": "module",
   "exports": {
     ".": {
@@ -16,6 +16,10 @@
     "./search-worker-runtime": {
       "types": "./src/search/worker/runtime.ts",
       "default": "./src/search/worker/runtime.ts"
+    },
+    "./protocol/*": {
+      "types": "./src/protocol/*.ts",
+      "default": "./src/protocol/*.ts"
     }
   },
   "scripts": {
@@ -27,7 +31,6 @@
   },
   "dependencies": {
     "@fastify/multipart": "^10.0.0",
-    "@fastify/rate-limit": "^11.2.0",
     "@fastify/swagger": "^9.7.0",
     "@pymodel/agent-core-v2": "workspace:^",
     "@pymodel/minidb": "workspace:*",
@@ -35,10 +38,10 @@
     "@pymodel/remote-control": "workspace:^",
     "@pymodel/transcript": "workspace:^",
     "bcryptjs": "^2.4.3",
-    "fastify": "^5.12.1",
+    "fastify": "^5.1.0",
     "pino": "^9.5.0",
     "semver": "^7.7.4",
-    "smol-toml": "^1.7.1",
+    "smol-toml": "^1.6.1",
     "ulid": "^3.0.1",
     "ws": "^8.21.3",
     "zod": "catalog:"

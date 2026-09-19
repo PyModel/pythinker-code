@@ -17,6 +17,7 @@ import { createDecorator } from '@pymodel/agent-core-v2/_base/di/instantiation';
 import type { ServiceProxy } from './channel';
 import { DEBUG_RPC_BASE, type InspectClient } from './client';
 import { RPCError } from './errors';
+import { joinApiUrl } from '../httpUrl';
 
 /** Wire scope kinds reported by the channels endpoint (`app` ≡ the core route). */
 export type ChannelScope = 'app' | 'session' | 'agent';
@@ -42,7 +43,7 @@ export async function fetchChannelDescriptors(
   if (client.token !== undefined && client.token !== '') {
     headers['authorization'] = `Bearer ${client.token}`;
   }
-  const res = await fetch(`${client.baseUrl}${DEBUG_RPC_BASE}/channels`, { headers });
+  const res = await fetch(joinApiUrl(client.baseUrl, `${DEBUG_RPC_BASE}/channels`), { headers });
   const envelope = (await res.json()) as {
     code: number;
     msg: string;
@@ -68,13 +69,13 @@ export async function probeDebugSurface(options: {
   if (options.token !== undefined && options.token !== '') {
     headers['authorization'] = `Bearer ${options.token}`;
   }
-  const url = `${options.baseUrl.replace(/\/$/, '')}${DEBUG_RPC_BASE}/channels`;
+  const url = joinApiUrl(options.baseUrl, `${DEBUG_RPC_BASE}/channels`);
   let res: Response;
   try {
     res = await fetch(url, { headers });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(`cannot reach ${options.baseUrl} — is agent-gateway running? (${reason})`);
+    throw new Error(`cannot reach ${options.baseUrl} — is agent-gateway running? (${reason})`, { cause: error });
   }
   if (!res.ok) {
     throw new Error(

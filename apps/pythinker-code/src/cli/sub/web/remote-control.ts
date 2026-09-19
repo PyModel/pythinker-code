@@ -4,7 +4,6 @@ import { getVersion } from '../../version';
 import { darkColors } from '../../../tui/theme/colors';
 import { supportsHyperlinks, toTerminalHyperlink } from '../../../utils/terminal-hyperlink';
 import type { RemoteControlStatus } from '@pymodel/remote-control';
-
 import { buildOpenableUrl, splitTokenFragment } from './access-urls';
 
 export {
@@ -16,11 +15,13 @@ export {
   parseRawHttpRequest,
   remoteControlLockPath,
   RemoteControlAlreadyRunningError,
-  REMOTE_CONTROL_RELAY_ENV,
-  REMOTE_CONTROL_RELAY_KEY_ENV,
   REMOTE_CONTROL_RELAY_ORIGIN,
+  REMOTE_CONTROL_RELAY_ENV,
+  REMOTE_CONTROL_RELAY_URL_ENV,
+  REMOTE_CONTROL_RELAY_KEY_ENV,
   resolveRelayKey,
   resolveRelayOrigin,
+  resolveRemoteControlRelayOrigin,
   rewriteRemoteControlResponse,
   startRemoteControl,
 } from '@pymodel/remote-control';
@@ -51,8 +52,8 @@ export function formatRemoteControlOutput(options: RemoteControlOutputOptions): 
   const status = (text: string): string => chalk.hex(darkColors.success)(text);
   const link = (url: string): string =>
     supportsHyperlinks() ? toTerminalHyperlink(accent(url), url) : accent(url);
-  const docs = toTerminalHyperlink('docs', 'https://code.pythinker.com/guides/remote-control.html');
-  const feedback = toTerminalHyperlink('feedback', 'https://github.com/PyModel/pythinker-code/issues');
+  const docs = toTerminalHyperlink('docs', 'https://code.pythinker.com/docs/remote-control');
+  const feedback = toTerminalHyperlink('feedback', 'https://code.pythinker.com/feedback');
   const [localBase, localFrag] = splitTokenFragment(
     buildOpenableUrl(options.localOrigin, options.localServerToken),
   );
@@ -62,7 +63,8 @@ export function formatRemoteControlOutput(options: RemoteControlOutputOptions): 
     `  ${muted('Use Pythinker Code on this machine from your phone or another computer.')}`,
     '',
     `  ${label('1.')} Scan the QR code, or open ${link(options.url)}`,
-    `  ${label('2.')} Start chatting — sessions run on this machine`,
+    `  ${label('2.')} Log in with your Pythinker account`,
+    `  ${label('3.')} Start chatting — sessions run on this machine`,
     '',
     `  ${status('✓')} ${muted(`Connected to ${new URL(options.url).host}, waiting for remote devices…`)}`,
     `  ${label('This device: ')}${muted(options.deviceName)}`,
@@ -72,7 +74,7 @@ export function formatRemoteControlOutput(options: RemoteControlOutputOptions): 
     `  ${label('QR code PNG: ')}${options.pngPath} ${muted('(open this if the QR above does not scan)')}`,
     `  ${label('Local UI: ')}${accent(localBase)}${dim(localFrag)} ${muted('(LAN: --host)')}`,
     '',
-    `  ${muted('Docs:')} ${docs} ${muted('·')} ${feedback}`,
+    `  ${docs} ${muted('·')} ${feedback}`,
     `  ${label('Logs: ')}${muted('off (--log-level info)')} ${muted('·')} ${label('Stop: ')}${muted('Ctrl+C')}`,
     '',
   ].join('\n');

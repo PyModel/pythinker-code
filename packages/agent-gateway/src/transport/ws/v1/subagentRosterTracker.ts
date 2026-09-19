@@ -1,7 +1,6 @@
 import type { Event } from './events';
 import type { SnapshotSubagent } from '../../../protocol/rest-snapshot';
 import { toRoutingWire } from '../../../routes/tasks';
-
 const MAIN_AGENT_ID = 'main';
 
 export class SubagentRosterTracker {
@@ -29,8 +28,14 @@ export class SubagentRosterTracker {
           run_in_background: event.runInBackground,
           model: event.model,
           thinking_effort: event.thinkingEffort,
-          routing: event.routing === undefined ? undefined : toRoutingWire(event.routing),
-          current_routing_env_revision: event.currentRoutingEnvironmentRevision,
+          routing: (() => {
+            const spawned = event as typeof event & {
+              readonly routing?: Record<string, unknown>;
+              readonly currentRoutingEnvironmentRevision?: string;
+            };
+            return spawned.routing === undefined ? undefined : toRoutingWire(spawned.routing);
+          })(),
+          current_routing_env_revision: (event as { readonly currentRoutingEnvironmentRevision?: string }).currentRoutingEnvironmentRevision,
           created_at: new Date().toISOString(),
         });
         return;
@@ -66,6 +71,14 @@ export class SubagentRosterTracker {
         entry.status = 'failed';
         entry.completed_at = new Date().toISOString();
         entry.output_preview = event.error;
+        return;
+      }
+      case 'subagent.cancelled': {
+        const entry = this.bySession.get(sessionId)?.get(event.subagentId);
+        if (!entry) return;
+        entry.subagent_phase = 'cancelled';
+        entry.status = 'cancelled';
+        entry.completed_at = new Date().toISOString();
         return;
       }
       case 'task.started': {

@@ -10,7 +10,7 @@ import type {
   ToolInputDisplay,
 } from '@pymodel/pythinker-code-sdk';
 
-import type { NotificationsConfig, StatusLineConfig, UpgradePreferences } from './config';
+import type { MarkdownConfig, NotificationsConfig, StatusLineConfig, UpgradePreferences } from './config';
 import type { PendingApproval, PendingQuestion } from './reverse-rpc/types';
 import type { ColorToken, ThemeName } from './theme';
 
@@ -26,6 +26,8 @@ export interface BannerState {
 }
 
 export interface AppState {
+  readonly expertTalkArmId?: string;
+  readonly expertTalkRunId?: string;
   model: string;
   workDir: string;
   additionalDirs: readonly string[];
@@ -41,8 +43,6 @@ export interface AppState {
   inputMode: 'prompt' | 'bash';
   dynamicWorkflowMode: boolean;
   towerMode: boolean;
-  expertTalkArmId?: string;
-  expertTalkRunId?: string;
   /** Live thinking effort of the active session (e.g. 'off', 'on', 'high');
    * mirrors the runtime. The single source of truth for the thinking state in
    * the TUI. */
@@ -85,6 +85,7 @@ export interface AppState {
   upgrade: UpgradePreferences;
   /** Footer status line customization from tui.toml; absent means the default layout. */
   statusLine?: StatusLineConfig;
+  markdown?: MarkdownConfig;
   availableModels: Record<string, ModelAlias>;
   availableProviders: Record<string, ProviderConfig>;
   sessionTitle: string | null;

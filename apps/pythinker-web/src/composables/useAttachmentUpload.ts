@@ -27,6 +27,8 @@ export interface Attachment {
   mediaType?: string;
   /** Local byte size of the picked file — echoed into the wire file part. */
   size?: number;
+  /** Stable 1-based ordinal for image/video mention labels (`Image 1`, `Video 2`). */
+  mediaOrdinal?: number;
   /** True while uploading */
   uploading: boolean;
   /** Resolved daemon file id (set after upload completes) */
@@ -66,6 +68,26 @@ export function useAttachmentUpload(deps: AttachmentUploadDeps) {
     attachmentsBySession.value = { ...attachmentsBySession.value, [sid]: next };
   }
 
+  function nextMediaOrdinal(current: readonly Attachment[]): number {
+    let max = 0;
+    for (const att of current) {
+      if ((att.kind === 'image' || att.kind === 'video') && att.mediaOrdinal !== undefined) {
+        max = Math.max(max, att.mediaOrdinal);
+      }
+    }
+    return max + 1;
+  }
+
+  function mediaLabel(att: Attachment): string {
+    if (att.kind === 'image') {
+      return att.mediaOrdinal !== undefined ? `Image ${att.mediaOrdinal}` : 'Image';
+    }
+    if (att.kind === 'video') {
+      return att.mediaOrdinal !== undefined ? `Video ${att.mediaOrdinal}` : 'Video';
+    }
+    return att.name;
+  }
+
   function revokeAttachment(att: Attachment): void {
     if (att.previewUrl === undefined) return;
     try { URL.revokeObjectURL(att.previewUrl); } catch { /* ignore */ }
@@ -91,6 +113,7 @@ export function useAttachmentUpload(deps: AttachmentUploadDeps) {
       const localId = nextLocalId();
       // Only media gets a thumbnail object URL; files render an icon chip.
       const previewUrl = kind === 'file' ? undefined : URL.createObjectURL(file);
+      const current = attachmentsBySession.value[sid] ?? [];
       const att: Attachment = {
         localId,
         name: file.name,
@@ -100,9 +123,10 @@ export function useAttachmentUpload(deps: AttachmentUploadDeps) {
         // the wire file part's required non-empty media_type never sees ''.
         mediaType: file.type || 'application/octet-stream',
         size: file.size,
+        mediaOrdinal: kind === 'file' ? undefined : nextMediaOrdinal(current),
         uploading: true,
       };
-      setForSession(sid, [...(attachmentsBySession.value[sid] ?? []), att]);
+      setForSession(sid, [...current, att]);
 
       // Upload in background; update the attachment when done.
       upload(file, file.name).then((result) => {
@@ -140,6 +164,20 @@ export function useAttachmentUpload(deps: AttachmentUploadDeps) {
     if (previewAttachment.value?.localId === localId) previewAttachment.value = null;
     if (att) revokeAttachment(att);
     setForSession(sid, current.filter((a) => a.localId !== localId));
+  }
+
+  /** Move a pending attachment to `toIndex` within the current session list. */
+  function reorderAttachment(localId: string, toIndex: number): void {
+    const sid = sessionId() ?? '';
+    const current = [...(attachmentsBySession.value[sid] ?? [])];
+    const fromIndex = current.findIndex((att) => att.localId === localId);
+    if (fromIndex < 0) return;
+    const clamped = Math.max(0, Math.min(toIndex, current.length - 1));
+    if (fromIndex === clamped) return;
+    const [item] = current.splice(fromIndex, 1);
+    if (item === undefined) return;
+    current.splice(clamped, 0, item);
+    setForSession(sid, current);
   }
 
   function openAttachmentPreview(att: Attachment): void {
@@ -312,15 +350,17 @@ export function useAttachmentUpload(deps: AttachmentUploadDeps) {
       if (att.fileId) {
         // Ready as-is; fetch an authenticated thumbnail for protected URLs.
         // File attachments have no thumbnail — nothing to fetch or revoke.
+        const existing = attachmentsBySession.value[sid] ?? [];
         const entry: Attachment = {
           localId,
           name,
           kind: att.kind,
           previewUrl: att.kind === 'file' ? undefined : att.url,
+          mediaOrdinal: att.kind === 'file' ? undefined : nextMediaOrdinal(existing),
           uploading: false,
           fileId: att.fileId,
         };
-        setForSession(sid, [...(attachmentsBySession.value[sid] ?? []), entry]);
+        setForSession(sid, [...existing, entry]);
         if (att.kind !== 'file' && !isData && !isBlob) {
           void getPythinkerWebApi().getFileBlob(att.fileId).then((blob) => {
             const blobUrl = URL.createObjectURL(blob);
@@ -346,14 +386,16 @@ export function useAttachmentUpload(deps: AttachmentUploadDeps) {
         if (!att.url) continue;
         const upload = uploadImage();
         if (!upload) continue;
+        const existing = attachmentsBySession.value[sid] ?? [];
         const entry: Attachment = {
           localId,
           name,
           kind: att.kind,
           previewUrl: att.url,
+          mediaOrdinal: att.kind === 'file' ? undefined : nextMediaOrdinal(existing),
           uploading: true,
         };
-        setForSession(sid, [...(attachmentsBySession.value[sid] ?? []), entry]);
+        setForSession(sid, [...existing, entry]);
         void urlToBlob(att.url)
           .then((blob) => {
             const fname = name.includes('.') ? name : `${name}.${blob.type.split('/')[1] ?? 'bin'}`;
@@ -408,6 +450,8 @@ export function useAttachmentUpload(deps: AttachmentUploadDeps) {
     fileInputRef,
     isDragOver,
     removeAttachment,
+    reorderAttachment,
+    mediaLabel,
     openAttachmentPreview,
     closeAttachmentPreview,
     openFilePicker,

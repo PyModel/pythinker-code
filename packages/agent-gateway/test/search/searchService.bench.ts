@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { monitorEventLoopDelay, performance, type IntervalHistogram } from 'node:perf_hooks';
+import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 
 import type {
   IBootstrapService,
@@ -119,13 +119,13 @@ describe('baseline: synthetic corpus', () => {
     }
   });
 
-  const TOPICS = ['compaction', 'walrus', 'snapshot', 'recovery', '\u7D22\u5F15', '\u6301\u4E45\u5316'];
+  const TOPICS = ['compaction', 'walrus', 'snapshot', 'recovery', 'zh', 'zh'];
 
   async function writeCorpus(from: number, to: number): Promise<SessionSummary[]> {
     const summaries: SessionSummary[] = [];
     for (let i = from; i < to; i++) {
       const id = `s${i}`;
-      summaries.push(summary(id, `session ${i} \u7D22\u5F15\u8BA8\u8BBA`, T1 + i));
+      summaries.push(summary(id, `session ${i} zh`, T1 + i));
       const lines: string[] = [];
       for (let j = 0; j < 8; j++) {
         lines.push(userLine(`session ${i} message ${j} about ${TOPICS[(i + j) % TOPICS.length]!}`, T1 + i * 100 + j));
@@ -190,7 +190,7 @@ describe('baseline: synthetic corpus', () => {
     all.push(...(await writeCorpus(0, 400)));
     await service.reindex();
 
-    const eld: IntervalHistogram = monitorEventLoopDelay();
+    const eld: any = monitorEventLoopDelay();
     eld.enable();
     try {
       const tokens: (string | undefined)[] = [undefined];

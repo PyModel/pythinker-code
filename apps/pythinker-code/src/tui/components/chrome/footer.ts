@@ -12,7 +12,7 @@ import chalk from 'chalk';
 import { effectiveModelAlias } from '@pymodel/pythinker-code-sdk';
 
 import { ALL_TIPS, type ToolbarTip } from '#/tui/constant/tips';
-import { isRainbowHatching, renderHatchFooterModel } from '#/tui/easter-eggs/hatch';
+import { isRainbowDancing, renderDanceFooterModel } from '#/tui/easter-eggs/dance';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
 import type { AppState } from '#/tui/types';
@@ -34,19 +34,10 @@ import {
   usagePercentFromRatio,
 } from '#/utils/usage/usage-format';
 
-const DEFAULT_STATUS_LINE_LAYOUT = [
-  { slot: 'mode', collapsePriority: null },
-  { slot: 'goal', collapsePriority: null },
-  { slot: 'model', collapsePriority: 2 },
-  { slot: 'tasks', collapsePriority: 1 },
-  { slot: 'cwd', collapsePriority: 3 },
-  { slot: 'git', collapsePriority: 0 },
-] as const;
-const DEFAULT_STATUS_LINE_ITEMS = DEFAULT_STATUS_LINE_LAYOUT.map(({ slot }) => slot);
-const DEFAULT_STATUS_LINE_COLLAPSE_ORDER = DEFAULT_STATUS_LINE_LAYOUT
-  .filter(({ collapsePriority }) => collapsePriority !== null)
-  .toSorted((left, right) => left.collapsePriority! - right.collapsePriority!)
-  .map(({ slot }) => slot);
+/** What the footer's fixed ctrl+o hint offers: expand collapsed tool output, or collapse it again. */
+export type ToolOutputExpandHint = 'expand' | 'collapse';
+
+const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'cwd', 'git'] as const;
 
 const MAX_CWD_SEGMENTS = 3;
 const GOAL_TIMER_INTERVAL_MS = 1_000;
@@ -58,8 +49,6 @@ const GOAL_TIMER_INTERVAL_MS = 1_000;
 // the final arbiter (a pair that doesn't fit falls back to its first tip).
 const TIP_ROTATE_INTERVAL_MS = 10_000;
 const TIP_SEPARATOR = ' | ';
-
-export type ToolOutputExpandHint = 'expand' | 'collapse';
 
 /**
  * Expand tips into a rotation sequence using smooth weighted round-robin
@@ -210,7 +199,7 @@ export class FooterComponent implements Component {
   private gitCacheWorkDir: string;
   private transientHint: string | null = null;
   private warningHint: string | null = null;
-  private streamSpeedTps: number | null = null;
+  private expandHintProvider: (() => ToolOutputExpandHint | null) | null = null;
   private goalSnapshotKey: string | null = null;
   private goalObservedAtMs = Date.now();
   private goalTimer: ReturnType<typeof setInterval> | null = null;
@@ -224,7 +213,6 @@ export class FooterComponent implements Component {
    */
   private backgroundBashTaskCount = 0;
   private backgroundAgentCount = 0;
-  private expandHintProvider: (() => ToolOutputExpandHint | null) | null = null;
 
   constructor(state: AppState, onRefresh: () => void = () => {}) {
     this.state = state;
@@ -263,17 +251,6 @@ export class FooterComponent implements Component {
   }
 
   /**
-   * Decode speed of the most recently completed step (tokens/s), shown next
-   * to the context readout on line 2. `null` hides it (turn end, or a step
-   * too short to measure — see `computeDecodeTps`).
-   */
-  setStreamSpeed(tps: number | null): void {
-    if (this.streamSpeedTps === tps) return;
-    this.streamSpeedTps = tps;
-    this.onRefresh();
-  }
-
-  /**
    * Short-lived hint that replaces the rotating toolbar tips on line 1.
    * Used by the exit-confirmation double-tap flow to show "Press Ctrl+C
    * again to exit" without requiring a toast/overlay subsystem.
@@ -299,14 +276,20 @@ export class FooterComponent implements Component {
   }
 
   /**
-   * Sync both background-task badges with live counts. Each non-zero
-   * count produces its own bracketed badge on line 1; zeros hide them
-   * independently.
+   * Source of the fixed `ctrl+o expand` / `ctrl+o collapse` hint on line 1:
+   * `expand` while the transcript holds collapsed tool output ctrl+o can
+   * reveal, `collapse` once it is shown, `null` when there is nothing to
+   * toggle. Read on every render so it tracks the transcript exactly.
    */
   setExpandHintProvider(provider: () => ToolOutputExpandHint | null): void {
     this.expandHintProvider = provider;
   }
 
+  /**
+   * Sync both background-task badges with live counts. Each non-zero
+   * count produces its own bracketed badge on line 1; zeros hide them
+   * independently.
+   */
   setBackgroundCounts(counts: { bashTasks: number; agentTasks: number }): void {
     this.backgroundBashTaskCount = Math.max(0, counts.bashTasks);
     this.backgroundAgentCount = Math.max(0, counts.agentTasks);
@@ -333,26 +316,29 @@ export class FooterComponent implements Component {
       const slots = this.buildSlots(colors);
       const configured = this.state.statusLine?.items ?? null;
       const order: readonly string[] = configured ?? DEFAULT_STATUS_LINE_ITEMS;
-      let left: Array<{ slot: string; piece: string }> = [];
-      for (const slot of order) {
-        const pieces = slots[slot as keyof typeof slots];
-        if (pieces !== undefined) {
-          left.push(...pieces.map((piece) => ({ slot, piece })));
+      const composeLeft = (withTips: boolean): string => {
+        const left: string[] = [];
+        for (const slot of order) {
+          if (!withTips && slot === 'tips') continue;
+          const pieces = slots[slot as keyof typeof slots];
+          if (pieces !== undefined) left.push(...pieces);
         }
-      }
+        return left.join('  ');
+      };
+      let leftLine = composeLeft(true);
+      let leftWidth = visibleWidth(leftLine);
 
-      let leftLine = left.map(({ piece }) => piece).join('  ');
-      if (configured === null) {
-        for (const slot of DEFAULT_STATUS_LINE_COLLAPSE_ORDER) {
-          if (visibleWidth(leftLine) <= width) break;
-          left = left.filter((entry) => entry.slot !== slot);
-          leftLine = left.map(({ piece }) => piece).join('  ');
-        }
-      }
-
-      const leftWidth = visibleWidth(leftLine);
-
+      // The right side holds the fixed ctrl+o hint (while the transcript has
+      // tool output to expand or collapse) and the rotating tips, unless the
+      // tips were given an inline slot in items or dropped from items. The
+      // hint never rotates and wins over a tip that no longer fits — an
+      // inline tip included: it gives way when the hint would not fit beside it.
       const tipsInline = order.includes('tips');
+      const shortcut = this.expandShortcut();
+      if (tipsInline && shortcut !== null && leftWidth + 2 + visibleWidth(shortcut) > width) {
+        leftLine = composeLeft(false);
+        leftWidth = visibleWidth(leftLine);
+      }
       const showTips = !tipsInline && (configured === null || configured.includes('tips'));
       const tipCandidates: string[] = [];
       if (showTips) {
@@ -373,45 +359,42 @@ export class FooterComponent implements Component {
       }
     }
 
-    // ── Line 2: hint (bottom-left) + context + stream speed (right) ──
+    // ── Line 2: hint (bottom-left) + context (right) ──
     const contextText = formatContextStatus(
       state.contextUsage,
       state.contextTokens,
       state.maxContextTokens,
     );
-    const speedSuffix =
-      this.streamSpeedTps === null ? '' : ` · ${this.streamSpeedTps.toFixed(1)} t/s`;
-    const rightWidth = visibleWidth(contextText) + visibleWidth(speedSuffix);
+    const contextWidth = visibleWidth(contextText);
     let line2: string;
     const hint = this.transientHint ?? this.warningHint;
     if (hint) {
-      const maxHintWidth = Math.max(0, width - rightWidth - 1);
+      const maxHintWidth = Math.max(0, width - contextWidth - 1);
       const shownHint =
         visibleWidth(hint) <= maxHintWidth ? hint : truncateToWidth(hint, maxHintWidth, '…');
       const hintWidth = visibleWidth(shownHint);
-      const pad = Math.max(0, width - hintWidth - rightWidth);
+      const pad = Math.max(0, width - hintWidth - contextWidth);
       line2 =
         chalk.hex(colors.warning).bold(shownHint) +
         ' '.repeat(pad) +
-        chalk.hex(colors.text)(contextText) +
-        chalk.hex(colors.textDim)(speedSuffix);
+        chalk.hex(colors.text)(contextText);
     } else {
+      // A status_line.command owns line 1 outright, so the ctrl+o hint moves
+      // down here; the transient and warning hints above take precedence.
       const shortcut = customLine !== null ? this.expandShortcut() : null;
       const left =
-        shortcut !== null && visibleWidth(shortcut) + 1 + rightWidth <= width
+        shortcut !== null && visibleWidth(shortcut) + 1 + contextWidth <= width
           ? chalk.hex(colors.textDim)(shortcut)
           : '';
-      const leftPad = Math.max(0, width - visibleWidth(left) - rightWidth);
-      line2 =
-        left +
-        ' '.repeat(leftPad) +
-        chalk.hex(colors.text)(contextText) +
-        chalk.hex(colors.textDim)(speedSuffix);
+      const leftPad = Math.max(0, width - visibleWidth(left) - contextWidth);
+      line2 = left + ' '.repeat(leftPad) + chalk.hex(colors.text)(contextText);
     }
 
     return [truncateToWidth(line1, width), truncateToWidth(line2, width)];
   }
 
+  /** The fixed ctrl+o hint plus the first rotating tip that still fits beside it. */
+  /** `ctrl+o expand` / `ctrl+o collapse`, or null when there is nothing to toggle. */
   private expandShortcut(): string | null {
     const hint = this.expandHintProvider?.() ?? null;
     return hint === null ? null : `ctrl+o ${hint}`;
@@ -426,8 +409,7 @@ export class FooterComponent implements Component {
     for (const tip of tips) {
       if (visibleWidth(`${shortcut}${TIP_SEPARATOR}${tip}`) <= remaining) {
         return (
-          chalk.hex(colors.textDim)(shortcut) +
-          chalk.hex(colors.textMuted)(`${TIP_SEPARATOR}${tip}`)
+          chalk.hex(colors.textDim)(shortcut) + chalk.hex(colors.textMuted)(`${TIP_SEPARATOR}${tip}`)
         );
       }
     }
@@ -457,18 +439,11 @@ export class FooterComponent implements Component {
     }
 
     const modes: string[] = [];
-    if (state.permissionMode === 'auto') {
-      modes.push(chalk.hex(colors.modeAutoAccept).bold(PERMISSION_MODE_DISPLAY_NAMES.auto));
-    }
-    if (state.permissionMode === 'yolo') {
-      modes.push(chalk.hex(colors.modePermission).bold(PERMISSION_MODE_DISPLAY_NAMES.yolo));
-    }
-    if (state.planMode) modes.push(chalk.hex(colors.modePlan).bold('plan'));
+    if (state.permissionMode === 'auto') modes.push(chalk.hex(colors.warning).bold(PERMISSION_MODE_DISPLAY_NAMES.auto));
+    if (state.permissionMode === 'yolo') modes.push(chalk.hex(colors.warning).bold(PERMISSION_MODE_DISPLAY_NAMES.yolo));
+    if (state.planMode) modes.push(chalk.hex(colors.primary).bold('plan'));
     if (state.dynamicWorkflowMode) modes.push(chalk.hex(colors.accent).bold('dynamic_workflow'));
     if (state.towerMode) modes.push(chalk.hex(colors.accent).bold('tower'));
-    if (state.expertTalkArmId !== undefined || state.expertTalkRunId !== undefined) {
-      modes.push(chalk.hex(colors.accent).bold('discussion'));
-    }
     if (modes.length > 0) slots['mode'] = [modes.join(' ')];
 
     const goalBadge = formatGoalBadge(state.goal, colors, this.goalWallClockMs(state.goal));
@@ -489,10 +464,12 @@ export class FooterComponent implements Component {
             ? ` thinking: ${effort}`
             : ' thinking'
           : '';
-      const renderedModel = isRainbowHatching()
-        ? renderHatchFooterModel(model)
-        : chalk.hex(colors.primary)(model);
-      slots['model'] = [renderedModel + chalk.hex(colors.textDim)(thinkingLabel)];
+      const modelLabel = `${model}${thinkingLabel}`;
+      let renderedModelLabel = chalk.hex(colors.text)(modelLabel);
+      if (isRainbowDancing()) {
+        renderedModelLabel = renderDanceFooterModel(modelLabel);
+      }
+      slots['model'] = [renderedModelLabel];
     }
 
     // Background-task badges. `bash-*` tasks (shell processes) and `agent-*`

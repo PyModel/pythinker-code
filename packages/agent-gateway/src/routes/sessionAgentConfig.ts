@@ -1,19 +1,18 @@
 import {
   ErrorCodes,
   Error2,
-  AgentGoal,
+  IAgentGoalService,
   IAgentLifecycleService,
   IAgentPlanService,
   IAgentProfileService,
   IAgentDynamicWorkflowService,
   IAgentTowerService,
-  IModelService,
-  agentContextOf,
   resumeSessionById,
+  towerEnterFailureMessage,
   type PermissionMode,
   type Scope,
 } from '@pymodel/agent-core-v2';
-import type { SessionAgentConfigPartial } from '@pymodel/agent-core-v2/app/sessionManager/sessionProtocol';
+import type { SessionAgentConfigPartial } from '@pymodel/agent-core-v2/app/sessionLegacy/sessionProtocol';
 
 import { ensureMainAgent } from '../transport/mainAgent';
 
@@ -31,7 +30,6 @@ export async function applySessionAgentConfig(
   const profile = agent.accessor.get(IAgentProfileService);
   if (agentConfig.model !== undefined && agentConfig.model !== '') {
     await profile.setModel(agentConfig.model);
-    await core.accessor.get(IModelService).setLastUsedModel(agentConfig.model);
   }
   if (agentConfig.thinking !== undefined) {
     profile.setThinking(agentConfig.thinking);
@@ -59,25 +57,24 @@ export async function applySessionAgentConfig(
   if (agentConfig.tower_mode !== undefined) {
     const tower = agent.accessor.get(IAgentTowerService);
     if (agentConfig.tower_mode) {
-      await tower.enter(agentConfig.tower_base);
-      if (!tower.isActive) {
+      const result = await tower.enter(agentConfig.tower_base);
+      if (!result.entered) {
         throw new Error2(
           ErrorCodes.SESSION_TOWER_MODE_INVALID,
-          'tower mode could not be enabled — another live session owns the workspace tower',
+          towerEnterFailureMessage(result),
         );
       }
     } else {
-      tower.exit();
+      await tower.exit();
     }
   }
   if (agentConfig.goal_objective !== undefined) {
     await agent.accessor
-      .get(IAgentLifecycleService)
-      .resolve(agentContextOf(agent), AgentGoal)
+      .get(IAgentGoalService)
       .createGoal({ objective: agentConfig.goal_objective });
   }
   if (agentConfig.goal_control !== undefined) {
-    const goal = agent.accessor.get(IAgentLifecycleService).resolve(agentContextOf(agent), AgentGoal);
+    const goal = agent.accessor.get(IAgentGoalService);
     switch (agentConfig.goal_control) {
       case 'pause':
         await goal.pauseGoal({});

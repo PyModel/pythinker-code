@@ -16,7 +16,9 @@ let provider: PythinkerWebviewProvider | undefined;
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel("Pythinker Code");
   const remoteInfo = vscode.env.remoteName ? ` (remote: ${vscode.env.remoteName})` : "";
-  log(`Pythinker Code ${VSCodeSettings.getExtensionConfig().version} activating${remoteInfo}`);
+  const version = VSCodeSettings.getExtensionConfig().version;
+  log(`Pythinker Code ${version} activating${remoteInfo}`);
+  context.subscriptions.push(activateExtensionTelemetry({ version, log }));
 
   provider = new PythinkerWebviewProvider(
     context.extensionUri,
@@ -151,8 +153,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 export async function deactivate(): Promise<void> {
   log("Pythinker Code deactivating");
-  await provider?.shutdown();
-  provider = undefined;
+  try {
+    await provider?.shutdown();
+  } finally {
+    provider = undefined;
+    await deactivateExtensionTelemetry();
+  }
 }
 
 function log(message: string): void {

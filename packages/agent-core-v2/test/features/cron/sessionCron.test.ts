@@ -1,28 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { DisposableStore } from '#/_base/di/lifecycle';
-import { createServices } from '#/_base/di/test';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentPromptService } from '#/agent/prompt/prompt';
-import type { DurableAgentRuntimeParticipant } from '#/agent/runtime/agentRuntime';
-import { AgentRuntimeSet } from '#/agent/runtime/agentRuntimeSet';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { IConfigService } from '#/app/config/config';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { CRON_SECTION, DEFAULT_CRON_CONFIG } from '#/features/cron/configSection';
-import { AgentCron, cronAgentRuntimeProvider } from '#/features/cron/cronAgentRuntime';
-import { CronCursor, type CronModelState } from '#/features/cron/cronOps';
-import { IEventDispatcher } from '#/state/eventDispatcher';
+import { IAgentCronService } from '#/features/cron/cronService';
+import { CronCursor } from '#/features/cron/cronOps';
 
-import { stubAgentContext } from '../../agent/agentContext/stubs';
-import { stubLoopWithHooks } from '../../agent/loop/stubs';
 import {
   createTestAgent,
   InMemoryWireRecordPersistence,
   type TestAgentContext,
   type TestAgentOptions,
 } from '../../harness';
-import { StubConfigService } from '../../kosong/stubs';
 
 async function bootCronContext(options: TestAgentOptions = {}): Promise<TestAgentContext> {
   const ctx = createTestAgent(options);
@@ -34,95 +21,13 @@ async function bootCronContext(options: TestAgentOptions = {}): Promise<TestAgen
 }
 
 describe('session cron wire persistence', () => {
-  it('settles an in-flight tick without reading services after close', async () => {
-    let releaseInject!: () => void;
-    const injection = new Promise<undefined>((resolve) => { releaseInject = () => { resolve(undefined); }; });
-    let markInjectStarted!: () => void;
-    const injectStarted = new Promise<void>((resolve) => { markInjectStarted = resolve; });
-    let closed = false;
-    let postCloseReads = 0;
-    const configReads: string[] = [];
-    const recordRead = (): void => {
-      if (closed) postCloseReads += 1;
-    };
-    class TrackedConfigService extends StubConfigService {
-      override get<T = unknown>(domain: string): T {
-        configReads.push(domain);
-        recordRead();
-        return super.get<T>(domain);
-      }
-    }
-    const disposables = new DisposableStore();
-    const services = createServices(disposables, {
-      additionalServices: (reg) => {
-        reg.defineInstance(IConfigService, new TrackedConfigService({
-          [CRON_SECTION]: { ...DEFAULT_CRON_CONFIG, noJitter: true, manualTick: true },
-        }));
-        reg.defineInstance(IAgentLoopService, stubLoopWithHooks());
-        reg.definePartialInstance(IAgentPromptService, {
-          inject: () => {
-            markInjectStarted();
-            return injection;
-          },
-        });
-        reg.definePartialInstance(IEventDispatcher, {
-          dispatch: async () => { recordRead(); },
-        });
-        reg.definePartialInstance(ITelemetryService, {
-          track2: () => { recordRead(); },
-        });
-      },
-    });
-    const agent = stubAgentContext('main');
-    const runtimes = new AgentRuntimeSet(agent, services);
-    runtimes.apply({
-      definition: AgentCron,
-      provider: cronAgentRuntimeProvider,
-      generation: 1,
-      active: true,
-    });
-    let participant: DurableAgentRuntimeParticipant<CronModelState> | undefined;
-    runtimes.attachDurable({
-      attach: (attached) => {
-        participant = attached;
-        return { dispose: () => {} };
-      },
-    });
-
-    try {
-      await runtimes.restore();
-      if (participant === undefined) throw new Error('Cron runtime was not attached');
-      const now = Date.now();
-      participant.commit(new Map([['deadbeef', {
-        id: 'deadbeef',
-        cron: '* * * * *',
-        prompt: 'fire after wait',
-        recurring: true,
-        createdAt: now - 120_000,
-      }]]));
-
-      const ticking = runtimes.resolve(AgentCron).tick();
-      await injectStarted;
-      await runtimes.close();
-      closed = true;
-      releaseInject();
-
-      await expect(ticking).resolves.toBeUndefined();
-      expect(postCloseReads).toBe(0);
-      expect(new Set(configReads)).toEqual(new Set([CRON_SECTION]));
-    } finally {
-      await runtimes.close();
-      disposables.dispose();
-    }
-  });
-
   it('writes cron ops as durable wire records and rebuilds the task table on replay', async () => {
     const persistence = new InMemoryWireRecordPersistence();
     const first = await bootCronContext({ persistence });
     try {
       await first.restorePersisted();
 
-      const cron = first.resolve(AgentCron);
+      const cron = first.get(IAgentCronService);
       const task = cron.addTask({ cron: '0 9 * * *', prompt: 'wire me', recurring: true });
       await first.dispatcher.dispatch(new CronCursor({ id: task.id, lastFiredAt: 1234 }));
       await first.dispatcher.flush();
@@ -140,7 +45,7 @@ describe('session cron wire persistence', () => {
     try {
       await second.restorePersisted();
 
-      const resumed = second.resolve(AgentCron);
+      const resumed = second.get(IAgentCronService);
       const rebuilt = resumed.list();
       expect(rebuilt).toHaveLength(1);
       expect(rebuilt[0]).toMatchObject({
@@ -160,7 +65,7 @@ describe('session cron wire persistence', () => {
     try {
       await first.restorePersisted();
 
-      const cron = first.resolve(AgentCron);
+      const cron = first.get(IAgentCronService);
       const kept = cron.addTask({ cron: '0 9 * * *', prompt: 'keep', recurring: true });
       const dropped = cron.addTask({ cron: '0 10 * * *', prompt: 'drop', recurring: true });
       cron.removeTasks([dropped.id]);
@@ -179,7 +84,7 @@ describe('session cron wire persistence', () => {
     try {
       await second.restorePersisted();
 
-      const resumed = second.resolve(AgentCron);
+      const resumed = second.get(IAgentCronService);
       expect(resumed.list().map((task) => task.prompt)).toEqual(['keep']);
     } finally {
       await second.dispose();
@@ -196,18 +101,51 @@ describe('session cron wire persistence', () => {
         { name: 'CronDelete', source: 'builtin' },
         { name: 'CronList', source: 'builtin' },
       ]);
-      await expect(ctx.resolve(AgentCron).tick()).rejects.toThrow('not restored');
+      await expect(ctx.get(IAgentCronService).tick()).rejects.toThrow('not restored');
 
       await ctx.restorePersisted();
-      void ctx.restoreRuntimes();
 
-      await expect(ctx.resolve(AgentCron).tick()).resolves.toBeUndefined();
+      await expect(ctx.get(IAgentCronService).tick()).resolves.toBeUndefined();
 
       await ctx.dispose();
       disposed = true;
 
-      expect(() => ctx.resolve(AgentCron)).toThrow();
+      expect(() => ctx.get(IAgentCronService)).toThrow();
     } finally {
+      if (!disposed) await ctx.dispose();
+    }
+  });
+
+  it('stops the poll timer on dispose without unhandled rejections', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    const ctx = createTestAgent();
+    ctx.pythinkerConfig = {
+      ...ctx.pythinkerConfig,
+      cron: {
+        debug: false,
+        noJitter: true,
+        noStale: false,
+        disabled: false,
+        manualTick: false,
+        pollIntervalMs: 10,
+      },
+    };
+    let disposed = false;
+    try {
+      await ctx.restorePersisted();
+      const cron = ctx.get(IAgentCronService);
+      cron.addTask({ cron: '* * * * *', prompt: 'poll me', recurring: true });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await ctx.dispose();
+      disposed = true;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
       if (!disposed) await ctx.dispose();
     }
   });

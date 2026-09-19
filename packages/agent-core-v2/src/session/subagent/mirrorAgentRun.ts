@@ -1,20 +1,19 @@
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
-import type { SubagentBindingProvenance } from './routing';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
-import { userCancellationReason } from '#/_base/utils/abort';
+import { isAbortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { tryAgentContextOf } from '#/agent/scopeContext/scopeContext';
-import { isProviderRateLimitError } from '#/kosong/contract/errors';
-import { type TokenUsage } from '#/kosong/contract/usage';
+import { isProviderRateLimitError } from '#/llm-adapter/contract/errors';
+import { type TokenUsage } from '#human/llm/usage';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { SubagentCreatedEvent } from '#/app/telemetry/events';
 import { Event2 } from '#/app/event/event2';
-import { isAbortError } from '#/_base/utils/abort';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
-import { type AgentRunHandle, ISessionSubagentService } from './subagent';
+import { type AgentRunCompletion, type AgentRunHandle, ISessionSubagentService } from './subagent';
+import type { SubagentModelSource } from './configSection';
 
 export interface SubagentSpawnedPayload {
   readonly subagentId: string;
@@ -29,8 +28,6 @@ export interface SubagentSpawnedPayload {
   readonly model?: string;
   readonly thinkingEffort?: string;
   readonly taskId?: string;
-  readonly routing?: SubagentBindingProvenance;
-  readonly currentRoutingEnvironmentRevision?: string;
 }
 
 export class SubagentSpawned extends Event2<SubagentSpawnedPayload> {
@@ -73,6 +70,36 @@ export class SubagentFailed extends Event2<SubagentFailedPayload> {
 }
 export interface SubagentFailed extends SubagentFailedPayload {}
 
+export interface SubagentCancelledPayload {
+  readonly subagentId: string;
+}
+
+export class SubagentCancelled extends Event2<SubagentCancelledPayload> {
+  static override readonly type = 'subagent.cancelled';
+  static override readonly observable = true;
+}
+export interface SubagentCancelled extends SubagentCancelledPayload {}
+
+export interface SubagentSpawnedEvent extends SubagentSpawnedPayload {
+  readonly type: 'subagent.spawned';
+}
+
+export interface SubagentStartedEvent extends SubagentStartedPayload {
+  readonly type: 'subagent.started';
+}
+
+export interface SubagentCompletedEvent extends SubagentCompletedPayload {
+  readonly type: 'subagent.completed';
+}
+
+export interface SubagentFailedEvent extends SubagentFailedPayload {
+  readonly type: 'subagent.failed';
+}
+
+export interface SubagentCancelledEvent extends SubagentCancelledPayload {
+  readonly type: 'subagent.cancelled';
+}
+
 export interface AgentRunSpawnedMeta {
   readonly profileName: string;
   readonly parentToolCallId?: string;
@@ -82,9 +109,8 @@ export interface AgentRunSpawnedMeta {
   readonly runInBackground?: boolean;
   readonly fork?: boolean;
   readonly model?: string;
+  readonly modelSource?: SubagentModelSource;
   readonly taskId?: string;
-  readonly routing?: SubagentBindingProvenance;
-  readonly currentRoutingEnvironmentRevision?: string;
 }
 
 export interface MirrorAgentRunOptions {
@@ -94,6 +120,7 @@ export interface MirrorAgentRunOptions {
   readonly signal: AbortSignal;
   readonly cancel?: (reason?: unknown) => void;
   readonly deferStarted?: boolean;
+  readonly terminalize?: (agentId: string, event: Event2) => void;
 }
 
 export function emitAgentRunSpawned(
@@ -119,8 +146,6 @@ export function emitAgentRunSpawned(
       model: meta.model,
       thinkingEffort: childProfile?.getEffectiveThinkingLevel(),
       taskId: meta.taskId,
-      routing: meta.routing,
-      currentRoutingEnvironmentRevision: meta.currentRoutingEnvironmentRevision,
     }),
   );
   childProfile?.republishStatus();
@@ -132,6 +157,7 @@ export function emitAgentRunSpawned(
     parent_agent_id: requester.id,
     parent_tool_call_id: meta.parentToolCallId ?? '',
     model: meta.model,
+    model_source: meta.modelSource,
   };
   requester.accessor.get(ITelemetryService)?.track2('subagent_created', telemetryEvent);
 }
@@ -140,7 +166,7 @@ export async function mirrorAgentRun(
   requester: IAgentScopeHandle,
   run: AgentRunHandle,
   options: MirrorAgentRunOptions,
-): Promise<{ summary: string; usage?: TokenUsage }> {
+): Promise<AgentRunCompletion> {
   const dispatcher = requester.accessor.get(IEventDispatcher);
   const subagents = requester.accessor.get(ISessionSubagentService);
   const agentLifecycle = requester.accessor.get(IAgentLifecycleService);
@@ -151,6 +177,8 @@ export async function mirrorAgentRun(
     const cancelAndRethrow = (reason: unknown): never => {
       options.cancel?.(reason);
       void run.completion.catch(() => {});
+      const event = terminalEventFor(run.agentId, reason, options);
+      if (event !== undefined) emitTerminal(dispatcher, options, run.agentId, event);
       throw reason;
     };
     try {
@@ -183,22 +211,48 @@ export async function mirrorAgentRun(
     });
     return result;
   } catch (error) {
-    if (!isAbortError(error) && !shouldSuppressFailure(options, error)) {
-      void dispatcher?.dispatch(
-        new SubagentFailed({
-          subagentId: run.agentId,
-          error: errorMessage(error),
-        }),
-      );
-    }
+    const event = terminalEventFor(run.agentId, error, options);
+    if (event !== undefined) emitTerminal(dispatcher, options, run.agentId, event);
     throw error;
   }
 }
 
-function shouldSuppressFailure(options: MirrorAgentRunOptions, error: unknown): boolean {
-  if (options.suppressRateLimitFailureEvent !== true) return false;
-  if (isProviderRateLimitError(error)) return true;
-  return isAbortError(error) || options.signal.aborted;
+function emitTerminal(
+  dispatcher: IEventDispatcher | undefined,
+  options: MirrorAgentRunOptions,
+  agentId: string,
+  event: Event2,
+): void {
+  if (options.terminalize !== undefined) {
+    options.terminalize(agentId, event);
+    return;
+  }
+  void dispatcher?.dispatch(event);
+}
+
+export type RunTermination = 'cancelled' | 'failed';
+
+export function classifyRunTermination(error: unknown, signal: AbortSignal): RunTermination {
+  if (!signal.aborted && !isAbortError(error)) return 'failed';
+  const reason = signal.aborted ? signal.reason : error;
+  if (isUserCancellation(reason)) return 'cancelled';
+  return reason instanceof Error && !isAbortError(reason) ? 'failed' : 'cancelled';
+}
+
+function terminalEventFor(
+  agentId: string,
+  error: unknown,
+  options: MirrorAgentRunOptions,
+): Event2 | undefined {
+  if (classifyRunTermination(error, options.signal) === 'cancelled') {
+    return new SubagentCancelled({ subagentId: agentId });
+  }
+  if (suppressesRateLimitFailure(options, error)) return undefined;
+  return new SubagentFailed({ subagentId: agentId, error: errorMessage(error) });
+}
+
+function suppressesRateLimitFailure(options: MirrorAgentRunOptions, error: unknown): boolean {
+  return options.suppressRateLimitFailureEvent === true && isProviderRateLimitError(error);
 }
 
 function errorMessage(error: unknown): string {

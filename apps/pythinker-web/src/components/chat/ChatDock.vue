@@ -51,6 +51,8 @@ const props = defineProps<{
   planMode?: boolean;
   planArmed?: boolean;
   goalMode?: boolean;
+  towerMode?: boolean;
+  towerAvailable?: boolean;
   dynamicWorkflowMode?: boolean;
   activationBadges?: ActivationBadges;
   models?: AppModel[];
@@ -86,6 +88,7 @@ const emit = defineEmits<{
   togglePlan: [];
   toggleWorkflow: [];
   toggleGoal: [];
+  toggleTower: [];
   openBtw: [];
   createGoal: [objective: string];
   controlGoal: [action: 'pause' | 'resume' | 'cancel'];
@@ -522,6 +525,8 @@ defineExpose({
       :plan-mode="planMode"
       :plan-armed="planArmed"
       :goal-mode="goalMode"
+      :tower-mode="towerMode"
+      :tower-available="towerAvailable"
       :workflow-active="dynamicWorkflowMode"
       :goal="goal"
       :activation-badges="activationBadges"
@@ -537,6 +542,7 @@ defineExpose({
       @toggle-plan="emit('togglePlan')"
       @toggle-workflow="emit('toggleWorkflow')"
       @toggle-goal="emit('toggleGoal')"
+      @toggle-tower="emit('toggleTower')"
       @open-btw="emit('openBtw')"
       @create-goal="emit('createGoal', $event)"
       @control-goal="emit('controlGoal', $event)"

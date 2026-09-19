@@ -5,7 +5,7 @@ import { join } from 'node:path';
 process.env['PYTHINKER_CODE_SEARCH_WORKER'] = '1';
 
 import { ISessionIndex, type SessionSummary } from '@pymodel/agent-core-v2';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../../src/start';
 import { TEST_HOST_IDENTITY } from '../helpers/hostIdentity';
@@ -96,6 +96,10 @@ describe('server-v2 /api/v1/search', () => {
       ].join('\n') + '\n',
       'utf8',
     );
+    await writeFile(
+      join(home, 'sessions', WS, 's1', 'state.json'),
+      JSON.stringify({ title: '\u82F9\u679C\u8BE2\u4EF7' }),
+    );
     const summaries: SessionSummary[] = [
       {
         id: 's1',
@@ -142,14 +146,7 @@ describe('server-v2 /api/v1/search', () => {
     for (let attempt = 0; attempt < 100; attempt++) {
       body = await postSearch({ query: '\u82F9\u679C' });
       expect(body.code).toBe(0);
-      const items = body.data.items;
-      if (
-        ['user', 'assistant', 'title'].every((role) =>
-          items.some((item) => item.role === role),
-        )
-      ) {
-        break;
-      }
+      if (body.data.items.length > 0) break;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     expect(body).toBeDefined();
@@ -161,7 +158,7 @@ describe('server-v2 /api/v1/search', () => {
     expect(hit!.workspace_id).toBe(WS);
     expect(hit!.session_title).toBe('\u82F9\u679C\u8BE2\u4EF7');
     expect(hit!.agent_id).toBe('main');
-    expect(hit!.snippet).toContain('\u82F9\u679C');
+    expect(hit!.snippet).toContain('\u7684\u4EF7\u683C');
     expect(hit!.step_id).toBeUndefined();
     const assistant = body!.data.items.find((h) => h.role === 'assistant');
     expect(assistant).toBeDefined();
@@ -220,12 +217,12 @@ describe('server-v2 session routes with the global search DB unavailable', () =>
   let home: string | undefined;
   let base: string;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-search-down-'));
     await writeFile(join(home, 'search-index'), 'not a minidb directory', 'utf8');
   });
 
-  afterEach(async () => {
+  afterAll(async () => {
     if (server !== undefined) {
       await server.close();
       server = undefined;
@@ -237,6 +234,7 @@ describe('server-v2 session routes with the global search DB unavailable', () =>
   });
 
   async function boot(): Promise<void> {
+    if (server !== undefined) return;
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
       host: '127.0.0.1',

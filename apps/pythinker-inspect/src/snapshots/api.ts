@@ -7,6 +7,7 @@ import type {
 
 import { DEBUG_RPC_BASE, type InspectClient } from '../channel';
 import { RPCError } from '../channel/errors';
+import { joinApiUrl } from '../httpUrl';
 
 export function fetchWorkspaceSnapshots(client: InspectClient): Promise<WorkspaceInstancesSnapshot> {
   return fetchSnapshot(client, '/workspaces');
@@ -42,7 +43,7 @@ async function fetchSnapshot<T>(client: InspectClient, path: string): Promise<T>
   if (client.token !== undefined && client.token !== '') {
     headers['authorization'] = `Bearer ${client.token}`;
   }
-  const response = await fetch(`${client.baseUrl}${DEBUG_RPC_BASE}${path}`, { headers });
+  const response = await fetch(joinApiUrl(client.baseUrl, `${DEBUG_RPC_BASE}${path}`), { headers });
   const envelope = (await response.json()) as {
     code: number;
     msg: string;

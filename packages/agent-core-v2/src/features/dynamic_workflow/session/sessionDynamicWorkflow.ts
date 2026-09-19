@@ -1,17 +1,7 @@
-import type { TokenUsage } from '#/kosong/contract/usage';
+import type { TokenUsage } from '#human/llm/usage';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { SubagentBindingProvenance } from '#/session/subagent/routing';
 import type { SubagentSpawnPlan } from '#/session/subagent/spawn';
-
-export interface SubagentRunBinding {
-  readonly profileName: string;
-  readonly model?: string;
-  readonly thinking?: string;
-  readonly routing?: SubagentBindingProvenance;
-  readonly currentRoutingEnvironmentRevision?: string;
-  readonly startedAt: number;
-}
 
 type SessionDynamicWorkflowTaskBase<T> = {
   readonly data: T;
@@ -52,8 +42,8 @@ export interface SessionDynamicWorkflowRunResult<T = unknown> {
   readonly state?: 'started' | 'not_started';
   readonly result?: string;
   readonly usage?: TokenUsage;
+  readonly stopReason?: string;
   readonly error?: string;
-  readonly binding?: SubagentRunBinding & { readonly completedAt: number };
 }
 
 export interface ISessionDynamicWorkflowService {

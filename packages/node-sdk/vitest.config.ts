@@ -5,13 +5,13 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   resolve: {
     alias: {
-      '@pymodel/agent-core': fileURLToPath(new URL('../agent-core/src/index.ts', import.meta.url)),
       '@pymodel/pythinker-code-oauth': fileURLToPath(
         new URL('../oauth/src/index.ts', import.meta.url),
       ),
     },
   },
   test: {
+    exclude: ['**/node_modules/**', '**/dist/**', '**/test/.skip/**'],
     name: 'pythinker-sdk',
     env: {
       PYTHINKER_LOG_LEVEL: 'off',

@@ -4,18 +4,14 @@ import type { Session } from '@pymodel/pythinker-code-sdk';
 
 import { handleTowerCommand } from '#/tui/commands/index';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
-import {
-  NO_ACTIVE_SESSION_MESSAGE,
-  TOWER_STATUS_PROMPT,
-  TOWER_TEARDOWN_PROMPT,
-} from '#/tui/constant/pythinker-tui';
+import { TOWER_STATUS_PROMPT, TOWER_TEARDOWN_PROMPT } from '#/tui/constant/pythinker-tui';
 
 function makeHost(
   overrides: {
     hasSession?: boolean;
     towerMode?: boolean;
-    engineV2?: boolean;
     refuseTowerEntry?: boolean;
+    model?: string;
   } = {},
 ) {
   let engineMode = overrides.towerMode ?? false;
@@ -25,14 +21,15 @@ function makeHost(
     }),
     getStatus: vi.fn(async () => ({ towerMode: engineMode })),
   };
+  const hasSession = overrides.hasSession ?? true;
   const host = {
     state: {
       appState: {
         towerMode: overrides.towerMode ?? false,
+        model: overrides.model ?? 'test-model',
       },
     },
-    engineV2: overrides.engineV2 ?? true,
-    session: overrides.hasSession === false ? undefined : session,
+    session: hasSession ? session : undefined,
     ensureSession: vi.fn(async () => {
       host.session = session as unknown as Session;
       return session as unknown as Session;
@@ -51,33 +48,79 @@ function makeHost(
 }
 
 describe('handleTowerCommand', () => {
-  it('routes status and teardown without changing the mode', async () => {
-    const { host, session } = makeHost({ towerMode: true });
+  it('reports tower status when called without args, without touching the mode', async () => {
+    const { host, session } = makeHost({ towerMode: false });
 
     await handleTowerCommand(host, '');
-    await handleTowerCommand(host, 'status');
-    await handleTowerCommand(host, 'teardown');
 
-    expect(host.sendNormalUserInput).toHaveBeenNthCalledWith(1, TOWER_STATUS_PROMPT);
-    expect(host.sendNormalUserInput).toHaveBeenNthCalledWith(2, TOWER_STATUS_PROMPT);
-    expect(host.sendNormalUserInput).toHaveBeenNthCalledWith(3, TOWER_TEARDOWN_PROMPT);
+    expect(host.sendNormalUserInput).toHaveBeenCalledWith(TOWER_STATUS_PROMPT);
+    expect(session.setTowerMode).not.toHaveBeenCalled();
+    expect(host.ensureSession).not.toHaveBeenCalled();
+  });
+
+  it('reports tower status for the status subcommand, without touching the mode', async () => {
+    const { host, session } = makeHost({ towerMode: true });
+
+    await handleTowerCommand(host, 'status');
+
+    expect(host.sendNormalUserInput).toHaveBeenCalledWith(TOWER_STATUS_PROMPT);
     expect(session.setTowerMode).not.toHaveBeenCalled();
   });
 
-  it('turns tower mode on and off', async () => {
-    const { host, session } = makeHost();
+  it('sends the teardown instruction for the teardown subcommand, without touching the mode', async () => {
+    const { host, session } = makeHost({ towerMode: true });
+
+    await handleTowerCommand(host, 'teardown');
+
+    expect(host.sendNormalUserInput).toHaveBeenCalledWith(TOWER_TEARDOWN_PROMPT);
+    expect(session.setTowerMode).not.toHaveBeenCalled();
+  });
+
+  it('turns tower mode on with an explicit on subcommand', async () => {
+    const { host, session } = makeHost({ towerMode: false });
 
     await handleTowerCommand(host, 'on');
+
+    expect(session.setTowerMode).toHaveBeenCalledWith(true, undefined);
+    expect(host.setAppState).toHaveBeenCalledWith({ towerMode: true });
+    expect(host.showNotice).toHaveBeenCalledWith('Tower mode: ON');
+    expect(host.showError).not.toHaveBeenCalled();
+    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+  });
+
+  it('turns tower mode off with an explicit off subcommand', async () => {
+    const { host, session } = makeHost({ towerMode: true });
+
     await handleTowerCommand(host, 'off');
 
-    expect(session.setTowerMode).toHaveBeenNthCalledWith(1, true, undefined);
-    expect(session.setTowerMode).toHaveBeenNthCalledWith(2, false, undefined);
-    expect(host.showNotice).toHaveBeenNthCalledWith(1, 'Tower mode: ON');
-    expect(host.showNotice).toHaveBeenNthCalledWith(2, 'Tower mode: OFF');
+    expect(session.setTowerMode).toHaveBeenCalledWith(false, undefined);
+    expect(host.setAppState).toHaveBeenCalledWith({ towerMode: false });
+    expect(host.showNotice).toHaveBeenCalledWith('Tower mode: OFF');
+    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+  });
+
+  it('reasserts the mode idempotently when tower mode is already on', async () => {
+    const { host, session } = makeHost({ towerMode: true });
+
+    await handleTowerCommand(host, 'on');
+
+    expect(session.setTowerMode).toHaveBeenCalledWith(true, undefined);
+    expect(host.showStatus).toHaveBeenCalledWith('Tower mode is already on.');
+    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+  });
+
+  it('reasserts the mode idempotently when tower mode is already off', async () => {
+    const { host, session } = makeHost({ towerMode: false });
+
+    await handleTowerCommand(host, 'off');
+
+    expect(session.setTowerMode).toHaveBeenCalledWith(false, undefined);
+    expect(host.showStatus).toHaveBeenCalledWith('Tower mode is already off.');
+    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
   it('turns tower mode on with a base branch', async () => {
-    const { host, session } = makeHost();
+    const { host, session } = makeHost({ towerMode: false });
 
     await handleTowerCommand(host, 'develop');
 
@@ -98,7 +141,7 @@ describe('handleTowerCommand', () => {
   });
 
   it('does not show the base notice when enabling with a base fails', async () => {
-    const { host, session } = makeHost();
+    const { host, session } = makeHost({ towerMode: false });
     session.setTowerMode.mockRejectedValueOnce(new Error('not a local branch'));
 
     await handleTowerCommand(host, 'develop');
@@ -110,35 +153,59 @@ describe('handleTowerCommand', () => {
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
-  it('does not show ON when the engine refuses tower entry', async () => {
-    const { host } = makeHost({ refuseTowerEntry: true });
+  it('reports a failure when enabling tower mode fails', async () => {
+    const { host, session } = makeHost({ towerMode: false });
+    session.setTowerMode.mockRejectedValueOnce(new Error('denied'));
+
+    await handleTowerCommand(host, 'on');
+
+    expect(host.showError).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to enable tower mode'),
+    );
+    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+  });
+
+  it('reports a failure when disabling tower mode fails', async () => {
+    const { host, session } = makeHost({ towerMode: true });
+    session.setTowerMode.mockRejectedValueOnce(new Error('denied'));
+
+    await handleTowerCommand(host, 'off');
+
+    expect(host.showError).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to disable tower mode'),
+    );
+    expect(host.setAppState).not.toHaveBeenCalledWith({ towerMode: false });
+  });
+
+  it('does not show ON when the engine refuses entry', async () => {
+    const { host } = makeHost({ towerMode: false, refuseTowerEntry: true });
 
     await handleTowerCommand(host, 'on');
 
     expect(host.showError).toHaveBeenCalledWith(expect.stringContaining('could not be enabled'));
     expect(host.setAppState).toHaveBeenCalledWith({ towerMode: false });
-    expect(host.showNotice).not.toHaveBeenCalled();
+    expect(host.showNotice).not.toHaveBeenCalledWith('Tower mode: ON');
+    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
-  it('lazy-creates a v2 session and rejects a missing legacy session', async () => {
-    const current = makeHost({ hasSession: false });
-    await handleTowerCommand(current.host, 'on');
-    expect(current.host.ensureSession).toHaveBeenCalledOnce();
-    expect(current.session.setTowerMode).toHaveBeenCalledWith(true, undefined);
-
-    const legacy = makeHost({ hasSession: false, engineV2: false });
-    await handleTowerCommand(legacy.host, 'on');
-    expect(legacy.host.showError).toHaveBeenCalledWith(expect.stringContaining('session'));
-    expect(legacy.host.ensureSession).not.toHaveBeenCalled();
-  });
-
-  it('rejects a legacy host even when it already has a session', async () => {
-    const { host, session } = makeHost({ engineV2: false });
+  it('lazy-creates the session on the v2 engine when none exists', async () => {
+    const { host, session } = makeHost({ hasSession: false });
 
     await handleTowerCommand(host, 'on');
 
-    expect(host.showError).toHaveBeenCalledWith(NO_ACTIVE_SESSION_MESSAGE);
+    expect(host.ensureSession).toHaveBeenCalled();
+    expect(session.setTowerMode).toHaveBeenCalledWith(true, undefined);
+    expect(host.showNotice).toHaveBeenCalledWith('Tower mode: ON');
+    expect(host.showError).not.toHaveBeenCalled();
+  });
+
+  it('returns quietly when lazy session creation fails', async () => {
+    const { host, session } = makeHost({ hasSession: false });
+    host.ensureSession = vi.fn(async () => undefined);
+
+    await handleTowerCommand(host, 'on');
+
     expect(session.setTowerMode).not.toHaveBeenCalled();
-    expect(host.ensureSession).not.toHaveBeenCalled();
+    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 });

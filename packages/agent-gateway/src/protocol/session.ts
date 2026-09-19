@@ -6,7 +6,7 @@ import {
   sessionAgentConfigPartialSchema,
   sessionAgentConfigSchema,
   sessionMetadataSchema,
-} from '@pymodel/agent-core-v2/app/sessionManager/sessionProtocol';
+} from '@pymodel/agent-core-v2/app/sessionLegacy/sessionProtocol';
 
 import { workspaceIdSchema } from './workspace';
 

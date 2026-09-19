@@ -147,11 +147,13 @@ describe('turnKey anchorTurnIds', () => {
     s = fold(s, new TurnPrompt({ agentId: 'main', input: [], origin: { kind: 'user' } }));
     s = fold(s, new ContextUndo({ agentId: 'main', count: 1 }));
     expect(s.anchorTurnIds).toEqual([0]);
+
     s = fold(
       s,
       new ContextApplyCompaction({ agentId: 'main', summary: 'summary', compactedCount: 2 }),
     );
     expect(s.anchorTurnIds).toEqual([]);
+
     s = fold(s, new TurnPrompt({ agentId: 'main', input: [], origin: { kind: 'user' } }));
     s = fold(s, new ContextClear({ agentId: 'main' }));
     expect(s.anchorTurnIds).toEqual([]);

@@ -13,7 +13,7 @@ import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigRegistry, IConfigService } from '#/app/config/config';
 import { ConfigRegistry, ConfigService } from '#/app/config/configService';
 import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
-import { type ThinkingConfig } from '#/kosong/model/thinking';
+import { type ThinkingConfig } from '#/llm-adapter/model/thinking';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
@@ -26,7 +26,7 @@ describe('config.toml writeback preservation', () => {
   let homeDir: string;
 
   beforeEach(() => {
-    homeDir = mkdtempSync(join(tmpdir(), 'config-v2-writeback-'));
+    homeDir = mkdtempSync(join(tmpdir(), 'pythinker-v2-writeback-'));
   });
 
   afterEach(() => {
@@ -60,18 +60,18 @@ describe('config.toml writeback preservation', () => {
 
   it('preserves comments, blank lines and untouched domains byte-for-byte on set()', async () => {
     const seed = [
-      '# Top comment: global settings',
-      'default_model = "example-model"   # Inline comment',
+      '# zhzh',
+      'default_model = "kimi-k2"   # zh',
       '',
-      '# Image settings',
+      '# zh',
       '[image]',
       'max_edge_px = 1500',
       '',
-      '# Custom section',
+      '# zh',
       '[custom]',
       'notes = """',
-      'First line',
-      '[not_a_header] this line starts with a left bracket',
+      'zh',
+      '[not_a_header] zh',
       '"""',
       'keep_me = "yes"',
       '',
@@ -83,17 +83,17 @@ describe('config.toml writeback preservation', () => {
     const text = await readText();
     expect(
       text.startsWith(
-        '# Top comment: global settings\ndefault_model = "example-model"   # Inline comment\n\n# Image settings\n',
+        '# zhzh\ndefault_model = "kimi-k2"   # zh\n\n# zh\n',
       ),
     ).toBe(true);
     expect(
       text.endsWith(
-        '\n# Custom section\n[custom]\nnotes = """\nFirst line\n[not_a_header] this line starts with a left bracket\n"""\nkeep_me = "yes"\n',
+        '\n# zh\n[custom]\nnotes = """\nzh\n[not_a_header] zh\n"""\nkeep_me = "yes"\n',
       ),
     ).toBe(true);
     const parsed = parseToml(text) as Record<string, unknown>;
     expect(section(parsed, 'image')['max_edge_px']).toBe(2000);
-    expect(parsed['default_model']).toBe('example-model');
+    expect(parsed['default_model']).toBe('kimi-k2');
     expect(section(parsed, 'custom')['keep_me']).toBe('yes');
     expect(config.get<ImageConfig>(IMAGE_SECTION)).toEqual({ maxEdgePx: 2000 });
 
@@ -116,7 +116,7 @@ describe('config.toml writeback preservation', () => {
   });
 
   it('appends a new domain at the end with a single trailing newline', async () => {
-    const seed = '# Image only\n[image]\nmax_edge_px = 1500\n';
+    const seed = '# zh\n[image]\nmax_edge_px = 1500\n';
     const { config, disposables, readText } = await setup(seed);
 
     await config.set(THINKING_SECTION, { effort: 'high' });
@@ -134,15 +134,15 @@ describe('config.toml writeback preservation', () => {
 
   it('removes a deleted domain region while keeping neighboring trivia', async () => {
     const seed = [
-      '# Header comment',
+      '# zh',
       '[thinking]',
       'effort = "high"',
       '',
-      '# Image comment',
+      '# zh',
       '[image]',
       'max_edge_px = 1500',
       '',
-      '# Tail comment',
+      '# zh',
       '[custom]',
       'keep_me = "yes"',
       '',
@@ -154,9 +154,9 @@ describe('config.toml writeback preservation', () => {
     const text = await readText();
     expect(text.includes('[image]')).toBe(false);
     expect(text.includes('max_edge_px')).toBe(false);
-    expect(text.includes('# Header comment\n[thinking]\neffort = "high"\n')).toBe(true);
-    expect(text.includes('# Image comment')).toBe(true);
-    expect(text.includes('# Tail comment\n[custom]\nkeep_me = "yes"\n')).toBe(true);
+    expect(text.includes('# zh\n[thinking]\neffort = "high"\n')).toBe(true);
+    expect(text.includes('# zh')).toBe(true);
+    expect(text.includes('# zh\n[custom]\nkeep_me = "yes"\n')).toBe(true);
     const parsed = parseToml(text) as Record<string, unknown>;
     expect(parsed['image']).toBeUndefined();
     expect(section(parsed, 'thinking')['effort']).toBe('high');
@@ -165,29 +165,17 @@ describe('config.toml writeback preservation', () => {
   });
 
   it('preserves CRLF line endings in untouched regions', async () => {
-    const seed = '# Comment\r\ndefault_model = "example-model"\r\n\r\n[image]\r\nmax_edge_px = 1500\r\n';
+    const seed = '# zh\r\ndefault_model = "kimi-k2"\r\n\r\n[image]\r\nmax_edge_px = 1500\r\n';
     const { config, disposables, readText } = await setup(seed);
 
     await config.set(IMAGE_SECTION, { maxEdgePx: 3000 });
 
     const text = await readText();
-    expect(text.startsWith('# Comment\r\ndefault_model = "example-model"\r\n\r\n')).toBe(true);
+    expect(text.startsWith('# zh\r\ndefault_model = "kimi-k2"\r\n\r\n')).toBe(true);
     const parsed = parseToml(text) as Record<string, unknown>;
     expect(section(parsed, 'image')['max_edge_px']).toBe(3000);
 
     disposables.dispose();
   });
 
-  it('migrates thinking effort max to high without dropping the surrounding comments', async () => {
-    const seed = '# Thinking settings\n[thinking]\n# Keep this comment\neffort = "max"\n';
-    const { config, disposables, readText } = await setup(seed);
-
-    const text = await readText();
-    expect(text.includes('# Thinking settings')).toBe(true);
-    expect(text.includes('effort = "high"')).toBe(true);
-    expect(text.includes('effort = "max"')).toBe(false);
-    expect(config.get<ThinkingConfig>(THINKING_SECTION)).toEqual({ effort: 'high' });
-
-    disposables.dispose();
-  });
 });

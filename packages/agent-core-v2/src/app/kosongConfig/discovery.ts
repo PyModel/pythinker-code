@@ -33,8 +33,10 @@ export class ModelCatalogChanged extends Event2<{
   static override readonly type = 'event.model_catalog.changed';
 }
 export interface ModelCatalogChanged {
+  readonly type: 'event.model_catalog.changed';
   readonly payload: RefreshProviderModelsResponse;
 }
+export type ModelCatalogChangedEvent = ModelCatalogChanged;
 
 export interface RefreshProviderModelsOptions {
   readonly providerId?: string;

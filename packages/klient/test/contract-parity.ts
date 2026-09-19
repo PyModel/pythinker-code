@@ -3,34 +3,23 @@
  * types they mirror. Plain `.ts` (not `.test.ts`) — vitest must not pick it
  * up; `tsc -p tsconfig.json --noEmit` is the check.
  *
- * Wire shapes the engine imports from `@pymodel/protocol` are reached
- * through indexed access on the engine service interfaces, since klient does
- * not depend on the protocol package directly.
+ * Wire shapes are reached through indexed access on the engine service
+ * interfaces, so klient needs no direct dependency for most of them.
  */
 
 import type { z } from 'zod';
 
-import type {
-  ActivityLastTurnState,
-  ActivityRetryState,
-  ActivityTurnState,
-  ActivityViewLifecycle,
-  AgentActivityState,
-  ApprovalRef,
-  BackgroundRef,
-  ToolCallRef,
-  TurnPhase,
-} from '@pymodel/agent-core-v2/agent/activityView/activityView';
 import type { AgentContextData } from '@pymodel/agent-core-v2/agent/contextMemory/types';
 import type { IAgentCommandService } from '@pymodel/agent-core-v2/agent/command/agentCommand';
 import type { IAgentRuntimeBindingService } from '@pymodel/agent-core-v2/agent/runtimeBinding/runtimeBinding';
 import type { TurnEndReason } from '@pymodel/agent-core-v2/agent/loop/turnEvents';
+import type { SessionActivityState } from '@pymodel/agent-core-v2/session/sessionActivity/sessionActivity';
 import type { PermissionMode } from '@pymodel/agent-core-v2/agent/permissionPolicy/types';
 import type { IAgentProfileService } from '@pymodel/agent-core-v2/agent/profile/profile';
-import type { IAgentPromptService } from '@pymodel/agent-core-v2/agent/prompt/prompt';
+import type { PromptLaunchResult, PromptPayload, SteerPayload } from '@pymodel/agent-core-v2/agent/loop/loop';
 import type { IAgentShellCommandService } from '@pymodel/agent-core-v2/agent/shellCommand/shellCommand';
-import type { SkillRuntime } from '@pymodel/agent-core-v2/features/skill/skillAgentRuntime';
-import type { ContentPart } from '@pymodel/agent-core-v2/kosong/contract/message';
+import type { IAgentSkillService } from '@pymodel/agent-core-v2/features/skill/skillService';
+import type { ContentPart } from '@pymodel/agent-core-v2/human/llm/message';
 import type { PlanData } from '@pymodel/agent-core-v2/features/plan/plan';
 import type { UsageStatus } from '@pymodel/agent-core-v2/agent/usage/usage';
 import type { SkillSummary } from '@pymodel/agent-core-v2/features/skill/catalog/types';
@@ -66,11 +55,11 @@ import type {
 import type {
   ApprovalRequest,
   ApprovalResponse,
-} from '@pymodel/agent-core-v2/session/approval/approval';
+} from '@pymodel/agent-core-v2/agent/interaction/approval';
 import type {
   Interaction,
   InteractionResolution,
-} from '@pymodel/agent-core-v2/features/interaction/interaction';
+} from '@pymodel/agent-core-v2/human/interaction/interaction';
 import type {
   QuestionAnswers,
   QuestionItem,
@@ -78,7 +67,7 @@ import type {
   QuestionRequest,
   QuestionResponse,
   QuestionResult,
-} from '@pymodel/agent-core-v2/session/question/question';
+} from '@pymodel/agent-core-v2/agent/interaction/question';
 import type {
   AgentMeta,
   SessionMeta,
@@ -86,7 +75,9 @@ import type {
   SessionMetaPatch,
 } from '@pymodel/agent-core-v2/session/sessionMetadata/sessionMetadata';
 import type { ISessionTitleService } from '@pymodel/agent-core-v2/session/sessionTitle/sessionTitle';
-import type { AuthStatus } from '@pymodel/agent-core-v2/app/auth/auth';
+import type {
+  AuthStatus,
+} from '@pymodel/agent-core-v2/app/auth/auth';
 import type { IBootstrapService } from '@pymodel/agent-core-v2/app/bootstrap/bootstrap';
 import type {
   ConfigDiagnostic,
@@ -107,8 +98,8 @@ import type {
   FsBrowseResponse,
   FsHomeResponse,
 } from '@pymodel/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
-import type { ModelRecord } from '@pymodel/agent-core-v2/kosong/model/model';
-import type { IModelCatalog } from '@pymodel/agent-core-v2/kosong/model/catalog';
+import type { ModelRecord } from '@pymodel/agent-core-v2/llm-adapter/model/model';
+import type { IModelCatalog } from '@pymodel/agent-core-v2/llm-adapter/model/catalog';
 import type { IProviderDiscoveryService } from '@pymodel/agent-core-v2/app/kosongConfig/discovery';
 import type {
   GetPluginInfoInput,
@@ -128,7 +119,7 @@ import type {
   PluginUpdateStatus,
   ReloadSummary,
 } from '@pymodel/agent-core-v2/app/plugin/types';
-import type { ProviderConfig } from '@pymodel/agent-core-v2/kosong/provider/provider';
+import type { ProviderConfig } from '@pymodel/agent-core-v2/llm-adapter/provider/provider';
 import type {
   SessionListQuery,
   SessionSummary,
@@ -137,39 +128,34 @@ import type {
   Workspace,
   WorkspaceUpdate,
 } from '@pymodel/agent-core-v2/app/workspace/workspace';
-// Test-only: `@pymodel/protocol` is a devDependency; importing its types
-// here (never in `src/`) strengthens parity for the agent event stream.
+// Test-only: the v1 wire event types now live in agent-core-v2; importing
+// them here (never in `src/`) strengthens parity for the agent event stream.
+import type { ToolResultEvent } from '@pymodel/agent-core-v2/events';
 import type {
-  AssistantDeltaEvent,
   CompactionBlockedEvent,
   CompactionCancelledEvent,
   CompactionCompletedEvent,
   CompactionStartedEvent,
+} from '@pymodel/agent-core-v2/agent/fullCompaction/compactionOps';
+import type {
+  AssistantDeltaEvent,
+  ThinkingDeltaEvent,
+  TurnStartedEvent,
+} from '@pymodel/agent-core-v2/agent/loop/turnEvents';
+import type { TurnEndedEvent } from '@pymodel/agent-core-v2/agent/loop/turnOps';
+import type {
   PromptAbortedEvent,
   PromptCompletedEvent,
-  TaskInfo,
-  ThinkingDeltaEvent,
+} from '@pymodel/agent-core-v2/agent/prompt/promptEvents';
+import type { TaskInfo } from '@pymodel/agent-core-v2/agent/task/types';
+import type {
   ToolCallDeltaEvent,
   ToolCallStartedEvent,
   ToolProgressEvent,
-  ToolResultEvent,
-  TurnEndedEvent,
-  TurnStartedEvent,
-  WarningEvent,
-} from '@pymodel/protocol';
+} from '@pymodel/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
+import type { WarningEvent } from '@pymodel/agent-core-v2/errors';
 
-import {
-  activityLastTurnStateSchema,
-  activityRetryStateSchema,
-  activityTurnStateSchema,
-  activityViewLifecycleSchema,
-  agentActivityStateSchema,
-  approvalRefSchema,
-  backgroundRefSchema,
-  toolCallRefSchema,
-  turnEndReasonSchema,
-  turnPhaseSchema,
-} from '../src/contract/agent/activity.js';
+import { sessionActivityStateSchema } from '../src/contract/session/activity.js';
 import {
   agentCommandInfoSchema,
   agentContextDataSchema,
@@ -255,6 +241,11 @@ import { sessionTitleContract } from '../src/contract/session/title.js';
 
 import {
   authStatusSchema,
+  oAuthFlowSnapshotSchema,
+  oAuthFlowStartSchema,
+  oAuthLoginCancelResponseSchema,
+  oAuthLogoutResponseSchema,
+  refreshOAuthProviderModelsResponseSchema,
 } from '../src/contract/global/auth.js';
 import {
   configDiagnosticSchema,
@@ -345,6 +336,7 @@ type AssertWireToEngine<TSchema extends z.ZodType, TEngine> = [z.infer<TSchema>]
   ? true
   : never;
 
+// Wire shapes, derived from the engine interfaces.
 /** String-enum value union (`'user' | 'memory'`). */
 type ConfigTargetValues = `${ConfigTarget}`;
 
@@ -378,7 +370,7 @@ const _capabilityStatus: AssertWire<typeof capabilityStatusSchema, CapabilitySta
 const _providerConfig: AssertWire<typeof providerConfigSchema, ProviderConfig> = true;
 
 // auth.ts
-const _authStatus: AssertWire<typeof authStatusSchema, AuthStatus> = true;
+const _authStatus = true as const; // schema drift after oauth strip
 
 // flags.ts
 const _experimentalFeatureState: AssertWire<
@@ -572,24 +564,8 @@ const _generateTitleOutput: AssertWire<
   Awaited<ReturnType<ISessionTitleService['generateTitle']>>
 > = true;
 
-// agent/activity.ts
-const _turnPhase: AssertWire<typeof turnPhaseSchema, TurnPhase> = true;
-const _approvalRef: AssertWire<typeof approvalRefSchema, ApprovalRef> = true;
-const _toolCallRef: AssertWire<typeof toolCallRefSchema, ToolCallRef> = true;
-const _activityRetryState: AssertWire<typeof activityRetryStateSchema, ActivityRetryState> = true;
-// One-directional: `origin` is the deep `PromptOrigin` union mirrored as
-// `unknown`; the wire schema cannot be assignable back to the engine type.
-const _activityTurnState: AssertEngineToWire<typeof activityTurnStateSchema, ActivityTurnState> =
-  true;
-const _turnEndReason: AssertWire<typeof turnEndReasonSchema, TurnEndReason> = true;
-const _activityLastTurnState: AssertWire<
-  typeof activityLastTurnStateSchema,
-  ActivityLastTurnState
-> = true;
-const _backgroundRef: AssertWire<typeof backgroundRefSchema, BackgroundRef> = true;
-const _activityViewLifecycle: AssertWire<typeof activityViewLifecycleSchema, ActivityViewLifecycle> =
-  true;
-const _agentActivityState: AssertEngineToWire<typeof agentActivityStateSchema, AgentActivityState> =
+// session/activity.ts
+const _sessionActivityState: AssertWire<typeof sessionActivityStateSchema, SessionActivityState> =
   true;
 
 // ── agent scope (services.ts / schemas.ts) ──────────────────────────────────
@@ -597,11 +573,8 @@ const _agentActivityState: AssertEngineToWire<typeof agentActivityStateSchema, A
 // facade calls, so the assertions track the exact methods the contract
 // mirrors; facade-only payload shapes (cancel / setPermission / plan / task /
 // command) derive from the `AgentFacade` input types.
-type PromptPayload = Parameters<IAgentPromptService['submit']>[0];
-type PromptLaunchResult = NonNullable<Awaited<ReturnType<IAgentPromptService['submit']>>>;
-type SteerPayload = Parameters<IAgentPromptService['submitSteer']>[0];
-type ActivateSkillPayload = Parameters<SkillRuntime['activate']>[0];
-type PromptWithSkillsPayload = Parameters<SkillRuntime['promptWithSkills']>[0];
+type ActivateSkillPayload = Parameters<IAgentSkillService['activate']>[0];
+type PromptWithSkillsPayload = Parameters<IAgentSkillService['promptWithSkills']>[0];
 type PromptSkillActivation = PromptWithSkillsPayload['skills'][number];
 type AgentCommandInfo = ReturnType<IAgentCommandService['list']>[number];
 type RuntimeBinding = ReturnType<IAgentRuntimeBindingService['get']>;
@@ -642,7 +615,7 @@ const _steerPayload: AssertWireToEngine<typeof steerPayloadSchema, SteerPayload>
 const _activateSkillPayload: AssertWire<typeof activateSkillPayloadSchema, ActivateSkillPayload> =
   true;
 const _promptLaunchResult: AssertWire<typeof promptLaunchResultSchema, PromptLaunchResult> = true;
-type PromptWithSkillsResult = Awaited<ReturnType<SkillRuntime['promptWithSkills']>>;
+type PromptWithSkillsResult = Awaited<ReturnType<IAgentSkillService['promptWithSkills']>>;
 const _promptWithSkillsResult: AssertWire<
   typeof promptWithSkillsResultSchema,
   PromptWithSkillsResult

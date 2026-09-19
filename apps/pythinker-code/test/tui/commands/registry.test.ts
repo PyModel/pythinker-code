@@ -35,7 +35,7 @@ describe('built-in slash command registry', () => {
     expect(findBuiltInSlashCommand('quit')?.name).toBe('exit');
     expect(findBuiltInSlashCommand('q')?.name).toBe('exit');
     expect(findBuiltInSlashCommand('clear')?.name).toBe('new');
-    expect(findBuiltInSlashCommand('bug')).toBeUndefined();
+    expect(findBuiltInSlashCommand('bug')?.name).toBe('feedback');
     expect(findBuiltInSlashCommand('btw')?.name).toBe('btw');
     expect(findBuiltInSlashCommand('mcp')?.name).toBe('mcp');
     expect(findBuiltInSlashCommand('status')?.name).toBe('status');
@@ -76,28 +76,20 @@ describe('built-in slash command registry', () => {
     expect(values('Ship feature X')).toBeNull();
   });
 
-  it('registers tower as an engine-v2 experiment', () => {
-    const tower = findBuiltInSlashCommand('tower');
-    expect(tower).toBeDefined();
-    expect((tower as PythinkerSlashCommand).experimentalFlag).toBe('tower');
-    expect((tower as PythinkerSlashCommand).requiresEngineV2).toBe(true);
-    expect(resolveSlashCommandAvailability(tower!, 'status')).toBe('always');
-    expect(resolveSlashCommandAvailability(tower!, 'Ship feature X')).toBe('always');
-    expect(towerArgumentCompletions('')).toHaveLength(4);
-  });
+  it('offers tower subcommand argument completions', () => {
+    const values = (prefix: string): string[] | null => {
+      const items = towerArgumentCompletions(prefix);
+      return items === null ? null : items.map((item) => item.value);
+    };
 
-  it('registers Discussion as the canonical engine-v2 command with compatibility aliases', () => {
-    const command = findBuiltInSlashCommand('discussion');
-    expect(command).toBeDefined();
-    expect(command?.aliases).toEqual(['expert-talk', 'expert-opinion']);
-    expect(findBuiltInSlashCommand('expert-talk')).toBe(command);
-    expect(findBuiltInSlashCommand('expert-opinion')).toBe(command);
-    expect((command as PythinkerSlashCommand).experimentalFlag).toBe('expert_talk');
-    expect((command as PythinkerSlashCommand).requiresEngineV2).toBe(true);
-    expect(resolveSlashCommandAvailability(command!, 'cancel')).toBe('always');
-    expect((command as PythinkerSlashCommand).completeArgs?.('')).toHaveLength(9);
-    expect((command as PythinkerSlashCommand).completeArgs?.('rev')).toBeNull();
-    expect((command as PythinkerSlashCommand).completeArgs?.('fin')).toBeNull();
+    expect(values('')).toEqual(['status', 'teardown', 'on', 'off']);
+    expect(values('T')).toEqual(['teardown']);
+    expect(towerArgumentCompletions('tea')).toEqual([
+      { value: 'teardown', label: 'teardown', description: 'Tear down the tower' },
+    ]);
+    expect(values('status')).toBeNull();
+    expect(values('on')).toBeNull();
+    expect(values('Ship feature X')).toBeNull();
   });
 
   it('offers add-dir list and directory argument completions', () => {
@@ -177,6 +169,7 @@ describe('built-in slash command registry', () => {
         'add-dir',
         'compact',
         'btw',
+        'desktop',
         'editor',
         'exit',
         'export-debug-zip',
@@ -198,10 +191,12 @@ describe('built-in slash command registry', () => {
         'status',
         'theme',
         'title',
+        'tower',
         'undo',
         'usage',
         'version',
         'yolo',
+        'auto',
       ]),
     );
   });
@@ -216,12 +211,19 @@ describe('built-in slash command registry', () => {
     expect(resolveSlashCommandAvailability(reloadTui!, '')).toBe('always');
   });
 
-  it('gates secondary-model behind the secondary-model experiment, always available', () => {
+  it('exposes secondary-model unconditionally, always available', () => {
     const command = findBuiltInSlashCommand('secondary-model');
     expect(command).toBeDefined();
-    expect((command as PythinkerSlashCommand).experimentalFlag).toBe('secondary-model');
+    expect((command as PythinkerSlashCommand).experimentalFlag).toBeUndefined();
     expect(resolveSlashCommandAvailability(command!, '')).toBe('always');
   });
+
+  it('gates tower behind the tower experiment', () => {
+    const command = findBuiltInSlashCommand('tower');
+    expect(command).toBeDefined();
+    expect((command as PythinkerSlashCommand).experimentalFlag).toBe('tower');
+  });
+
   it('keeps every tower subcommand always available, including objectives', () => {
     const command = findBuiltInSlashCommand('tower');
     expect(command).toBeDefined();
@@ -233,10 +235,11 @@ describe('built-in slash command registry', () => {
     expect(resolveSlashCommandAvailability(command!, 'Ship feature X')).toBe('always');
   });
 
-  it('exposes remote-control ungated and always available', () => {
+  it('registers remote-control as always available', () => {
     const command = findBuiltInSlashCommand('remote-control');
     expect(command).toBeDefined();
     expect((command as PythinkerSlashCommand).experimentalFlag).toBeUndefined();
     expect(resolveSlashCommandAvailability(command!, '')).toBe('always');
   });
+
 });

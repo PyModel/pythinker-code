@@ -11,7 +11,7 @@ import {
   parseDaemonFileRef as mirrorParse,
   type MediaRefPart,
 } from '@pymodel/transcript';
-import type { ContentPart } from '@pymodel/agent-core-v2/kosong/contract/message';
+import type { ContentPart } from '@pymodel/agent-core-v2/human/llm/message';
 
 const URLS = [
   'pythinker-file://f_1?path=%2Fcache%2Fshot.png',

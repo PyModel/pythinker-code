@@ -1,11 +1,9 @@
 import type { Pyaos } from '@pymodel/pyaos';
-import {
-  ErrorCodes,
-  PythinkerError,
-  ImageLimits,
-  withTelemetryContext,
-  type ExperimentalFeatureState,
-} from '@pymodel/agent-core';
+
+import { ErrorCodes, PythinkerError } from '#/errors';
+import type { ExperimentalFeatureState } from '#/flag';
+import type { ImageLimits } from '#/image';
+import { withTelemetryContext } from '#/telemetry';
 
 import { capabilityRpc, Session } from '#/session';
 import type { PythinkerAuthFacade } from '#/auth';
@@ -42,6 +40,8 @@ import type {
   SessionSummary,
   SessionSummaryPage,
   SkillSummary,
+  SuggestFilesInput,
+  SuggestFilesResult,
   TelemetryClient,
   TelemetryContextPatch,
   TelemetryProperties,
@@ -68,12 +68,6 @@ export interface PythinkerHarnessRuntimeOptions {
    * session-scoped properties, and lose only to the canonical harness fields.
    */
   readonly sessionStartedDynamicProperties?: () => TelemetryProperties;
-  /**
-   * Owner-scoped [image] limits for prompt-ingestion compression in the
-   * client process (paste-time, ACP prompt conversion). In-process cores
-   * (SDKRpcClient) hand over their core's instance; daemon-client hosts
-   * leave it undefined and ingestion falls back to env/built-in defaults.
-   */
   readonly imageLimits?: ImageLimits | undefined;
 }
 
@@ -131,20 +125,20 @@ export class PythinkerHarness {
     this.telemetry.track(event, properties);
   }
 
+  trackWithContext(
+    event: string,
+    properties: TelemetryProperties | undefined,
+    context: TelemetryContextPatch,
+  ): void {
+    withTelemetryContext(this.telemetry, context).track(event, properties);
+  }
+
   setTelemetryContext(patch: TelemetryContextPatch): void {
     this.telemetry.setContext?.(patch);
   }
 
   async createSession(options: CreateSessionOptions): Promise<Session> {
-    const {
-      planMode,
-      kaos,
-      persistenceKaos,
-      pyaos = kaos,
-      persistencePyaos = persistenceKaos,
-      sessionStartedProperties,
-      ...coreOptions
-    } = options;
+    const { planMode, pyaos, persistencePyaos, sessionStartedProperties, ...coreOptions } = options;
     const summary =
       pyaos === undefined && persistencePyaos === undefined
         ? await this.rpc.createSession(coreOptions)
@@ -173,10 +167,8 @@ export class PythinkerHarness {
     const id = normalizeSessionId(input.id);
     const active = this.activeSessions.get(id);
     const {
-      kaos,
-      persistenceKaos,
-      pyaos = kaos,
-      persistencePyaos = persistenceKaos,
+      pyaos,
+      persistencePyaos,
       sessionStartedProperties: _sessionStartedProperties,
       ...resumeInput
     } = input;
@@ -211,14 +203,7 @@ export class PythinkerHarness {
   }
 
   private async doResumeSession(input: ResumeSessionInput, id: string): Promise<Session> {
-    const {
-      kaos,
-      persistenceKaos,
-      pyaos = kaos,
-      persistencePyaos = persistenceKaos,
-      sessionStartedProperties,
-      ...resumeInput
-    } = input;
+    const { pyaos, persistencePyaos, sessionStartedProperties, ...resumeInput } = input;
     const summary =
       pyaos === undefined && persistencePyaos === undefined
         ? await this.rpc.resumeSession({ ...resumeInput, id })
@@ -355,6 +340,15 @@ export class PythinkerHarness {
   }
 
   /**
+   * File suggestions for @ mention-style completion under `workDir`, no
+   * session required. `undefined` on the v1 engine, which has no equivalent
+   * capability; callers fall back to their own file search there.
+   */
+  async suggestFiles(workDir: string, input: SuggestFilesInput): Promise<SuggestFilesResult | undefined> {
+    return this.rpc.suggestFiles(workDir, input);
+  }
+
+  /**
    * App-global plugin command list, no session required. Empty on the v1
    * engine, which only exposes plugin commands through a live session.
    */
@@ -439,31 +433,6 @@ export class PythinkerHarness {
 
   async getConfig(options: GetConfigOptions = {}): Promise<PythinkerConfig> {
     return this.rpc.getConfig(options);
-  }
-
-  async isAuthenticated(): Promise<boolean> {
-    const config = await this.getConfig({ reload: true });
-    return Object.values(config.providers ?? {}).some((provider) => {
-      if (provider.apiKey?.trim()) return true;
-      const env = provider.env ?? {};
-      switch (provider.type) {
-        case 'anthropic':
-          return Boolean(env['ANTHROPIC_API_KEY']?.trim());
-        case 'openai':
-        case 'openai_responses':
-          return Boolean(env['OPENAI_API_KEY']?.trim());
-        case 'pythinker':
-          return Boolean(env['PYTHINKER_API_KEY']?.trim());
-        case 'google-genai':
-          return Boolean(env['GOOGLE_API_KEY']?.trim());
-        case 'vertexai':
-          return (
-            Boolean(env['VERTEXAI_API_KEY']?.trim()) || Boolean(env['GOOGLE_API_KEY']?.trim())
-          );
-        default:
-          return false;
-      }
-    });
   }
 
   /** Warnings from the most recent config.toml load; empty when the config is fully valid. */

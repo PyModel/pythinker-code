@@ -2,9 +2,8 @@ import { ulid } from 'ulid';
 import { assign, fromCallback, sendTo, setup, type Snapshot } from 'xstate';
 
 import { IntervalTimer } from '#/_base/utils/timer';
-import type { CronJobOrigin, CronMissedOrigin, ContextMessage } from '#/agent/contextMemory/types';
+import type { CronJobOrigin, CronMissedOrigin } from '#/agent/contextMemory/types';
 import { IAgentLoopService, type Turn } from '#/agent/loop/loop';
-import { IAgentPromptService } from '#/agent/prompt/prompt';
 import {
   defineAgentRuntimeContract,
   defineAgentRuntimeProvider,
@@ -171,41 +170,35 @@ function deliverFire(
     coalescedCount: context.coalescedCount,
     stale: isStaleAt(runtime, task, context.firedAt),
   };
-  const message: ContextMessage = {
-    role: 'user',
-    content: [{ type: 'text', text: renderCronFireXml(origin, task.prompt) }],
-    toolCalls: [],
-    origin,
-  };
-  const buffered = runtime.get(IAgentLoopService).status().state === 'running';
-  let launched: Promise<unknown>;
+  const buffered = runtime.get(IAgentLoopService).snapshot().state === 'running';
   try {
-    launched = runtime.get(IAgentPromptService).inject(message);
+    runtime.get(IAgentLoopService).submit(
+      {
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: renderCronFireXml(origin, task.prompt) }],
+        },
+        meta: { origin },
+      },
+      { steerIfActive: true },
+    );
   } catch (error) {
     if (!isDisposed()) {
-      debugLog(runtime, `steer threw for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+      debugLog(
+        runtime,
+        `steer threw for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
     return Promise.resolve(false);
   }
-  return launched.then(
-    () => {
-      if (isDisposed()) return false;
-      void runtime.dispatch(new CronFired({ origin, prompt: task.prompt }));
-      telemetryOf(runtime).track2(CRON_FIRED, {
-        recurring: task.recurring !== false,
-        coalesced_count: context.coalescedCount,
-        stale: origin.stale,
-        buffered,
-      });
-      return true;
-    },
-    (error: unknown) => {
-      if (!isDisposed()) {
-        debugLog(runtime, `steer launch rejected for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-      return false;
-    },
-  );
+  void runtime.dispatch(new CronFired({ origin, prompt: task.prompt }));
+  telemetryOf(runtime).track2(CRON_FIRED, {
+    recurring: task.recurring !== false,
+    coalesced_count: context.coalescedCount,
+    stale: origin.stale,
+    buffered,
+  });
+  return Promise.resolve(true);
 }
 
 async function processDue(
@@ -284,7 +277,7 @@ async function tickCron(
   await config.ready;
   if (isDisposed()) return;
   if (readCronConfig(config).disabled || runtime.getState().size === 0) return;
-  if (runtime.get(IAgentLoopService).status().state === 'running') return;
+  if (runtime.get(IAgentLoopService).snapshot().state === 'running') return;
   const now = state.clocks.wallNow();
   await Promise.all(
     [...runtime.getState().values()].map((task) => processDue(runtime, state, task, now, isDisposed)),
@@ -450,13 +443,16 @@ export class CronRuntime {
   ): Turn | undefined {
     if (tasks.length === 0) return undefined;
     const origin: CronMissedOrigin = { kind: 'cron_missed', count: tasks.length };
-    const message: ContextMessage = {
-      role: 'user',
-      content: [...renderMissedNotification(tasks)],
-      toolCalls: [],
-      origin,
-    };
-    void this.runtime.get(IAgentPromptService).inject(message).catch(() => {});
+    this.runtime.get(IAgentLoopService).submit(
+      {
+        message: {
+          role: 'user',
+          content: [...renderMissedNotification(tasks)],
+        },
+        meta: { origin },
+      },
+      { steerIfActive: true },
+    );
     telemetryOf(this.runtime).track2(CRON_MISSED, { count: tasks.length });
     return undefined;
   }

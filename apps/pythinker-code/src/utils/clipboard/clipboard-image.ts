@@ -1,9 +1,10 @@
 /**
  * Read media from the system clipboard with graceful platform fallbacks.
  *
- * pythinker-core's LLM pipeline only accepts PNG/JPEG/GIF/WebP, and the
- * clipboard sources we query already emit those formats on supported
- * platforms — so we deliberately do not include a BMP→PNG converter.
+ * Every model provider accepts PNG/JPEG/GIF/WebP (the engine widens the set
+ * per provider, e.g. BMP/HEIC/HEIF for Pythinker), and the clipboard sources we
+ * query already emit those baseline formats on supported platforms — so we
+ * deliberately do not include a BMP→PNG converter.
  *
  * Lookup order:
  *   macOS file clipboard       -> osascript/AppKit file URLs
@@ -171,14 +172,6 @@ function splitClipboardPathLines(text: string): string[] {
 }
 
 function readImagePath(path: string): ClipboardImage | null {
-  let stat: ReturnType<typeof statSync>;
-  try {
-    stat = statSync(path);
-  } catch {
-    return null;
-  }
-  if (!stat.isFile()) return null;
-
   let bytes: Buffer;
   try {
     bytes = readFileSync(path);

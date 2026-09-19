@@ -1,3 +1,4 @@
+import { joinApiUrl } from '../httpUrl';
 /**
  * REST client for the global message search endpoint:
  * `POST {baseUrl}/api/v1/search`.
@@ -117,7 +118,7 @@ export async function fetchSearchPage(opts: FetchSearchPageOptions): Promise<Sea
     headers['authorization'] = `Bearer ${opts.token}`;
   }
   const doFetch = opts.fetchImpl ?? fetch;
-  const res = await doFetch(`${opts.baseUrl}/api/v1/search`, {
+  const res = await doFetch(joinApiUrl(opts.baseUrl, '/api/v1/search'), {
     method: 'POST',
     headers,
     body: JSON.stringify({

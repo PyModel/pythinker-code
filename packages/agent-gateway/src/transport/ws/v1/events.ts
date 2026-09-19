@@ -8,7 +8,6 @@ import type { AgentPhase } from '../../../services/legacyStatus/legacyStatus';
 import type { ConfigResponse } from '../../../protocol/rest-config';
 import type { Session, SessionPendingInteraction } from '../../../protocol/session';
 import type { Workspace } from '../../../protocol/workspace';
-import type { ExpertTalkStatusWire } from '../../../protocol/rest-expert-talk';
 
 export interface AgentStatusUpdatedEvent {
   readonly type: 'agent.status.updated';
@@ -51,6 +50,7 @@ export interface SessionArchivedEvent {
 
 export interface SessionDeletedEvent {
   readonly type: 'event.session.deleted';
+  readonly workspace_id: string;
 }
 
 export interface WorkspaceCreatedEvent {
@@ -93,7 +93,7 @@ export interface SessionStatusChangedEvent {
 
 export interface ConfigChangedEvent {
   readonly type: 'event.config.changed';
-  readonly changed_fields: string[];
+  readonly changedFields: string[];
   readonly config: ConfigResponse;
 }
 
@@ -140,11 +140,6 @@ export interface CapabilityChangedEvent {
     readonly error?: string;
     readonly note?: string;
   };
-}
-
-export interface ExpertTalkChangedEvent {
-  readonly type: 'expert_talk.changed';
-  readonly status: ExpertTalkStatusWire;
 }
 
 export interface DiUnitChangedEvent {
@@ -244,11 +239,7 @@ export type AgentEvent =
   | BackgroundTaskStartedEvent
   | BackgroundTaskTerminatedEvent;
 
-export type Event = (AgentEvent | ExpertTalkChangedEvent) & {
-  agentId: string;
-  sessionId: string;
-  readonly time?: number;
-};
+export type Event = AgentEvent & { agentId: string; sessionId: string; readonly time?: number };
 
 export const VOLATILE_EVENT_TYPES = [
   'assistant.delta',

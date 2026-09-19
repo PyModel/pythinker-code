@@ -37,8 +37,10 @@ export function startConfigChangedPublisher(core: Scope): ConfigChangedPublisher
   return {
     close: () => {
       closed = true;
-      if (timer !== undefined) clearTimeout(timer);
-      timer = undefined;
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
       pending.clear();
       subscription.dispose();
     },

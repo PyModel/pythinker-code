@@ -12,10 +12,9 @@ const providerClientShimPath = path.join(dtsRoot, 'provider-clients.d.ts');
 const tscBinPath = packageBinPath('typescript', 'bin/tsc');
 const apiExtractorBinPath = packageBinPath('@microsoft/api-extractor', 'bin/api-extractor');
 
-const packageDirs = new Set(['agent-core', 'agent-core-v2', 'pyaos', 'klient', 'kosong', 'node-sdk', 'oauth']);
+const packageDirs = new Set(['agent-core-v2', 'pyaos', 'klient', 'kosong', 'node-sdk', 'oauth']);
 const workspacePackages = new Map([
   ['@pymodel/agent-core-v2', 'agent-core-v2'],
-  ['@pymodel/agent-core', 'agent-core'],
   ['@pymodel/pyaos', 'pyaos'],
   ['@pymodel/pythinker-code-oauth', 'oauth'],
   ['@pymodel/klient', 'klient'],
@@ -107,7 +106,7 @@ async function rewriteWorkspaceSpecifiers() {
           `import { GoogleGenAI as GenAIClient } from '${providerClientSpecifier}';`,
         );
       const updated = providerClientText.replaceAll(
-        /(["'])(#\/[^"']+|@pymodel\/(?:agent-core-v2|agent-core|pyaos|pythinker-code-oauth|klient|kosong)(?:\/[^"']+)?)\1/g,
+        /(["'])(#\/[^"']+|@pymodel\/(?:agent-core-v2|pyaos|pythinker-code-oauth|klient|kosong)(?:\/[^"']+)?)\1/g,
         (_match, quote, specifier) => {
           const resolved = resolveSpecifier({
             currentFile: file,
@@ -157,7 +156,7 @@ function resolveSpecifier({ currentFile, emittedFiles, packageDir, specifier }) 
   if (specifier.startsWith('#/')) {
     return resolvePackageSubpath({
       emittedFiles,
-      packageDir,
+      srcRoot: srcRootForFile(currentFile, packageDir),
       subpath: specifier.slice(2),
       originalSpecifier: specifier,
     });
@@ -170,10 +169,17 @@ function resolveSpecifier({ currentFile, emittedFiles, packageDir, specifier }) 
 
   return resolvePackageSubpath({
     emittedFiles,
-    packageDir: workspacePackage.packageDir,
+    srcRoot: path.join(dtsRoot, workspacePackage.packageDir, 'src'),
     subpath: workspacePackage.subpath,
     originalSpecifier: specifier,
   });
+}
+
+function srcRootForFile(currentFile, packageDir) {
+  const srcRoot = path.join(dtsRoot, packageDir, 'src');
+  const humanRoot = path.join(srcRoot, 'human');
+  const rel = path.relative(humanRoot, currentFile);
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel) ? humanRoot : srcRoot;
 }
 
 function workspacePackageForSpecifier(specifier) {
@@ -191,8 +197,7 @@ function workspacePackageForSpecifier(specifier) {
   return undefined;
 }
 
-function resolvePackageSubpath({ emittedFiles, packageDir, subpath, originalSpecifier }) {
-  const srcRoot = path.join(dtsRoot, packageDir, 'src');
+function resolvePackageSubpath({ emittedFiles, srcRoot, subpath, originalSpecifier }) {
   const directFile = path.resolve(srcRoot, `${subpath}.d.ts`);
   if (emittedFiles.has(directFile) || existsSync(directFile)) {
     return directFile;

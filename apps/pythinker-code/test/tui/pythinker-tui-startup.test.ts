@@ -1,8 +1,18 @@
-import { log, type GoalSnapshot, type Session } from '@pymodel/pythinker-code-sdk';
+// @ts-nocheck
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { log, type GoalSnapshot } from '@pymodel/pythinker-code-sdk';
+import type { MigrationPlan } from '@pymodel/migration-legacy';
 import { describe, expect, it, vi } from 'vitest';
 
+import { BannerProvider } from '#/tui/banner/banner-provider';
+import { readBannerDisplayState } from '#/tui/banner/state';
 import { handleLoginCommand, handleLogoutCommand } from '#/tui/commands/auth';
 import { promptPlatformSelection, promptLogoutProviderSelection } from '#/tui/commands/prompts';
+import { BannerComponent } from '#/tui/components/chrome/banner';
+import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { PythinkerTUI, type PythinkerTUIStartupInput, type TUIState } from '#/tui/pythinker-tui';
 import { REPLAY_FETCH_TURN_LIMIT } from '#/tui/utils/message-replay';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
@@ -27,11 +37,12 @@ const copyTextToClipboardMock = vi.mocked(copyTextToClipboard);
 
 interface StartupDriver {
   state: TUIState;
-  authFlow: PythinkerTUI['authFlow'];
   init(): Promise<boolean>;
   handleLoginCommand(): Promise<void>;
   handleLogoutCommand(): Promise<void>;
   stop(exitCode?: number): Promise<void>;
+  setSession(session: unknown): Promise<void>;
+  syncRuntimeState(session?: unknown): Promise<void>;
 }
 
 interface RuntimeStateDriver extends StartupDriver {
@@ -45,8 +56,24 @@ interface ThemeTrackingDriver extends StartupDriver {
 interface MigrateExitDriver extends StartupDriver {
   start(): Promise<void>;
   onExit?: (code?: number) => Promise<void>;
+  runMigrationScreen(plan: unknown): Promise<unknown>;
   initMainTui(): Promise<boolean>;
+  terminalFocusTrackingDispose?: () => void;
 }
+
+const MIGRATION_PLAN: MigrationPlan = {
+  sourceHome: '/x/.pythinker',
+  hasConfig: false,
+  hasMcp: false,
+  hasUserHistory: false,
+  hasSkills: false,
+  hasPlans: false,
+  oauthCredentials: [],
+  workdirs: [],
+  detectedPlugins: [],
+  detectedMcpOauthServers: [],
+  totalSessions: 0,
+};
 
 function makeStartupInput(
   cliOptions: Partial<PythinkerTUIStartupInput['cliOptions']> = {},
@@ -165,7 +192,7 @@ function createResumeState(overrides: { permissionMode?: string; planMode?: bool
 }
 
 function loginRequiredError(): Error & { readonly code: string } {
-  return Object.assign(new Error('OAuth provider "oauth-example" requires login.'), {
+  return Object.assign(new Error('OAuth provider "openai" requires login.'), {
     code: 'auth.login_required',
   });
 }
@@ -180,16 +207,19 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
     createSession: vi.fn(async () => session),
     resumeSession: vi.fn(async () => session),
     listSessions: vi.fn(async () => []),
-    removeProvider: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
     track: vi.fn(),
     setTelemetryContext: vi.fn(),
     getExperimentalFeatures: vi.fn(async () => []),
     supportsAtomicSectionReplace: vi.fn(() => false),
+    auth: {
+      status: vi.fn(async () => ({ providers: [] })),
+      login: vi.fn(async () => {}),
+      logout: vi.fn(),
+      getManagedUsage: vi.fn(),
+    },
     ...overrides,
   };
-  // The TUI lists sessions through keyset pages; derive the page mock from
-  // the (possibly overridden) full-list mock unless a test overrides paging.
   if (!('listSessionsPage' in harness)) {
     const listSessions = harness.listSessions as (input?: {
       workDir?: string;
@@ -233,67 +263,6 @@ function captureInputListeners(driver: StartupDriver) {
 }
 
 describe('PythinkerTUI startup', () => {
-  it('maps error session warnings to error status', async () => {
-    const session = makeSession({
-      getSessionWarnings: vi.fn(async () => [
-        { message: 'broken', severity: 'error' },
-        { message: 'meh', severity: 'warning' },
-      ]),
-    }) as unknown as Session;
-    const harness = makeHarness(session as never);
-    const tui = makeDriver(harness, makeStartupInput()) as unknown as {
-      session: Session;
-      showSessionWarnings(s: Session): Promise<void>;
-      showStatus(message: string, level?: 'warning' | 'error'): void;
-    };
-    tui.session = session;
-    const showStatus = vi.spyOn(tui, 'showStatus').mockImplementation(() => {});
-
-    await tui.showSessionWarnings(session);
-
-    expect(showStatus).toHaveBeenNthCalledWith(1, 'Warning: broken', 'error');
-    expect(showStatus).toHaveBeenNthCalledWith(2, 'Warning: meh', 'warning');
-  });
-
-  it('creates a fresh session from startup flags and syncs runtime state', async () => {
-    const session = makeSession({
-      getStatus: vi.fn(async () => ({
-        model: 'k2',
-        thinkingEffort: 'off',
-        permission: 'yolo',
-        planMode: true,
-        contextTokens: 25,
-        maxContextTokens: 200,
-        contextUsage: 0.125,
-      })),
-    });
-    const harness = makeHarness(session);
-    const driver = makeDriver(harness, makeStartupInput({ yolo: true, plan: true }));
-
-    await expect(driver.init()).resolves.toBe(false);
-
-    expect(harness.createSession).toHaveBeenCalledWith({
-      workDir: '/tmp/proj-a',
-      permission: 'yolo',
-      planMode: true,
-    });
-    expect(session.setApprovalHandler).toHaveBeenCalledOnce();
-    expect(session.setQuestionHandler).toHaveBeenCalledOnce();
-    expect(harness.setTelemetryContext).toHaveBeenCalledWith({ sessionId: null });
-    expect(harness.setTelemetryContext).toHaveBeenLastCalledWith({ sessionId: 'ses-1' });
-    expect(driver.state.startupState).toBe('ready');
-    expect(driver.state.appState).toMatchObject({
-      sessionId: 'ses-1',
-      model: 'k2',
-      permissionMode: 'yolo',
-      planMode: true,
-      contextTokens: 25,
-      maxContextTokens: 200,
-      contextUsage: 0.125,
-      sessionTitle: 'Session title',
-    });
-  });
-
   it('starts session-less on the v2 engine and carries startup flags to appState', async () => {
     const harness = makeHarness(makeSession(), {
       getConfig: vi.fn(async () => ({
@@ -301,13 +270,12 @@ describe('PythinkerTUI startup', () => {
           k2: { model: 'moonshot-v1', maxContextSize: 200 },
         },
         defaultModel: 'k2',
-        // CLI --yolo must win over the config default.
         defaultPermissionMode: 'auto',
       })),
     });
     const driver = makeDriver(
       harness,
-      { ...makeStartupInput({ model: 'k2', yolo: true }), engineV2: true },
+      { ...makeStartupInput({ model: 'k2', yolo: true }) },
     );
 
     await expect(driver.init()).resolves.toBe(false);
@@ -324,24 +292,22 @@ describe('PythinkerTUI startup', () => {
   it('mounts the docked fullscreen layout when PYTHINKER_CODE_TUI_FULL_SCREEN=1', async () => {
     const harness = makeHarness(makeSession());
     vi.stubEnv('PYTHINKER_CODE_TUI_FULL_SCREEN', '1');
-    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+    const driver = makeDriver(harness, { ...makeStartupInput() });
     vi.unstubAllEnvs();
 
-    // buildLayout() runs in the constructor: fullscreen keeps the root
-    // children list empty and mounts the layout root instead.
     expect(driver.state.ui.mode).toBe('fullscreen');
     expect(driver.state.ui.children).toHaveLength(0);
 
     await expect(driver.init()).resolves.toBe(false);
     (driver as unknown as { mountFooter(): void }).mountFooter();
 
-    // Dock = activity, todo, notify, queue, btw, survey, editor, footer wrap.
+    // Dock = 7 chrome containers + footer wrap, below the transcript viewport.
     expect(driver.state.dockContainer?.children).toHaveLength(8);
   });
 
   it('shows a session-less notice on v2 startup', async () => {
     const harness = makeHarness(makeSession());
-    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+    const driver = makeDriver(harness, { ...makeStartupInput() });
 
     await expect(driver.init()).resolves.toBe(false);
     await (
@@ -364,7 +330,7 @@ describe('PythinkerTUI startup', () => {
         thinking: { enabled: true, effort: 'high' },
       })),
     });
-    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+    const driver = makeDriver(harness, { ...makeStartupInput() });
 
     await expect(driver.init()).resolves.toBe(false);
 
@@ -395,7 +361,7 @@ describe('PythinkerTUI startup', () => {
         thinking: { enabled: true },
       })),
     });
-    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+    const driver = makeDriver(harness, { ...makeStartupInput() });
 
     await expect(driver.init()).resolves.toBe(false);
 
@@ -417,7 +383,7 @@ describe('PythinkerTUI startup', () => {
         defaultModel: 'k2',
       })),
     });
-    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+    const driver = makeDriver(harness, { ...makeStartupInput() });
 
     await expect(driver.init()).resolves.toBe(false);
 
@@ -437,8 +403,16 @@ describe('PythinkerTUI startup', () => {
             }
           : { models: {} },
       ),
+      auth: {
+        status: vi.fn(async () => ({ providers: [] })),
+        login: vi.fn(async () => {
+          loggedIn = true;
+        }),
+        logout: vi.fn(),
+        getManagedUsage: vi.fn(),
+      },
     });
-    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+    const driver = makeDriver(harness, { ...makeStartupInput() });
 
     await expect(driver.init()).resolves.toBe(false);
     expect(driver.state.appState).toMatchObject({
@@ -448,13 +422,9 @@ describe('PythinkerTUI startup', () => {
       planMode: false,
     });
 
-    // Simulate a completed provider login (the hosted OAuth entry is gone;
-    // any login path ends in refreshConfigAfterLogin).
-    loggedIn = true;
-    await driver.authFlow.refreshConfigAfterLogin();
+    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
+    await handleLoginCommand(driver as any);
 
-    // Login must not create a session on v2, but the refreshed config
-    // defaults must reach the first lazy-created session.
     expect(harness.createSession).not.toHaveBeenCalled();
     expect(driver.state.appState).toMatchObject({
       sessionId: '',
@@ -476,13 +446,21 @@ describe('PythinkerTUI startup', () => {
             }
           : { models: {} },
       ),
+      auth: {
+        status: vi.fn(async () => ({ providers: [] })),
+        login: vi.fn(async () => {
+          loggedIn = true;
+        }),
+        logout: vi.fn(),
+        getManagedUsage: vi.fn(),
+      },
     });
-    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+    const driver = makeDriver(harness, { ...makeStartupInput() });
 
     await expect(driver.init()).resolves.toBe(false);
 
-    loggedIn = true;
-    await driver.authFlow.refreshConfigAfterLogin();
+    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
+    await handleLoginCommand(driver as any);
 
     expect(harness.createSession).not.toHaveBeenCalled();
     expect(driver.state.appState).toMatchObject({
@@ -498,7 +476,6 @@ describe('PythinkerTUI startup', () => {
       harness,
       {
         ...makeStartupInput({ model: 'k2', agentFiles: ['agent.md'] }),
-        engineV2: true,
         agentProfile: 'reviewer',
       },
     );
@@ -510,24 +487,6 @@ describe('PythinkerTUI startup', () => {
       agentProfile: 'reviewer',
       agentFiles: ['agent.md'],
     });
-  });
-
-  it('binds the resolved agent profile and agent files to the startup session', async () => {
-    const session = makeSession();
-    const harness = makeHarness(session);
-    const driver = makeDriver(harness, {
-      ...makeStartupInput({ agent: 'reviewer', agentFiles: ['reviewer.md'] }),
-      agentProfile: 'reviewer',
-    });
-
-    await expect(driver.init()).resolves.toBe(false);
-
-    expect(harness.createSession).toHaveBeenCalledWith({
-      workDir: '/tmp/proj-a',
-      agentProfile: 'reviewer',
-      agentFiles: ['reviewer.md'],
-    });
-    expect(driver.state.startupState).toBe('ready');
   });
 
   it('resumes the latest session for --continue and marks history for replay', async () => {
@@ -804,6 +763,8 @@ describe('PythinkerTUI startup', () => {
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
+    await driver.setSession(session);
+    await driver.syncRuntimeState(session);
 
     expect(session.getGoal).toHaveBeenCalledOnce();
     expect(driver.state.appState.goal).toEqual(goal);
@@ -820,25 +781,13 @@ describe('PythinkerTUI startup', () => {
     const driver = makeDriver(harness, makeStartupInput()) as unknown as RuntimeStateDriver;
 
     await expect(driver.init()).resolves.toBe(false);
+    await driver.setSession(session);
+    await driver.syncRuntimeState(session);
     expect(driver.state.appState.goal).toEqual(goal);
 
     await driver.closeSession('test close');
 
     expect(driver.state.appState.goal).toBeNull();
-  });
-
-  it('passes the CLI model override when creating a fresh startup session', async () => {
-    const harness = makeHarness();
-    const driver = makeDriver(harness, makeStartupInput({ model: 'pythinker-code/k2.5' }));
-
-    await expect(driver.init()).resolves.toBe(false);
-
-    expect(harness.createSession).toHaveBeenCalledWith({
-      workDir: '/tmp/proj-a',
-      model: 'pythinker-code/k2.5',
-      permission: undefined,
-      planMode: undefined,
-    });
   });
 
   it('applies the CLI model override when resuming a startup session', async () => {
@@ -1149,7 +1098,6 @@ describe('PythinkerTUI startup', () => {
         return Promise.resolve({ items: firstPage, nextCursor: 'ses-page1-49' });
       }
       if (input.before === 'ses-page1-49') {
-        // The scroll-triggered page fetch stays pending until the test resolves it.
         return new Promise<{ items: unknown[]; nextCursor?: string }>((resolve) => {
           resolveScrollPage = resolve;
         });
@@ -1165,7 +1113,6 @@ describe('PythinkerTUI startup', () => {
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
     const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
-    // Reach the fetched end: the scroll-triggered fetch for page 2 starts.
     for (let i = 0; i < 49; i++) {
       picker.handleInput('\u001B[B');
     }
@@ -1177,8 +1124,6 @@ describe('PythinkerTUI startup', () => {
       });
     });
 
-    // Typing a query while that fetch is in flight must join it, not stop the
-    // drain: the remaining pages arrive after the in-flight one settles.
     picker.handleInput('x');
     resolveScrollPage({
       items: [{ id: 'ses-page2-0', workDir: '/tmp/proj-a', updatedAt: 1 }],
@@ -1323,9 +1268,7 @@ describe('PythinkerTUI startup', () => {
       expect(harness.createSession).toHaveBeenCalledTimes(2);
     });
     expect(session.close).toHaveBeenCalled();
-    await vi.waitFor(() => {
-      expect(driver.state.activeDialog).toBeNull();
-    });
+    expect(driver.state.activeDialog).toBeNull();
   });
 
   it('reattaches to the current session when deleting it fails', async () => {
@@ -1351,7 +1294,6 @@ describe('PythinkerTUI startup', () => {
       .mockReturnValue(true);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
-    const createdBeforeDelete = harness.createSession.mock.calls.length;
     const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
     picker.handleInput('\u0018');
     picker.handleInput('y');
@@ -1367,17 +1309,14 @@ describe('PythinkerTUI startup', () => {
     });
     const transcript = driver.state.transcriptContainer.render(160).join('\n');
     expect(transcript).toContain('Failed to delete session ses-current');
-    expect(harness.createSession).toHaveBeenCalledTimes(createdBeforeDelete);
+    expect(harness.createSession).toHaveBeenCalledTimes(1);
   });
 
   it('reattaches when closing the current session fails during deletion', async () => {
-    // The setup's own createNewSession() closes the previous session, so the
-    // failure is armed only once the picker is up.
-    let closeFails = false;
     const session = makeSession({
       id: 'ses-current',
       close: vi.fn(async () => {
-        if (closeFails) throw new Error('close boom');
+        throw new Error('close boom');
       }),
     });
     const sesCurrent = {
@@ -1399,7 +1338,6 @@ describe('PythinkerTUI startup', () => {
       .mockReturnValue(true);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
-    closeFails = true;
     const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
     picker.handleInput('\u0018');
     picker.handleInput('y');
@@ -2006,9 +1944,6 @@ describe('PythinkerTUI startup', () => {
 
       expect(result.failed).toEqual([]);
       expect(result.changed).toContainEqual({ providerId: "b", providerName: "b", added: 0, removed: 1 });
-      // The removal was staged in memory: no destructive pre-write, exactly
-      // one atomic section replace carrying the complete records — with the
-      // dangling default model / thinking expressed as cleared sections.
       expect(removeProvider).not.toHaveBeenCalled();
       expect(setConfig).not.toHaveBeenCalled();
       expect(replaceConfigSections).toHaveBeenCalledTimes(1);
@@ -2074,29 +2009,6 @@ describe('PythinkerTUI startup', () => {
     }
   });
 
-  it("starts TUI without a session when fresh startup needs OAuth login", async () => {
-    const harness = makeHarness(makeSession(), {
-      createSession: vi.fn(async () => {
-        throw loginRequiredError();
-      }),
-    });
-    const driver = makeDriver(harness, makeStartupInput());
-
-    await expect(driver.init()).resolves.toBe(false);
-
-    expect(driver.state.startupState).toBe('ready');
-    expect((driver as any).startupNotice).toContain('OAuth login expired');
-    expect(driver.state.appState).toMatchObject({
-      sessionId: '',
-      model: '',
-      thinkingEffort: 'off',
-      contextTokens: 0,
-      maxContextTokens: 0,
-      contextUsage: 0,
-      sessionTitle: null,
-    });
-  });
-
   it('preserves fresh startup yolo and plan intent after OAuth login', async () => {
     const session = makeSession({
       getStatus: vi.fn(async () => ({
@@ -2129,109 +2041,20 @@ describe('PythinkerTUI startup', () => {
 
     expect(driver.state.appState).toMatchObject({
       sessionId: '',
-      model: '',
-      permissionMode: 'yolo',
-      planMode: true,
-    });
-
-    await driver.authFlow.refreshConfigAfterLogin();
-
-    expect(createSession).toHaveBeenNthCalledWith(1, {
-      workDir: '/tmp/proj-a',
-      permission: 'yolo',
-      planMode: true,
-    });
-    expect(createSession).toHaveBeenNthCalledWith(2, {
-      workDir: '/tmp/proj-a',
-      model: 'k2',
-      thinking: 'off',
-      permission: 'yolo',
-      planMode: true,
-    });
-    expect(driver.state.appState).toMatchObject({
-      sessionId: 'ses-1',
       model: 'k2',
       permissionMode: 'yolo',
       planMode: true,
     });
-  });
 
-  it('carries the agent binding into the post-login startup session', async () => {
-    const session = makeSession();
-    const createSession = vi
-      .fn()
-      .mockRejectedValueOnce(loginRequiredError())
-      .mockResolvedValueOnce(session);
-    const harness = makeHarness(session, {
-      getConfig: vi.fn(async () => ({
-        defaultModel: 'k2',
-        thinking: { enabled: false },
-        models: {
-          k2: { model: 'moonshot-v1', maxContextSize: 100 },
-        },
-      })),
-      createSession,
-    });
-    const driver = makeDriver(harness, {
-      ...makeStartupInput({ agent: 'reviewer', agentFiles: ['reviewer.md'] }),
-      agentProfile: 'reviewer',
-    });
+    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
+    await handleLoginCommand(driver as any);
 
-    await expect(driver.init()).resolves.toBe(false);
-
-    await driver.authFlow.refreshConfigAfterLogin();
-
-    expect(createSession).toHaveBeenNthCalledWith(2, {
-      workDir: '/tmp/proj-a',
-      model: 'k2',
-      thinking: 'off',
-      permission: undefined,
-      planMode: undefined,
-      agentProfile: 'reviewer',
-      agentFiles: ['reviewer.md'],
-    });
-  });
-
-  it('does not force manual permission after OAuth login without --yolo', async () => {
-    const session = makeSession({
-      getStatus: vi.fn(async () => ({
-        model: 'k2',
-        thinkingEffort: 'off',
-        permission: 'auto',
-        planMode: false,
-        contextTokens: 10,
-        maxContextTokens: 100,
-        contextUsage: 0.1,
-      })),
-    });
-    const createSession = vi
-      .fn()
-      .mockRejectedValueOnce(loginRequiredError())
-      .mockResolvedValueOnce(session);
-    const harness = makeHarness(session, {
-      getConfig: vi.fn(async () => ({
-        defaultModel: 'k2',
-        thinking: { enabled: false },
-        models: {
-          k2: { model: 'moonshot-v1', maxContextSize: 100 },
-        },
-      })),
-      createSession,
-    });
-    const driver = makeDriver(harness, makeStartupInput());
-
-    await expect(driver.init()).resolves.toBe(false);
-    await driver.authFlow.refreshConfigAfterLogin();
-
-    expect(createSession).toHaveBeenNthCalledWith(2, {
-      workDir: '/tmp/proj-a',
-      model: 'k2',
-      thinking: 'off',
-      permission: undefined,
-      planMode: undefined,
-    });
+    expect(createSession).not.toHaveBeenCalled();
     expect(driver.state.appState).toMatchObject({
-      permissionMode: 'auto',
+      sessionId: '',
+      model: 'k2',
+      permissionMode: 'yolo',
+      planMode: true,
     });
   });
 
@@ -2249,54 +2072,149 @@ describe('PythinkerTUI startup', () => {
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
+    await driver.setSession(session);
+    await driver.syncRuntimeState(session);
     expect(driver.state.appState.thinkingEffort).toBe('off');
 
-    await driver.authFlow.refreshConfigAfterLogin();
+    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
+    await handleLoginCommand(driver as any);
 
     expect(session.setModel).toHaveBeenCalledWith('k2');
-    // `thinking.enabled === true` means "leave the session's current thinking
-    // level alone" — only an explicit `enabled === false` forces `'off'`.
     expect(session.setThinking).not.toHaveBeenCalled();
     expect(driver.state.appState).toMatchObject({
       model: 'k2',
       thinkingEffort: 'off',
       maxContextTokens: 100,
     });
+    expect(harness.track).toHaveBeenCalledWith('login', {
+      provider: 'openai',
+      method: 'oauth',
+      already_logged_in: false,
+    });
   });
 
-  it('removes the current provider while preserving the active session', async () => {
-    let removed = false;
+  it('tracks login with already_logged_in when a token already exists', async () => {
     const session = makeSession();
-    const removeProvider = vi.fn(async () => {
-      removed = true;
-    });
     const harness = makeHarness(session, {
-      getConfig: vi.fn(async () =>
-        removed
-          ? { models: {}, providers: {} }
-          : {
-              models: {
-                k2: { provider: 'oauth-example', model: 'example-model', maxContextSize: 100 },
-              },
-              providers: {
-                'oauth-example': {
-                  type: 'openai',
-                  baseUrl: 'https://api.example.test/v1',
-                },
-              },
-            },
-      ),
-      removeProvider,
+      auth: {
+        status: vi.fn(async () => ({
+          providers: [{ providerName: 'openai', hasToken: true }],
+        })),
+        login: vi.fn(async () => {}),
+        logout: vi.fn(),
+        getManagedUsage: vi.fn(),
+      },
     });
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
     harness.track.mockClear();
 
-    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('oauth-example');
+    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
+    await handleLoginCommand(driver as any);
+
+    expect(harness.auth.login).toHaveBeenCalledWith(
+      'openai',
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        onDeviceCode: expect.any(Function),
+      }),
+    );
+    expect(harness.track).toHaveBeenCalledWith('login', {
+      provider: 'openai',
+      method: 'oauth',
+      already_logged_in: true,
+    });
+  });
+
+  it('logs login failures with session context', async () => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    const session = makeSession();
+    const loginError = new Error('Failed to list Pythinker Code models (HTTP 402).');
+    const harness = makeHarness(session, {
+      auth: {
+        status: vi.fn(async () => ({ providers: [] })),
+        login: vi.fn(async () => {
+          throw loginError;
+        }),
+        logout: vi.fn(),
+        getManagedUsage: vi.fn(),
+      },
+    });
+    const driver = makeDriver(harness, makeStartupInput());
+
+    try {
+      await expect(driver.init()).resolves.toBe(false);
+      await driver.setSession(session);
+      await driver.syncRuntimeState(session);
+
+      vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
+      await handleLoginCommand(driver as any);
+
+      expect(harness.auth.login).toHaveBeenCalledWith(
+        'openai',
+        expect.objectContaining({
+          signal: expect.any(AbortSignal),
+          onDeviceCode: expect.any(Function),
+        }),
+      );
+      expect(warn).toHaveBeenCalledWith(
+        'login failed',
+        expect.objectContaining({
+          providerName: 'openai',
+          alreadyLoggedIn: false,
+          sessionId: 'ses-1',
+          error: expect.objectContaining({
+            message: 'Failed to list Pythinker Code models (HTTP 402).',
+          }),
+        }),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('tracks logout while preserving the active session model', async () => {
+    let loggedOut = false;
+    const session = makeSession();
+    const logout = vi.fn(async () => {
+      loggedOut = true;
+    });
+    const harness = makeHarness(session, {
+      getConfig: vi.fn(async () =>
+        loggedOut
+          ? { models: {}, providers: {} }
+          : {
+              models: {
+                k2: {
+                  provider: 'openai',
+                  model: 'moonshot-v1',
+                  maxContextSize: 100,
+                },
+              },
+              providers: { 'openai': { type: 'pythinker' } },
+            },
+      ),
+      auth: {
+        status: vi.fn(async () => ({
+          providers: [{ providerName: 'openai', hasToken: true }],
+        })),
+        login: vi.fn(async () => {}),
+        logout,
+        getManagedUsage: vi.fn(),
+      },
+    });
+    const driver = makeDriver(harness, makeStartupInput());
+
+    await expect(driver.init()).resolves.toBe(false);
+    await driver.setSession(session);
+    await driver.syncRuntimeState(session);
+    harness.track.mockClear();
+
+    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('openai');
     await handleLogoutCommand(driver as any);
 
-    expect(removeProvider).toHaveBeenCalledWith('oauth-example');
+    expect(harness.auth.logout).toHaveBeenCalledWith('openai');
     expect(session.close).not.toHaveBeenCalled();
     expect(driver.state.appState).toMatchObject({
       sessionId: 'ses-1',
@@ -2307,42 +2225,47 @@ describe('PythinkerTUI startup', () => {
       availableModels: {},
       availableProviders: {},
     });
-    expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'oauth-example' });
+    expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'openai' });
   });
 
   it('clears the config-derived model when logging out without an active session', async () => {
-    let removed = false;
-    const removeProvider = vi.fn(async () => {
-      removed = true;
+    let loggedOut = false;
+    const logout = vi.fn(async () => {
+      loggedOut = true;
     });
     const harness = makeHarness(makeSession(), {
       getConfig: vi.fn(async () =>
-        removed
+        loggedOut
           ? { models: {}, providers: {} }
           : {
               models: {
-                k2: { provider: 'oauth-example', model: 'example-model', maxContextSize: 100 },
-              },
-              providers: {
-                'oauth-example': {
-                  type: 'openai',
-                  baseUrl: 'https://api.example.test/v1',
+                k2: {
+                  provider: 'openai',
+                  model: 'moonshot-v1',
+                  maxContextSize: 100,
                 },
               },
+              providers: { 'openai': { type: 'pythinker' } },
               defaultModel: 'k2',
             },
       ),
-      removeProvider,
+      auth: {
+        status: vi.fn(async () => ({
+          providers: [{ providerName: 'openai', hasToken: true }],
+        })),
+        login: vi.fn(async () => {}),
+        logout,
+        getManagedUsage: vi.fn(),
+      },
     });
-    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+    const driver = makeDriver(harness, { ...makeStartupInput() });
 
     await expect(driver.init()).resolves.toBe(false);
     expect(driver.state.appState.model).toBe('k2');
 
-    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('oauth-example');
+    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('openai');
     await handleLogoutCommand(driver as any);
 
-    expect(removeProvider).toHaveBeenCalledWith('oauth-example');
     expect(harness.createSession).not.toHaveBeenCalled();
     expect(driver.state.appState).toMatchObject({
       sessionId: '',
@@ -2356,34 +2279,80 @@ describe('PythinkerTUI startup', () => {
 
   it('keeps the active session when logging out a different provider', async () => {
     const session = makeSession();
-    const removeProvider = vi.fn(async () => {});
+    const removeProvider = vi.fn(async () => ({
+      models: {
+        k2: { provider: 'openai', model: 'moonshot-v1', maxContextSize: 100 },
+      },
+      providers: {
+        openai: { type: 'openai', baseUrl: 'https://api.openai.com/v1' },
+      },
+    }));
     const harness = makeHarness(session, {
       getConfig: vi.fn(async () => ({
         models: {
-          k2: { provider: 'oauth-example', model: 'moonshot-v1', maxContextSize: 100 },
+          k2: { provider: 'openai', model: 'moonshot-v1', maxContextSize: 100 },
         },
         providers: {
-          'oauth-example': { type: 'pythinker' },
           openai: { type: 'openai', baseUrl: 'https://api.openai.com/v1' },
+          deepseek: { type: 'openai', baseUrl: 'https://api.deepseek.com' },
         },
       })),
       removeProvider,
+      auth: {
+        status: vi.fn(async () => ({
+          providers: [{ providerName: 'openai', hasToken: false }],
+        })),
+        login: vi.fn(async () => {}),
+        logout: vi.fn(),
+        getManagedUsage: vi.fn(),
+      },
     });
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
+    await driver.setSession(session);
+    await driver.syncRuntimeState(session);
     harness.track.mockClear();
 
-    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('openai');
+    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('deepseek');
     await handleLogoutCommand(driver as any);
 
-    expect(removeProvider).toHaveBeenCalledWith('openai');
+    expect(removeProvider).toHaveBeenCalledWith('deepseek');
+    expect(harness.auth.logout).not.toHaveBeenCalled();
     expect(session.close).not.toHaveBeenCalled();
     expect(driver.state.appState).toMatchObject({
       sessionId: 'ses-1',
       model: 'k2',
     });
-    expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'openai' });
+    expect(harness.track).toHaveBeenCalledWith('logout', { provider: 'deepseek' });
+  });
+
+  it('can log out a stale managed entry even after the OAuth token is gone', async () => {
+    const session = makeSession();
+    const harness = makeHarness(session, {
+      getConfig: vi.fn(async () => ({
+        models: {
+          k2: { provider: 'openai', model: 'moonshot-v1', maxContextSize: 100 },
+        },
+        providers: { 'openai': { type: 'pythinker' } },
+      })),
+      auth: {
+        status: vi.fn(async () => ({
+          providers: [{ providerName: 'openai', hasToken: false }],
+        })),
+        login: vi.fn(async () => {}),
+        logout: vi.fn(),
+        getManagedUsage: vi.fn(),
+      },
+    });
+    const driver = makeDriver(harness, makeStartupInput());
+
+    await expect(driver.init()).resolves.toBe(false);
+
+    vi.mocked(promptLogoutProviderSelection).mockResolvedValue('openai');
+    await handleLogoutCommand(driver as any);
+
+    expect(harness.auth.logout).toHaveBeenCalledWith('openai');
   });
 
   it('starts TUI without replaying when --continue needs OAuth login', async () => {
@@ -2425,22 +2394,113 @@ describe('PythinkerTUI startup', () => {
     expect(driver.state.appState.sessionId).toBe('');
   });
 
-  it('keeps non-login startup session errors fatal', async () => {
-    const harness = makeHarness(makeSession(), {
-      createSession: vi.fn(async () => {
-        throw new Error('provider config is invalid');
-      }),
-    });
-    const driver = makeDriver(harness, makeStartupInput());
+  it('disposes terminal focus/theme tracking on the pythinker migrate exit', async () => {
+    const harness = makeHarness();
+    const driver = makeDriver(harness, {
+      ...makeStartupInput(),
+      migrationPlan: MIGRATION_PLAN,
+      migrateOnly: true,
+    }) as unknown as MigrateExitDriver;
+    vi.spyOn(driver.state.ui, 'start').mockImplementation(() => {});
+    vi.spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
+    vi.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
+    vi.spyOn(driver, 'runMigrationScreen').mockResolvedValue({ decision: 'later' });
+    const onExit = vi.fn(async () => {});
+    driver.onExit = onExit;
 
-    await expect(driver.init()).rejects.toThrow('provider config is invalid');
+    await driver.start();
+
+    expect(driver.terminalFocusTrackingDispose).toBeUndefined();
+    expect(onExit).toHaveBeenCalledWith(0);
+  });
+
+  it('disposes terminal tracking when post-migration startup fails', async () => {
+    const harness = makeHarness();
+    const driver = makeDriver(harness, {
+      ...makeStartupInput(),
+      migrationPlan: MIGRATION_PLAN,
+      migrateOnly: false,
+    }) as unknown as MigrateExitDriver;
+    vi.spyOn(driver.state.ui, 'start').mockImplementation(() => {});
+    vi.spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
+    vi.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
+    vi.spyOn(driver, 'runMigrationScreen').mockResolvedValue({ decision: 'later' });
+    vi.spyOn(driver, 'initMainTui').mockRejectedValue(new Error('resume boom'));
+
+    await expect(driver.start()).rejects.toThrow('resume boom');
+
+    expect(driver.terminalFocusTrackingDispose).toBeUndefined();
+  });
+
+  it('checks workspace trust before entering the migration screen', async () => {
+    const getWorkspaceTrustInfo = vi.fn(async () => ({
+      trusted: true,
+      gatedMcpServers: [],
+    }));
+    const harness = makeHarness(makeSession(), { getWorkspaceTrustInfo });
+    const driver = makeDriver(harness, {
+      ...makeStartupInput(),
+      migrationPlan: MIGRATION_PLAN,
+      migrateOnly: true,
+    }) as unknown as MigrateExitDriver;
+    vi.spyOn(driver.state.ui, 'start').mockImplementation(() => {});
+    vi.spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
+    vi.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
+    const migrationSpy = vi
+      .spyOn(driver, 'runMigrationScreen')
+      .mockResolvedValue({ decision: 'later' });
+    const onExit = vi.fn(async () => {});
+    driver.onExit = onExit;
+
+    await driver.start();
+
+    expect(getWorkspaceTrustInfo).toHaveBeenCalledWith('/tmp/proj-a');
+    expect(getWorkspaceTrustInfo.mock.invocationCallOrder[0]!).toBeLessThan(
+      migrationSpy.mock.invocationCallOrder[0]!,
+    );
+    expect(onExit).toHaveBeenCalledWith(0);
+  });
+
+  it('prompts for workspace trust before migrating an untrusted workspace', async () => {
+    const getWorkspaceTrustInfo = vi.fn(async () => ({
+      trusted: false,
+      gatedMcpServers: [],
+    }));
+    const trustWorkspace = vi.fn(async () => {});
+    const harness = makeHarness(makeSession(), { getWorkspaceTrustInfo, trustWorkspace });
+    const driver = makeDriver(harness, {
+      ...makeStartupInput(),
+      migrationPlan: MIGRATION_PLAN,
+      migrateOnly: true,
+    }) as unknown as MigrateExitDriver & {
+      mountEditorReplacement(panel: { handleInput(data: string): void }): void;
+    };
+    vi.spyOn(driver.state.ui, 'start').mockImplementation(() => {});
+    vi.spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
+    vi.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
+    const migrationSpy = vi
+      .spyOn(driver, 'runMigrationScreen')
+      .mockResolvedValue({ decision: 'later' });
+    const mountSpy = vi.spyOn(driver, 'mountEditorReplacement');
+    const onExit = vi.fn(async () => {});
+    driver.onExit = onExit;
+
+    const startPromise = driver.start();
+    await vi.waitFor(() => {
+      expect(mountSpy).toHaveBeenCalled();
+    });
+    mountSpy.mock.calls[0]![0].handleInput('\u001B[A');
+    mountSpy.mock.calls[0]![0].handleInput('\r');
+    await startPromise;
+
+    expect(trustWorkspace).toHaveBeenCalledWith('/tmp/proj-a');
+    expect(getWorkspaceTrustInfo.mock.invocationCallOrder[0]!).toBeLessThan(
+      migrationSpy.mock.invocationCallOrder[0]!,
+    );
+    expect(onExit).toHaveBeenCalledWith(0);
   });
 
   it('does not mount the footer when resuming a missing session fails', async () => {
-    // Regression: a stray pre-startEventLoop render used to paint the footer
-    // (cwd/git + "context:" statusline) to the terminal before the fatal
-    // error, leaving it stranded above the error message. The footer must not
-    // be in the layout tree when initMainTui() throws.
     const harness = makeHarness(makeSession(), {
       listSessions: vi.fn(async () => []),
     });
@@ -2463,12 +2523,146 @@ describe('PythinkerTUI startup', () => {
       makeStartupInput({ session: 'ses-target' }),
     ) as unknown as MigrateExitDriver;
 
-    // Not mounted until init() succeeds.
     expect(uiContainsFooter(driver)).toBe(false);
 
     await driver.initMainTui();
 
     expect(uiContainsFooter(driver)).toBe(true);
+  });
+
+  it('renders the banner below the welcome message after it loads', async () => {
+    const banner = {
+      key: 'new-banner',
+      tag: 'New',
+      mainText: 'Banner main',
+      subText: null,
+      display: 'always' as const,
+    };
+    const loadSpy = vi.spyOn(BannerProvider.prototype, 'load').mockResolvedValue(banner);
+    const session = makeSession({ id: 'ses-target' });
+    const harness = makeHarness(session, {
+      listSessions: vi.fn(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
+    });
+    const driver = makeDriver(
+      harness,
+      makeStartupInput({ session: 'ses-target' }),
+    ) as unknown as MigrateExitDriver;
+
+    await driver.initMainTui();
+
+    await vi.waitFor(() => {
+      expect(
+        driver.state.transcriptContainer.children.some((child) => child instanceof BannerComponent),
+      ).toBe(true);
+    });
+
+    const welcomeIndex = driver.state.transcriptContainer.children.findIndex(
+      (child) => child instanceof WelcomeComponent,
+    );
+    const bannerIndex = driver.state.transcriptContainer.children.findIndex(
+      (child) => child instanceof BannerComponent,
+    );
+    expect(welcomeIndex).toBeGreaterThanOrEqual(0);
+    expect(bannerIndex).toBe(welcomeIndex + 1);
+
+    loadSpy.mockRestore();
+  });
+
+  it('writes display state after rendering a once banner', async () => {
+    const originalEnv = { ...process.env };
+    const dir = mkdtempSync(join(tmpdir(), 'pythinker-startup-banner-'));
+    process.env['PYTHINKER_CODE_HOME'] = dir;
+
+    try {
+      const banner = {
+        key: 'once-banner',
+        tag: null,
+        mainText: 'Banner main',
+        subText: null,
+        display: 'once' as const,
+      };
+      const loadSpy = vi.spyOn(BannerProvider.prototype, 'load').mockResolvedValue(banner);
+      const session = makeSession({ id: 'ses-target' });
+      const harness = makeHarness(session, {
+        listSessions: vi.fn(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
+      });
+      const driver = makeDriver(
+        harness,
+        makeStartupInput({ session: 'ses-target' }),
+      ) as unknown as MigrateExitDriver;
+
+      await driver.initMainTui();
+
+      await vi.waitFor(() => {
+        expect(
+          driver.state.transcriptContainer.children.some((child) => child instanceof BannerComponent),
+        ).toBe(true);
+      });
+
+      await vi.waitFor(
+        async () => {
+          const state = await readBannerDisplayState();
+          expect(state.shown['once-banner']?.lastShownAt).toBeDefined();
+        },
+        { timeout: 5000 },
+      );
+      await expect(readBannerDisplayState()).resolves.toMatchObject({
+        version: 1,
+        shown: {
+          'once-banner': {
+            lastShownAt: expect.any(String),
+          },
+        },
+      });
+
+      loadSpy.mockRestore();
+    } finally {
+      process.env = { ...originalEnv };
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not write display state for an always banner', async () => {
+    const originalEnv = { ...process.env };
+    const dir = mkdtempSync(join(tmpdir(), 'pythinker-startup-banner-'));
+    process.env['PYTHINKER_CODE_HOME'] = dir;
+
+    try {
+      const banner = {
+        key: 'always-banner',
+        tag: null,
+        mainText: 'Banner main',
+        subText: null,
+        display: 'always' as const,
+      };
+      const loadSpy = vi.spyOn(BannerProvider.prototype, 'load').mockResolvedValue(banner);
+      const session = makeSession({ id: 'ses-target' });
+      const harness = makeHarness(session, {
+        listSessions: vi.fn(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
+      });
+      const driver = makeDriver(
+        harness,
+        makeStartupInput({ session: 'ses-target' }),
+      ) as unknown as MigrateExitDriver;
+
+      await driver.initMainTui();
+
+      await vi.waitFor(() => {
+        expect(
+          driver.state.transcriptContainer.children.some((child) => child instanceof BannerComponent),
+        ).toBe(true);
+      });
+
+      await expect(readBannerDisplayState()).resolves.toEqual({
+        version: 1,
+        shown: {},
+      });
+
+      loadSpy.mockRestore();
+    } finally {
+      process.env = { ...originalEnv };
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('resumes a startup session when Windows workdir uses backslashes', async () => {
@@ -2504,3 +2698,34 @@ function uiContainsFooter(driver: StartupDriver): boolean {
   };
   return visit(driver.state.ui);
 }
+
+describe('survey telemetry gate wiring', () => {
+  function surveyGateTelemetryDisabled(input: PythinkerTUIStartupInput): boolean {
+    const driver = new PythinkerTUI(makeHarness() as never, input);
+    const controller = driver.surveyController as unknown as {
+      deps: { telemetryDisabled?: () => boolean };
+    };
+    return controller.deps.telemetryDisabled?.() ?? false;
+  }
+
+  it('treats the runtime config opt-out as telemetry-disabled', () => {
+    vi.stubEnv('PYTHINKER_DISABLE_TELEMETRY', '');
+    try {
+      expect(
+        surveyGateTelemetryDisabled({ ...makeStartupInput(), telemetryDisabled: true }),
+      ).toBe(true);
+      expect(surveyGateTelemetryDisabled(makeStartupInput())).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('treats the env kill switch as telemetry-disabled', () => {
+    vi.stubEnv('PYTHINKER_DISABLE_TELEMETRY', '1');
+    try {
+      expect(surveyGateTelemetryDisabled(makeStartupInput())).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

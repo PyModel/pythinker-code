@@ -15,15 +15,9 @@ import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMd
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { IModelCatalog, type Model } from '#/kosong/model/catalog';
-import { IModelService } from '#/kosong/model/model';
-import { IProviderService } from '#/kosong/provider/provider';
-import { IProtocolAdapterRegistry, type Protocol } from '#/kosong/protocol/protocol';
-import { ILogService } from '#/_base/log/log';
-import { IEventBus } from '#/app/event/eventBus';
+import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
+import { IProtocolAdapterRegistry, type Protocol } from '#/llm-adapter/protocol/protocol';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
-import { AgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContextService';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
@@ -41,7 +35,6 @@ import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceCo
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
-import '#/kosong/provider/providers/pythinker/pythinker.contrib';
 
 import {
   registerTestAgentWire,
@@ -56,8 +49,9 @@ const KEY = 'profile-test';
 function createTelemetryStub(): ITelemetryService {
   return {
     _serviceBrand: undefined,
-    track: () => undefined,
     track2: () => undefined,
+    setContext: () => undefined,
+    getContext: () => ({}),
   } as unknown as ITelemetryService;
 }
 
@@ -98,7 +92,6 @@ function createTestModel(
     alwaysThinking: false,
     providerType,
     providerName: 'pythinker',
-    authProvider: { getAuth: async () => undefined },
   };
 }
 
@@ -113,7 +106,7 @@ function createModelCatalogStub(models: Readonly<Record<string, Model>> = {}): I
     getRequester: () => {
       throw new Error('not exercised');
     },
-    inspect: () => {
+    generate: () => {
       throw new Error('not exercised');
     },
     ping: () => {
@@ -188,24 +181,6 @@ let log: IAppendLogStore;
 let dispatcher: IEventDispatcher;
 let agentState: IAgentStateService;
 let svc: IAgentProfileService;
-
-const noopLogService: ILogService = {
-  _serviceBrand: undefined,
-  level: 'off',
-  error: () => {},
-  warn: () => {},
-  info: () => {},
-  debug: () => {},
-  child: () => noopLogService,
-  setLevel: () => {},
-  flush: () => Promise.resolve(),
-};
-
-const noopEventBusStub: IEventBus = {
-  _serviceBrand: undefined,
-  publish: () => {},
-  subscribe: () => ({ dispose: () => {} }),
-};
 let configValues: Record<string, unknown>;
 let modelCatalog: IModelCatalog;
 
@@ -220,48 +195,7 @@ function buildHost(key: string): {
   host.stub(IFileSystemStorageService, new InMemoryStorageService());
   host.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
   host.stub(ITelemetryService, createTelemetryStub());
-  host.stub(
-    IProviderService,
-    {
-      _serviceBrand: undefined,
-      ready: Promise.resolve(),
-      onDidChangeProviders: Event.None,
-      onDidChangeDefaultProvider: Event.None,
-      get: () => undefined,
-      list: () => ({}),
-      getDefaultProvider: () => undefined,
-      set: async () => {},
-      delete: async () => {},
-      loadAll: () => {},
-      replaceAll: async () => {},
-      setDefaultProvider: async () => {},
-    } as unknown as IProviderService,
-  );
-  host.stub(
-    IModelService,
-    {
-      _serviceBrand: undefined,
-      ready: Promise.resolve(),
-      settled: Promise.resolve(),
-      onDidChangeModels: Event.None,
-      onDidChangeDefaultModel: Event.None,
-      get: () => undefined,
-      list: () => ({}),
-      getDefaultModel: () => undefined,
-      loadAll: () => {},
-      replaceAll: async () => {},
-      set: async () => {},
-      delete: async () => {},
-      setDefaultModel: async () => {},
-    } as unknown as IModelService,
-  );
-  host.stub(ILogService, noopLogService);
-  host.stub(IEventBus, noopEventBusStub);
   host.stub(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
-  host.stub(
-    IAgentTelemetryContextService,
-    new AgentTelemetryContextService(),
-  );
   host.stub(IConfigService, createConfigStub());
   host.stub(IModelCatalog, modelCatalog);
   host.stub(IProtocolAdapterRegistry, createProtocolRegistryStub());
@@ -589,11 +523,70 @@ describe('AgentProfileService (wire-backed config.update)', () => {
 
     expect(host.svc.resolveRequestParams()).toEqual({
       cacheKey: 'session-test',
-      conversationId: 'session-test',
       sampling: { temperature: 0.3 },
       thinkingEffort: 'high',
       thinkingKeep: 'all',
     });
+  });
+
+  it('exposes the provider type of the bound model, or nothing before a model binds', () => {
+    modelCatalog = createModelCatalogStub({
+      'pythinker-code': createTestModel({ providerType: 'pythinker' }),
+      'claude-code': createTestModel({ id: 'claude-code', protocol: 'anthropic' }),
+    });
+    const host = buildHost('profile-provider-type');
+    host.svc.configure({ emitStatusUpdated: () => undefined });
+
+    expect(host.svc.getModelProviderType()).toBeUndefined();
+    host.svc.update({ modelAlias: 'pythinker-code' });
+    expect(host.svc.getModelProviderType()).toBe('pythinker');
+    host.svc.update({ modelAlias: 'claude-code' });
+    expect(host.svc.getModelProviderType()).toBeUndefined();
+    host.svc.update({ modelAlias: 'unknown-model' });
+    expect(host.svc.getModelProviderType()).toBeUndefined();
+  });
+
+  it('resolves the provider type of another catalog model without rebinding', () => {
+    modelCatalog = createModelCatalogStub({
+      'pythinker-code': createTestModel({ providerType: 'pythinker' }),
+      'claude-code': createTestModel({ id: 'claude-code', protocol: 'anthropic' }),
+    });
+    const host = buildHost('profile-provider-type-of-alias');
+    host.svc.configure({ emitStatusUpdated: () => undefined });
+    host.svc.update({ modelAlias: 'claude-code' });
+
+    expect(host.svc.getModelProviderType('pythinker-code')).toBe('pythinker');
+    expect(host.svc.getModelProviderType('missing-model')).toBeUndefined();
+    expect(host.svc.getModel()).toBe('claude-code');
+  });
+
+  it('falls back to the configured default model when nothing binds and no alias is given', () => {
+    modelCatalog = createModelCatalogStub({
+      'pythinker-code': createTestModel({ providerType: 'pythinker' }),
+      'claude-code': createTestModel({ id: 'claude-code', protocol: 'anthropic' }),
+    });
+    configValues['defaultModel'] = 'pythinker-code';
+    const host = buildHost('profile-provider-type-default-fallback');
+    host.svc.configure({ emitStatusUpdated: () => undefined });
+
+    expect(host.svc.getModelProviderType()).toBe('pythinker');
+    host.svc.update({ modelAlias: 'claude-code' });
+    expect(host.svc.getModelProviderType()).toBeUndefined();
+    expect(host.svc.getModelProviderType('pythinker-code')).toBe('pythinker');
+  });
+
+  it('stays undefined when the configured default model resolves outside the pythinker set or nowhere', () => {
+    modelCatalog = createModelCatalogStub({
+      'claude-code': createTestModel({ id: 'claude-code', protocol: 'anthropic' }),
+    });
+    configValues['defaultModel'] = 'claude-code';
+    const host = buildHost('profile-provider-type-default-outside');
+    host.svc.configure({ emitStatusUpdated: () => undefined });
+
+    expect(host.svc.getModelProviderType()).toBeUndefined();
+
+    configValues['defaultModel'] = 'missing-model';
+    expect(host.svc.getModelProviderType()).toBeUndefined();
   });
 
   it('uses the resolved Pythinker effort instead of the configured default', () => {
@@ -608,7 +601,6 @@ describe('AgentProfileService (wire-backed config.update)', () => {
 
     expect(host.svc.resolveRequestParams()).toEqual({
       cacheKey: 'session-test',
-      conversationId: 'session-test',
       thinkingEffort: 'high',
       thinkingKeep: 'all',
     });
@@ -629,7 +621,6 @@ describe('AgentProfileService (wire-backed config.update)', () => {
 
     expect(host.svc.resolveRequestParams()).toEqual({
       cacheKey: 'session-test',
-      conversationId: 'session-test',
       thinkingEffort: 'max',
       thinkingKeep: 'all',
     });
@@ -667,7 +658,6 @@ describe('AgentProfileService (wire-backed config.update)', () => {
 
     expect(host.svc.resolveRequestParams()).toEqual({
       cacheKey: 'session-test',
-      conversationId: 'session-test',
       sampling: { temperature: 0.3 },
       thinkingEffort: 'high',
       thinkingKeep: 'all',
@@ -687,7 +677,6 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     expect(host.svc.resolveModelContext().thinkingLevel).toBe('max');
     expect(host.svc.resolveRequestParams()).toEqual({
       cacheKey: 'session-test',
-      conversationId: 'session-test',
       thinkingEffort: 'max',
       thinkingKeep: 'all',
     });
@@ -704,7 +693,6 @@ describe('AgentProfileService (wire-backed config.update)', () => {
 
     expect(host.svc.resolveRequestParams()).toEqual({
       cacheKey: 'session-test',
-      conversationId: 'session-test',
       thinkingEffort: 'high',
       thinkingKeep: 'all',
     });
@@ -738,7 +726,6 @@ describe('AgentProfileService (wire-backed config.update)', () => {
 
     expect(host.svc.resolveRequestParams()).toEqual({
       cacheKey: 'session-test',
-      conversationId: 'session-test',
       thinkingEffort: 'high',
       thinkingKeep: 'config-keep',
     });
@@ -758,7 +745,6 @@ describe('AgentProfileService (wire-backed config.update)', () => {
 
     expect(host.svc.resolveRequestParams()).toEqual({
       cacheKey: 'session-test',
-      conversationId: 'session-test',
       sampling: { temperature: 0.3 },
       thinkingEffort: 'off',
       thinkingKeep: undefined,
@@ -776,7 +762,6 @@ describe('AgentProfileService (wire-backed config.update)', () => {
 
     expect(host.svc.resolveRequestParams()).toEqual({
       cacheKey: 'session-test',
-      conversationId: 'session-test',
       thinkingEffort: 'high',
       thinkingKeep: 'all',
     });

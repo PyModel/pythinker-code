@@ -1,11 +1,7 @@
 import { okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
 import { metaResponseSchema } from '../protocol/rest-meta';
-import type {
-  ExperimentalFlagStateResponse,
-  MetaFeature,
-  MetaResponse,
-} from '../protocol/rest-meta';
+import type { MetaFeature, MetaResponse } from '../protocol/rest-meta';
 
 interface RouteHost {
   get(
@@ -25,9 +21,6 @@ export interface MetaRouteOptions {
   readonly dangerousBypassAuth: boolean;
   readonly webTitle?: string;
   readonly getExperimentalFlags: () => Record<string, boolean> | Promise<Record<string, boolean>>;
-  readonly getExperimentalFlagStates: () =>
-    | ExperimentalFlagStateResponse[]
-    | Promise<ExperimentalFlagStateResponse[]>;
   readonly getFeatures: () => MetaFeature[] | Promise<MetaFeature[]>;
 }
 
@@ -38,11 +31,9 @@ export function registerMetaRoute(app: RouteHost, opts: MetaRouteOptions): void 
       websocket: true as const,
       file_upload: true as const,
       fs_query: true as const,
-      fs_write: true as const,
       mcp: true as const,
       tasks: true as const,
       terminal: true as const,
-      expert_talk_v1: true as const,
     }),
     server_id: opts.serverId,
     started_at: opts.startedAt,
@@ -64,7 +55,6 @@ export function registerMetaRoute(app: RouteHost, opts: MetaRouteOptions): void 
       const data: MetaResponse = {
         ...staticData,
         experimental_flags: await opts.getExperimentalFlags(),
-        experimental_flag_states: await opts.getExperimentalFlagStates(),
         features: await opts.getFeatures(),
       };
       reply.send(okEnvelope(data, req.id));

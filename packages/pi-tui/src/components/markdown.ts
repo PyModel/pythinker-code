@@ -27,16 +27,16 @@ class StrictStrikethroughTokenizer extends Tokenizer {
 // for re-vendoring): marked's GFM autolink accepts any non-space characters
 // after the domain and its backpedal only strips ASCII trailing punctuation,
 // so CJK/full-width punctuation right after a bare URL is absorbed into the
-// link text and href. Cut the match
+// link text and href (`.../pull/232（CJK` becomes one anchor). Cut the match
 // at the first CJK punctuation character BEFORE the ASCII backpedal so trailing
 // ASCII punctuation left by the cut is still normalized away. Full-width
 // parentheses are handled like GFM handles ASCII ones: balanced pairs stay
-// part of the URL, including punctuation inside the pair. Only an unbalanced
-// full-width parenthesis terminates the match.
+// part of the URL (`.../wiki/CJK（1949CJK）`, punctuation inside
+// them included), and only an unbalanced `（` / `）` terminates the match.
 // Guarded by the "CJK punctuation after bare URLs" tests in
 // test/markdown.test.ts.
-const FULLWIDTH_LEFT_PAREN = 0xff08;
-const FULLWIDTH_RIGHT_PAREN = 0xff09;
+const FULLWIDTH_LEFT_PAREN = 0xff08; // （
+const FULLWIDTH_RIGHT_PAREN = 0xff09; // ）
 const CJK_URL_TERMINATOR_REGEX =
 	/[\u3000-\u303f\uff01-\uff07\uff0a-\uff0f\uff1a-\uff20\uff3b-\uff40\uff5b-\uff65\u2013\u2014\u2018\u2019\u201c\u201d\u2026]/;
 
@@ -44,8 +44,8 @@ const CJK_URL_TERMINATOR_REGEX =
  * Index at which to cut an autolink match, or -1 to keep it whole. Non-paren
  * CJK punctuation terminates the URL outside of full-width parens; full-width
  * parens only terminate it when unbalanced. Punctuation inside a balanced
- * parenthetical stays part of the URL.
- * Prose parentheticals contain spaces and never survive marked's match this
+ * parenthetical (e.g. the ，in （\u5317\u4eac，1949\u5e74）) stays part of the URL —
+ * prose parentheticals contain spaces and never survive marked's match this
  * far, so a balanced group is almost always deliberate URL content.
  */
 function findCjkUrlBoundary(match: string): number {
@@ -918,8 +918,13 @@ export class Markdown implements Component {
 	 * Delegates to wrapTextWithAnsi() so ANSI codes + long tokens are handled
 	 * consistently with the rest of the renderer.
 	 */
-	private wrapCellText(text: string, maxWidth: number): string[] {
-		return wrapTextWithAnsi(text, Math.max(1, maxWidth));
+	private wrapCellText(text: string, maxWidth: number, stylePrefix = ""): string[] {
+		const lines = wrapTextWithAnsi(text, Math.max(1, maxWidth));
+		return lines.map((line, index) => {
+			// Reset text styles after each non-final fragment, then restore the surrounding style before padding and borders.
+			const styleReset = index < lines.length - 1 ? "\x1b[22;23;24;25;27;28;29;39m" : "";
+			return `${line}${styleReset}${stylePrefix}`;
+		});
 	}
 
 	/**
@@ -1050,7 +1055,7 @@ export class Markdown implements Component {
 		// Render header with wrapping
 		const headerCellLines: string[][] = token.header.map((cell, i) => {
 			const text = this.renderInlineTokens(cell.tokens || [], styleContext);
-			return this.wrapCellText(text, columnWidths[i]!);
+			return this.wrapCellText(text, columnWidths[i]!, styleContext?.stylePrefix);
 		});
 		const headerLineCount = Math.max(...headerCellLines.map((c) => c.length));
 
@@ -1073,7 +1078,7 @@ export class Markdown implements Component {
 			const row = token.rows[rowIndex]!;
 			const rowCellLines: string[][] = row.map((cell, i) => {
 				const text = this.renderInlineTokens(cell.tokens || [], styleContext);
-				return this.wrapCellText(text, columnWidths[i]!);
+				return this.wrapCellText(text, columnWidths[i]!, styleContext?.stylePrefix);
 			});
 			const rowLineCount = Math.max(...rowCellLines.map((c) => c.length));
 

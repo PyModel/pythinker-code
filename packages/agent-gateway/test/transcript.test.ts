@@ -1,36 +1,27 @@
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { appendFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, win32 } from 'node:path';
+import { join } from 'node:path';
 
 import {
   IAgentContextMemoryService,
   IAgentLifecycleService,
   IWireService,
   IEventBus,
-  ISessionQuestionService,
   closeSessionById,
-  enqueueSessionInteraction,
   getLiveSessionById,
-  respondSessionInteraction,
+  interactions,
   resumeSessionById,
   IModelCatalog,
-  ISessionContext,
+  ISessionIndex,
   type ContextMessage,
   type Event2,
   type ScopeSeed,
 } from '@pymodel/agent-core-v2';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { launchDetached, revealFileCommandFor } from '../src/lib/fileLaunch';
-import { resolveDirectPlanFilePath } from '../src/routes/transcript';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
-
-vi.mock('../src/lib/fileLaunch', async () => {
-  const actual = await vi.importActual<typeof import('../src/lib/fileLaunch')>('../src/lib/fileLaunch');
-  return { ...actual, launchDetached: vi.fn() };
-});
 
 interface Envelope<T> {
   code: number;
@@ -132,7 +123,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
   let base: string;
   let seeds: ScopeSeed | undefined;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-transcript-'));
     const modelCatalog: IModelCatalog = {
       _serviceBrand: undefined,
@@ -142,8 +133,8 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       getRequester: () => {
         throw new Error('modelCatalog.getRequester not exercised in this test');
       },
-      inspect: () => {
-        throw new Error('modelCatalog.inspect not exercised in this test');
+      generate: () => {
+        throw new Error('modelCatalog.generate not exercised in this test');
       },
       ping: () => {
         throw new Error('modelCatalog.ping not exercised in this test');
@@ -159,8 +150,6 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       },
     };
     seeds = [[IModelCatalog, modelCatalog]];
-    vi.mocked(launchDetached).mockReset();
-    vi.mocked(launchDetached).mockResolvedValue(undefined);
     await boot();
   });
 
@@ -176,7 +165,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     base = `http://127.0.0.1:${server.port}`;
   }
 
-  afterEach(async () => {
+  afterAll(async () => {
     if (server !== undefined) {
       await server.close();
       server = undefined;
@@ -190,15 +179,6 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
   async function getJson<T>(path: string): Promise<{ status: number; body: Envelope<T> }> {
     const res = await fetch(`${base}${path}`, {
       headers: authHeaders(server as RunningServer),
-    } as never);
-    return { status: res.status, body: (await res.json()) as Envelope<T> };
-  }
-
-  async function postJson<T>(path: string, body: unknown): Promise<{ status: number; body: Envelope<T> }> {
-    const res = await fetch(`${base}${path}`, {
-      method: 'POST',
-      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
-      body: JSON.stringify(body),
     } as never);
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
@@ -227,40 +207,6 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     const agent = session!.accessor.get(IAgentLifecycleService).handleOf('main');
     return agent!.accessor.get(IEventBus);
   }
-
-  function savedPlanPath(sessionId: string, filename = 'saved-plan.md'): string {
-    const session = getLiveSessionById(server!.core.accessor, sessionId);
-    return join(session!.accessor.get(ISessionContext).sessionDir, 'agents', 'main', 'plans', filename);
-  }
-
-  async function createSavedPlan(sessionId: string, filename?: string): Promise<string> {
-    const path = savedPlanPath(sessionId, filename);
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, '# Saved plan\n');
-    return path;
-  }
-
-  function publishPlanFrame(sessionId: string, toolCallId: string, path: string): void {
-    const bus = mainAgentBus(sessionId);
-    bus.publish(serverEvent({ type: 'turn.started', turnId: 1, origin: { kind: 'user' } }));
-    bus.publish(serverEvent({ type: 'turn.step.started', turnId: 1, step: 1 }));
-    bus.publish(
-      serverEvent({
-        type: 'tool.call.started',
-        turnId: 1,
-        toolCallId,
-        name: 'ExitPlanMode',
-        args: {},
-        display: { kind: 'plan_review', plan: '# Saved plan', path },
-      }),
-    );
-  }
-
-  it('normalizes Plan mode saved paths before validating them on Windows', () => {
-    const planDir = win32.join('C:\\Users\\example', '.pythinker-code', 'sessions', 'wd_example', 'session', 'agents', 'main', 'plans');
-    const storedPath = 'C:/Users/example/.pythinker-code/sessions/wd_example/session/agents/main/plans/saved-plan.md';
-    expect(resolveDirectPlanFilePath(storedPath, planDir, win32)).toBe(win32.join(planDir, 'saved-plan.md'));
-  });
 
   async function seedMainAgentMessages(
     sessionId: string,
@@ -347,8 +293,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       }),
     );
 
-    const session = getLiveSessionById(server!.core.accessor, id);
-    enqueueSessionInteraction(session!.accessor.get(IAgentLifecycleService), {
+    interactions.enqueue({
       id: 'apr-1',
       kind: 'approval',
       payload: {
@@ -357,7 +302,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
         action: 'run',
         display: { kind: 'command', command: 'ls' },
       },
-      origin: { agentId: 'main', turnId: 1 },
+      tags: { agentId: 'main', sessionId: id, turnId: 1 },
     });
 
     let { body } = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
@@ -371,7 +316,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       }),
     );
 
-    respondSessionInteraction(session!.accessor.get(IAgentLifecycleService), 'apr-1', { decision: 'approved' });
+    interactions.respond('apr-1', { decision: 'approved' });
     ({ body } = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`));
     expect(body.data.pending_interactions).toEqual([]);
     expect(body.data.interactions).toContainEqual(
@@ -406,6 +351,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
         userMessageId: 'p2',
         status: 'queued',
         content: [{ type: 'text', text: 'second' }],
+        clientMetadata: [{ display_text: 'Second display', pythinker_code_composer: { version: 1 } }],
         createdAt: '2026-01-01T00:00:01.000Z',
       }),
     );
@@ -419,7 +365,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
         content: [{ type: 'text', text: 'first' }],
       }),
     );
-    expect(body.data.prompts).toContainEqual(expect.objectContaining({ promptId: 'p2', status: 'queued' }));
+    expect(body.data.prompts).toContainEqual(expect.objectContaining({ promptId: 'p2', status: 'queued', clientMetadata: [{ display_text: 'Second display', pythinker_code_composer: { version: 1 } }] }));
 
     bus.publish(serverEvent({ type: 'prompt.started', promptId: 'p2' }));
     ({ body } = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`));
@@ -651,12 +597,11 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       },
     ]);
 
-    const session = getLiveSessionById(server!.core.accessor, id);
-    enqueueSessionInteraction(session!.accessor.get(IAgentLifecycleService), {
+    interactions.enqueue({
       id: 'apr-1',
       kind: 'approval',
       payload: { toolCallId: 'call_9', toolName: 'Bash', action: 'run' },
-      origin: { agentId: 'main', turnId: 0 },
+      tags: { agentId: 'main', sessionId: id, turnId: 0 },
     });
 
     const { body } = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
@@ -670,7 +615,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       }),
     );
 
-    respondSessionInteraction(session!.accessor.get(IAgentLifecycleService), 'apr-1', { decision: 'approved' });
+    interactions.respond('apr-1', { decision: 'approved' });
     const after = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
     const turnAfter = after.body.data.items.find(
       (item): item is TurnContract => item.kind === 'turn' && item.turnId === 't0',
@@ -710,16 +655,16 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       );
     await sub.accessor.get(IWireService).flush();
 
-    const questions = session!.accessor.get(ISessionQuestionService);
-    const pending = questions.request(
-      {
-        id: 'call_q',
+    const pending = interactions.request({
+      id: 'call_q',
+      kind: 'question',
+      payload: {
         turnId: 0,
         toolCallId: 'call_q',
         questions: [{ question: 'Pick?', options: [{ label: 'A' }] }],
       },
-      { agentId: 'sub-1' },
-    );
+      tags: { agentId: 'sub-1', sessionId: id, turnId: 0, toolCallId: 'call_q' },
+    });
 
     const mainBody = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
     expect(mainBody.body.data.pending_interactions).toEqual([]);
@@ -735,7 +680,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       }),
     );
 
-    questions.dismiss('call_q');
+    interactions.respond('call_q', null);
     await pending;
   });
 
@@ -863,16 +808,16 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       }),
     );
 
-    const questions = session!.accessor.get(ISessionQuestionService);
-    const pending = questions.request(
-      {
-        id: 'call_q',
+    const pending = interactions.request({
+      id: 'call_q',
+      kind: 'question',
+      payload: {
         turnId: 0,
         toolCallId: 'call_q',
         questions: [{ question: 'Pick one?', options: [{ label: 'A' }, { label: 'B' }] }],
       },
-      { agentId: 'sub-1' },
-    );
+      tags: { agentId: 'sub-1', sessionId: id, turnId: 0, toolCallId: 'call_q' },
+    });
 
     const subBody = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=sub-1`);
     expect(subBody.body.data.pending_interactions).toEqual(['call_q']);
@@ -888,7 +833,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     const mainBody = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
     expect(mainBody.body.data.pending_interactions).toEqual([]);
 
-    questions.dismiss('call_q');
+    interactions.respond('call_q', null);
     await pending;
   });
 
@@ -1122,6 +1067,41 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
 
     expect(byAgent.get('sub-1')!.messages.map((m) => m.prompt)).toEqual(['scan the repo']);
 
+    const summary = await server!.core.accessor.get(ISessionIndex).get(id);
+    const subWirePath = join(
+      home as string,
+      'sessions',
+      summary!.workspaceId,
+      id,
+      'agents',
+      'sub-1',
+      'wire.jsonl',
+    );
+    await appendFile(
+      subWirePath,
+      `${JSON.stringify({
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'scan again' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+        time: 1000,
+      })}\n`,
+    );
+    const warm = await getJson<UserMessagesContract>(
+      `/api/v1/sessions/${id}/transcript/user-messages`,
+    );
+    const warmByAgent = new Map(warm.body.data.agents.map((a) => [a.agent_id, a]));
+    expect(warmByAgent.get('sub-1')!.messages.map((m) => m.prompt)).toEqual([
+      'scan the repo',
+      'scan again',
+    ]);
+    expect(warmByAgent.get('main')!.messages.map((m) => m.prompt)).toEqual(
+      main.messages.map((m) => m.prompt),
+    );
+
     const single = await getJson<UserMessagesContract>(
       `/api/v1/sessions/${id}/transcript/user-messages?agent_id=main`,
     );
@@ -1231,8 +1211,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       path: '/tmp/plans/foo.md',
       options: [{ label: 'Approach A', description: 'fast' }],
     };
-    const session = getLiveSessionById(server!.core.accessor, id);
-    enqueueSessionInteraction(session!.accessor.get(IAgentLifecycleService), {
+    interactions.enqueue({
       id: 'apr-plan',
       kind: 'approval',
       payload: {
@@ -1241,9 +1220,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
         action: 'Presenting plan and exiting plan mode',
         display: planDisplay,
       },
-      origin: { agentId: 'main', turnId: 1 },
+      tags: { agentId: 'main', sessionId: id, turnId: 1 },
     });
-    respondSessionInteraction(session!.accessor.get(IAgentLifecycleService), 'apr-plan', { decision: 'approved', selectedLabel: 'Approach A' });
+    interactions.respond('apr-plan', { decision: 'approved', selectedLabel: 'Approach A' });
 
     const { body } = await getJson<PlanContract>(
       `/api/v1/sessions/${id}/transcript/plan?agent_id=main&tool_call_id=call_plan`,
@@ -1360,8 +1339,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       },
     ]);
 
-    const session = getLiveSessionById(server!.core.accessor, id);
-    enqueueSessionInteraction(session!.accessor.get(IAgentLifecycleService), {
+    interactions.enqueue({
       id: 'apr-plan',
       kind: 'approval',
       payload: {
@@ -1370,14 +1348,16 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
         action: 'Presenting plan and exiting plan mode',
         display: { kind: 'plan_review', plan: '# Draft Plan', path: '/tmp/plans/foo.md' },
       },
-      origin: { agentId: 'main', turnId: 0 },
+      tags: { agentId: 'main', sessionId: id, turnId: 0 },
     });
-    respondSessionInteraction(session!.accessor.get(IAgentLifecycleService), 'apr-plan', {
+    interactions.respond('apr-plan', {
       decision: 'rejected',
       selectedLabel: 'Revise',
       feedback: 'split it up',
     });
-    const agent = session!.accessor.get(IAgentLifecycleService).handleOf('main');
+    const agent = getLiveSessionById(server!.core.accessor, id)!
+      .accessor.get(IAgentLifecycleService)
+      .handleOf('main');
     await agent!.accessor.get(IWireService).flush();
 
     await server!.close();
@@ -1431,98 +1411,6 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     expect(hostile.body.code).toBe(40001);
   });
 
-  it('reveals the saved plan from live transcript state', async () => {
-    const id = await createSession();
-    await ensureMainAgent(id);
-    await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
-    const path = await createSavedPlan(id);
-    publishPlanFrame(id, 'call_plan_reveal', path);
-
-    const live = await postJson<{ revealed: true }>(
-      `/api/v1/sessions/${id}/transcript/plan:reveal`,
-      { agent_id: 'main', tool_call_id: 'call_plan_reveal', path: '/ignored/by/the/gateway.md' },
-    );
-    expect(live.body).toMatchObject({ code: 0, data: { revealed: true } });
-    expect(launchDetached).toHaveBeenLastCalledWith(revealFileCommandFor(await realpath(path)));
-  });
-
-  it('reveals the saved plan from cold transcript state', async () => {
-    const id = await createSession();
-    await ensureMainAgent(id);
-    const path = await createSavedPlan(id, 'cold-plan.md');
-    await seedMainAgentMessages(id, [
-      { role: 'user', content: [{ type: 'text', text: 'build it' }], toolCalls: [] },
-      {
-        role: 'assistant',
-        content: [],
-        toolCalls: [{ type: 'function', id: 'call_plan_cold', name: 'ExitPlanMode', arguments: '{}' }],
-      },
-      {
-        role: 'tool',
-        content: [
-          {
-            type: 'text',
-            text: `Exited plan mode. Plan mode deactivated. All tools are now available.\nPlan saved to: ${path}\n\n## Approved Plan:\n# Saved plan`,
-          },
-        ],
-        toolCalls: [],
-        toolCallId: 'call_plan_cold',
-      },
-    ]);
-    await server!.close();
-    server = undefined;
-    await boot();
-
-    const cold = await postJson<{ revealed: true }>(
-      `/api/v1/sessions/${id}/transcript/plan:reveal`,
-      { agent_id: 'main', tool_call_id: 'call_plan_cold' },
-    );
-    expect(cold.body).toMatchObject({ code: 0, data: { revealed: true } });
-    expect(launchDetached).toHaveBeenLastCalledWith(revealFileCommandFor(await realpath(path)));
-  });
-
-  it('rejects an unsafe saved-plan path without launching it', async () => {
-    const id = await createSession();
-    await ensureMainAgent(id);
-    await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
-    const outsidePath = join(home as string, 'outside.md');
-    await writeFile(outsidePath, '# Outside\n');
-    publishPlanFrame(id, 'call_plan_outside', outsidePath);
-
-    const unsafe = await postJson<null>(
-      `/api/v1/sessions/${id}/transcript/plan:reveal`,
-      { agent_id: 'main', tool_call_id: 'call_plan_outside' },
-    );
-    expect(unsafe.body.code).toBe(40407);
-    expect(launchDetached).not.toHaveBeenCalled();
-
-    const hostile = await postJson<null>(
-      `/api/v1/sessions/${id}/transcript/plan:reveal`,
-      { agent_id: '../main', tool_call_id: 'call_plan_outside' },
-    );
-    expect(hostile.body.code).toBe(40001);
-  });
-
-  it('rejects a symlinked saved plan without launching it', async () => {
-    if (process.platform === 'win32') return;
-    const id = await createSession();
-    await ensureMainAgent(id);
-    await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
-    const outsidePath = join(home as string, 'outside.md');
-    await writeFile(outsidePath, '# Outside\n');
-    const path = savedPlanPath(id);
-    await mkdir(dirname(path), { recursive: true });
-    await symlink(outsidePath, path);
-    publishPlanFrame(id, 'call_plan_symlink', path);
-
-    const response = await postJson<null>(
-      `/api/v1/sessions/${id}/transcript/plan:reveal`,
-      { agent_id: 'main', tool_call_id: 'call_plan_symlink' },
-    );
-    expect(response.body.code).toBe(40407);
-    expect(launchDetached).not.toHaveBeenCalled();
-  });
-
   it('lists every ExitPlanMode plan of the agent when tool_call_id is omitted', async () => {
     const id = await createSession();
     await ensureMainAgent(id);
@@ -1558,8 +1446,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       }),
     );
 
-    const session = getLiveSessionById(server!.core.accessor, id);
-    enqueueSessionInteraction(session!.accessor.get(IAgentLifecycleService), {
+    interactions.enqueue({
       id: 'apr-final',
       kind: 'approval',
       payload: {
@@ -1568,9 +1455,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
         action: 'Presenting plan and exiting plan mode',
         display: { kind: 'plan_review', plan: '# Final', path: '/tmp/plans/foo.md' },
       },
-      origin: { agentId: 'main', turnId: 1 },
+      tags: { agentId: 'main', sessionId: id, turnId: 1 },
     });
-    respondSessionInteraction(session!.accessor.get(IAgentLifecycleService), 'apr-final', { decision: 'approved' });
+    interactions.respond('apr-final', { decision: 'approved' });
 
     const { body } = await getJson<PlanContract>(
       `/api/v1/sessions/${id}/transcript/plan?agent_id=main`,

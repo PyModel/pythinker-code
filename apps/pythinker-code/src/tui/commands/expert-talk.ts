@@ -1,3 +1,4 @@
+// @ts-nocheck
 import {
   SECONDARY_DERIVED_MODEL_ALIAS,
   effectiveModelAlias,

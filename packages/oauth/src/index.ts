@@ -156,3 +156,93 @@ export type {
 
 export type { OAuthTokenTransactionOptions } from './oauth-token-transaction';
 export { OAuthTokenTransaction } from './oauth-token-transaction';
+
+export {
+  PYTHINKER_REGION_PROFILES,
+  pythinkerCdnContentUrl,
+  pythinkerRegionProfile,
+  pythinkerRegionSchema,
+  resolvePythinkerRegion,
+} from './region';
+export type { PythinkerRegion, PythinkerRegionProfile, ResolvePythinkerRegionOptions } from './region';
+
+export {
+  DeviceCodeTimeoutError,
+  OAuthConnectionError,
+  OAuthError,
+  OAuthUnauthorizedError,
+  RetryableRefreshError,
+} from './errors';
+
+export type BearerTokenProvider = {
+  getAccessToken(options?: { readonly force?: boolean; readonly signal?: AbortSignal }): Promise<string>;
+};
+
+export type OAuthRefreshOutcome =
+  | { readonly kind: 'refreshed'; readonly success?: true }
+  | { readonly kind: 'cached'; readonly success?: true }
+  | { readonly kind: 'failed'; readonly success?: false; readonly error?: unknown; readonly reason?: string }
+  | { readonly success: true }
+  | { readonly success: false; readonly reason?: string };
+
+export type ManagedPythinkerCodeModelInfo = import("./provider-config.js").ProviderModelInfo;
+
+export type ManagedPythinkerConfigShape = import("./provider-config.js").PythinkerConfigShape & Record<string, unknown>;
+export type DeviceAuthorization = {
+  readonly verificationUri: string;
+  readonly verificationUriComplete?: string;
+  readonly userCode: string;
+  readonly expiresIn?: number;
+  readonly interval?: number;
+};
+
+export function formatDuration(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '0s';
+  const seconds = Math.floor(totalSeconds);
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  const parts: string[] = [];
+  if (days) parts.push(`${String(days)}d`);
+  if (hours) parts.push(`${String(hours)}h`);
+  if (minutes) parts.push(`${String(minutes)}m`);
+  if (secs && parts.length === 0) parts.push(`${String(secs)}s`);
+  return parts.length > 0 ? parts.join(' ') : '0s';
+}
+export function isManagedPythinkerCodeBaseUrl(baseUrl?: string): boolean {
+  if (baseUrl === undefined || baseUrl.length === 0) return false;
+  try {
+    const candidate = normalizeBaseUrl(baseUrl);
+    if (candidate === undefined) return false;
+    const custom = process.env['CUSTOM_API_BASE_URL'];
+    if (custom === undefined || custom.length === 0) return false;
+    return normalizeBaseUrl(custom) === candidate;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeBaseUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    return `${url.origin.toLowerCase()}${url.pathname.replace(/\/+$/, '')}`;
+  } catch {
+    return undefined;
+  }
+}
+export type ManagedQuota = {
+  readonly entries?: readonly ManagedQuotaEntry[];
+  readonly extraUsage?: any;
+  readonly rows?: any;
+  readonly usages?: any;
+  readonly [key: string]: any;
+};
+export type ManagedQuotaEntry = {
+  readonly name?: string;
+  readonly used?: number;
+  readonly limit?: number;
+  readonly usedRatio?: number;
+  readonly resetAt?: string | number;
+  readonly [key: string]: any;
+};

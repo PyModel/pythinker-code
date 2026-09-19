@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
+import { isManagedPythinkerCodeBaseUrl } from '@pymodel/pythinker-code-oauth';
 import { isTelemetryDisabledByEnv } from '@pymodel/pythinker-telemetry';
 import { Key, matchesKey, Spacer } from '@pymodel/pi-tui';
 
 import {
+  getSurveyPopupConfig,
   peekSurveyPopupConfig,
   peekSurveyPopupConfigFresh,
   type SurveyPopupConfig,
@@ -51,7 +53,44 @@ import type { BtwPanelController } from './btw-panel';
 export interface SurveyHost {
   readonly state: TUIState;
   readonly btwPanelController: BtwPanelController;
-  track(event: string, props?: Record<string, unknown>): void;
+  track(
+    event: string,
+    props?: Record<string, unknown>,
+    context?: { readonly sessionId?: string },
+  ): void;
+}
+
+function resolveKfcModelId(appState: TUIState['appState']): string | undefined {
+  const entry = appState.availableModels[appState.model];
+  if (entry === undefined) return undefined;
+  const baseUrl = entry.baseUrl ?? appState.availableProviders[entry.provider]?.baseUrl;
+  if (!isManagedPythinkerCodeBaseUrl(baseUrl)) return undefined;
+  return entry.model;
+}
+
+interface SurveyAppearanceSnapshot {
+  readonly sessionId: string;
+  readonly fields: SurveyEventEnvironmentFields;
+}
+
+interface ResumedAgentSeed {
+  readonly type: string;
+  readonly profileName?: string;
+  readonly dynamicWorkflowItem?: string;
+  readonly sessionInit?: string;
+}
+
+const TOWER_WORKER_PROFILE_NAME = 'tower-worker';
+const SESSION_INIT_PARENT_TOOL_CALL_ID = 'generate-agents-md';
+
+function recordModel(models: Set<string>, model: string | undefined): void {
+  if (model === undefined || model.length === 0) return;
+  models.add(model);
+}
+
+function joinModels(models: ReadonlySet<string>): string | undefined {
+  if (models.size === 0) return undefined;
+  return [...models].toSorted().join(',');
 }
 
 export interface SurveyControllerDeps {
@@ -69,6 +108,7 @@ export interface SurveyControllerDeps {
   readonly configFresh?: () => boolean;
   readonly terminalWidth?: () => number;
   readonly configRegion?: () => string;
+  readonly accessToken?: () => Promise<string | undefined>;
   readonly readGlobalLastShown?: () => Promise<number | undefined>;
   readonly writeGlobalLastShown?: (wallTime: number) => void;
 }
@@ -92,7 +132,7 @@ const defaultDeps = {
   writeGlobalLastShown: writeSurveyLastShownTime,
 } satisfies Omit<
   Required<SurveyControllerDeps>,
-  'feedbackSurveyDisabled' | 'refreshConfig'
+  'feedbackSurveyDisabled' | 'refreshConfig' | 'accessToken'
 >;
 
 export class SurveyController {
@@ -125,6 +165,13 @@ export class SurveyController {
   private configRefreshedAt = 0;
   private coldRefreshAttemptedAt = 0;
   private configRegion: string | undefined;
+  private pendingTraceId: string | undefined;
+  private appearanceSnapshot: SurveyAppearanceSnapshot | undefined;
+  private subagentCount = 0;
+  private subagentModels = new Set<string>();
+  private dynamicWorkflowRunCount = 0;
+  private dynamicWorkflowModels = new Set<string>();
+  private readonly toolCallFamilies = new Map<string, string>();
 
   constructor(
     private readonly host: SurveyHost,
@@ -137,6 +184,7 @@ export class SurveyController {
   }
 
   reset(): void {
+    this.notifyDisplaced();
     this.generation += 1;
     this.clearIdleTimer();
     this.clearDigitTimer();
@@ -156,6 +204,13 @@ export class SurveyController {
     this.appearanceConfig = undefined;
     this.currentTurnUserOrigin = undefined;
     this.evaluationPending = false;
+    this.pendingTraceId = undefined;
+    this.appearanceSnapshot = undefined;
+    this.subagentCount = 0;
+    this.subagentModels = new Set();
+    this.dynamicWorkflowRunCount = 0;
+    this.dynamicWorkflowModels = new Set();
+    this.toolCallFamilies.clear();
     const generation = this.generation;
     this.cooldownReady = false;
     void (this.deps.readGlobalLastShown ?? defaultDeps.readGlobalLastShown)()
@@ -183,15 +238,19 @@ export class SurveyController {
     this.currentTurnUserOrigin = userOrigin;
     this.idleSince = undefined;
     this.clearIdleTimer();
-    if (this.machine.phase !== 'closed') this.applyAction({ type: 'close-silently' });
+    this.notifyDisplaced();
     if (userOrigin) {
       this.userTurnCount += 1;
       this.evaluationPending = false;
+      this.pendingTraceId = undefined;
     }
   }
 
-  notifyTurnEnded(): void {
-    if (this.currentTurnUserOrigin === true) this.evaluationPending = true;
+  notifyTurnEnded(traceId?: string): void {
+    if (this.currentTurnUserOrigin === true) {
+      this.evaluationPending = true;
+      this.pendingTraceId = traceId;
+    }
     this.currentTurnUserOrigin = undefined;
     if (!this.evaluationPending) return;
     this.idleSince = this.now();
@@ -203,8 +262,52 @@ export class SurveyController {
     }, SURVEY_IDLE_EVALUATION_DELAY_MS);
   }
 
-  notifyToolCallStarted(): void {
+  notifyToolCallStarted(toolCallId: string, toolName: string): void {
     this.toolCallCount += 1;
+    this.toolCallFamilies.set(toolCallId, toolName);
+    if (toolName === 'AgentDynamicWorkflow') this.dynamicWorkflowRunCount += 1;
+  }
+
+  notifyToolCallEnded(toolCallId: string): void {
+    this.toolCallFamilies.delete(toolCallId);
+  }
+
+  notifySubagentSpawned(event: {
+    readonly parentToolCallId?: string;
+    readonly dynamicWorkflowIndex?: number;
+    readonly model?: string;
+  }): void {
+    if (event.parentToolCallId === SESSION_INIT_PARENT_TOOL_CALL_ID) return;
+    const toolName =
+      event.parentToolCallId === undefined
+        ? undefined
+        : this.toolCallFamilies.get(event.parentToolCallId);
+    if (toolName === 'Agent') {
+      this.subagentCount += 1;
+      recordModel(this.subagentModels, event.model);
+      return;
+    }
+    if (toolName === 'AgentDynamicWorkflow') {
+      recordModel(this.dynamicWorkflowModels, event.model);
+      return;
+    }
+    if (toolName !== undefined) return;
+    if (event.dynamicWorkflowIndex !== undefined) {
+      recordModel(this.dynamicWorkflowModels, event.model);
+      return;
+    }
+    this.subagentCount += 1;
+    recordModel(this.subagentModels, event.model);
+  }
+
+  seedFromResumedAgents(agents: Readonly<Record<string, ResumedAgentSeed>>): void {
+    this.subagentCount = Object.values(agents).filter(
+      (agent) =>
+        agent.type === 'sub' &&
+        agent.dynamicWorkflowItem === undefined &&
+        agent.sessionInit === undefined &&
+        agent.profileName !== TOWER_WORKER_PROFILE_NAME,
+    ).length;
   }
 
   notifyCompactionFinished(): void {
@@ -213,17 +316,15 @@ export class SurveyController {
 
   notifyInputModeChanged(mode: 'prompt' | 'bash'): void {
     if (mode !== 'bash') return;
-    if (this.machine.phase === 'closed') return;
+    this.notifyDisplaced();
+  }
+
+  notifyDisplaced(): void {
     if (this.machine.phase === 'open') {
       this.applyAction({ type: 'abandon' });
       return;
     }
-    this.applyAction({ type: 'close-silently' });
-  }
-
-  closeSilently(): void {
-    if (this.machine.phase === 'closed') return;
-    this.applyAction({ type: 'close-silently' });
+    if (this.machine.phase !== 'closed') this.applyAction({ type: 'close-silently' });
   }
 
   handlePreInput(data: string): boolean {
@@ -386,7 +487,7 @@ export class SurveyController {
         this.deps.feedbackSurveyDisabled?.() ??
         this.host.state.appState.disableFeedbackSurvey === true,
       telemetryDisabled: (this.deps.telemetryDisabled ?? defaultDeps.telemetryDisabled)(),
-      currentModel: appState.model,
+      kfcModelId: resolveKfcModelId(appState),
       lastUserMessageStartsOrderedList: this.lastUserMessageStartsOrderedList(),
     };
     return {
@@ -454,6 +555,9 @@ export class SurveyController {
     };
     const shownAt = this.now();
     this.appearanceConfig = config;
+    const traceId = this.pendingTraceId;
+    this.pendingTraceId = undefined;
+    this.appearanceSnapshot = this.captureSnapshot(traceId);
     this.applyAction({ type: 'open', appearance });
     if (this.machine.phase !== 'open') return;
     this.openedAt = shownAt;
@@ -486,19 +590,22 @@ export class SurveyController {
     switch (effect.type) {
       case 'report': {
         if (appearance === undefined) return;
-        this.host.track(
-          SURVEY_EVENT_NAMES[appearance.survey],
-          buildSurveyEventProperties(
-            {
-              event_type: effect.eventType,
-              appearance_id: appearance.appearanceId,
-              appearance_index: appearance.appearanceIndex,
-              response: effect.response,
-            },
-            this.environmentFields(),
-            this.appearanceConfig ?? (this.deps.config ?? defaultDeps.config)(),
-          ),
+        const properties = buildSurveyEventProperties(
+          {
+            event_type: effect.eventType,
+            appearance_id: appearance.appearanceId,
+            appearance_index: appearance.appearanceIndex,
+            response: effect.response,
+          },
+          this.appearanceSnapshot?.fields ?? this.environmentFields(),
+          this.appearanceConfig ?? (this.deps.config ?? defaultDeps.config)(),
         );
+        const sessionId = this.appearanceSnapshot?.sessionId ?? '';
+        if (sessionId.length > 0) {
+          this.host.track(SURVEY_EVENT_NAMES[appearance.survey], properties, { sessionId });
+        } else {
+          this.host.track(SURVEY_EVENT_NAMES[appearance.survey], properties);
+        }
         return;
       }
       case 'schedule': {
@@ -582,10 +689,23 @@ export class SurveyController {
     this.host.state.ui.requestRender();
   }
 
+  private captureSnapshot(traceId: string | undefined): SurveyAppearanceSnapshot {
+    const { appState } = this.host.state;
+    const kfcModelId = resolveKfcModelId(appState);
+    return {
+      sessionId: appState.sessionId,
+      fields: {
+        ...this.environmentFields(),
+        pfc_trace_id: kfcModelId === undefined ? undefined : traceId,
+      },
+    };
+  }
+
   private environmentFields(): SurveyEventEnvironmentFields {
     const { appState } = this.host.state;
     return {
       current_model: appState.model,
+      pfc_model_id: resolveKfcModelId(appState),
       user_turn_count: this.userTurnCount,
       cumulative_tokens: appState.cumulativeTokens ?? 0,
       virtual_context_tokens: appState.contextTokens,
@@ -593,6 +713,10 @@ export class SurveyController {
       compaction_count: this.compactionCount,
       permission_mode: appState.permissionMode,
       thinking_effort: appState.thinkingEffort,
+      subagent_count: this.subagentCount,
+      subagent_models: joinModels(this.subagentModels),
+      dynamic_workflow_run_count: this.dynamicWorkflowRunCount,
+      dynamic_workflow_models: joinModels(this.dynamicWorkflowModels),
     };
   }
 
@@ -609,8 +733,19 @@ export class SurveyController {
         .finally(markReady);
       return true;
     }
-    markReady();
-    return false;
+    const accessToken = this.deps.accessToken;
+    if (accessToken === undefined) {
+      markReady();
+      return false;
+    }
+    this.configReady = false;
+    void (async () => {
+      const token = await accessToken();
+      await getSurveyPopupConfig({ accessToken: token });
+    })()
+      .catch(() => undefined)
+      .finally(markReady);
+    return true;
   }
 
   private tooNarrow(): boolean {

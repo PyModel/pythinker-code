@@ -45,13 +45,31 @@ export function useFilePreview({ client, detailTarget }: UseFilePreviewOptions) 
   const previewFile = ref<FileData | null>(null);
   const previewLoading = ref(false);
   const previewError = ref<string | null>(null);
+  const previewStale = ref(false);
+  const previewRefreshing = ref(false);
   // Normalized workspace-relative path of the currently-open preview. Used for
   // the download URL so it matches the server's relative-path contract even when
   // the user opened the preview from an absolute path in the chat.
   const previewNormalizedPath = ref<string | null>(null);
+  // Git status snapshot for the previewed path at last successful load — when
+  // the working-tree status later differs, the refresh button appears.
+  let loadedPathStatus: string | null = null;
   // Incremented on every openFilePreview call so a slower earlier request can't
   // overwrite the result of a later one (request-sequence guard).
   let previewRequestSeq = 0;
+
+  function currentPathStatus(path: string | null): string | null {
+    if (!path) return null;
+    const entry = client.changes.value.find((change) => change.path === path);
+    return entry?.status ?? null;
+  }
+
+  function syncStaleFromGit(): void {
+    const path = previewNormalizedPath.value;
+    if (!path || previewLoading.value || previewRefreshing.value) return;
+    const next = currentPathStatus(path);
+    previewStale.value = next !== loadedPathStatus;
+  }
   const previewDownloadUrl = computed(() => {
     const path = previewNormalizedPath.value;
     return path ? client.getFileDownloadUrl(path) : null;
@@ -106,18 +124,29 @@ export function useFilePreview({ client, detailTarget }: UseFilePreviewOptions) 
     return path ? { path } : { error: t('filePreview.errors.emptyPath') };
   }
 
-  async function openFilePreview(target: FilePreviewRequest): Promise<void> {
+  async function openFilePreview(
+    target: FilePreviewRequest,
+    opts?: { preserveCurrent?: boolean },
+  ): Promise<void> {
     const requestSeq = ++previewRequestSeq;
+    const preserveCurrent = opts?.preserveCurrent === true && previewFile.value !== null;
     detailTarget.value = 'file';
-    previewFile.value = null;
     previewError.value = null;
-    previewLoading.value = true;
     previewTarget.value = target;
-    previewNormalizedPath.value = null;
+    if (preserveCurrent) {
+      previewRefreshing.value = true;
+    } else {
+      previewFile.value = null;
+      previewLoading.value = true;
+      previewStale.value = false;
+      previewNormalizedPath.value = null;
+      loadedPathStatus = null;
+    }
 
     const normalized = normalizePreviewPath(target.path);
     if ('error' in normalized) {
       previewLoading.value = false;
+      previewRefreshing.value = false;
       previewError.value = normalized.error;
       return;
     }
@@ -130,7 +159,9 @@ export function useFilePreview({ client, detailTarget }: UseFilePreviewOptions) 
       if (requestSeq !== previewRequestSeq) return;
       if (result) {
         previewFile.value = { ...result, path: result.path || normalized.path };
-      } else {
+        loadedPathStatus = currentPathStatus(normalized.path);
+        previewStale.value = false;
+      } else if (!preserveCurrent) {
         // readFileContent swallows daemon failures into null — show the error
         // state instead of a misleading 0-byte "empty file" (the cause is
         // already console.warn'd in readFileContent).
@@ -138,12 +169,21 @@ export function useFilePreview({ client, detailTarget }: UseFilePreviewOptions) 
       }
     } catch (err) {
       if (requestSeq !== previewRequestSeq) return;
-      previewError.value = err instanceof Error ? err.message : t('filePreview.errors.loadFailed');
+      if (!preserveCurrent) {
+        previewError.value = err instanceof Error ? err.message : t('filePreview.errors.loadFailed');
+      }
     } finally {
       if (requestSeq === previewRequestSeq) {
         previewLoading.value = false;
+        previewRefreshing.value = false;
       }
     }
+  }
+
+  function refreshFilePreview(): void {
+    const target = previewTarget.value;
+    if (!target || previewRefreshing.value) return;
+    void openFilePreview(target, { preserveCurrent: true });
   }
 
   function resetFilePreview(): void {
@@ -153,6 +193,9 @@ export function useFilePreview({ client, detailTarget }: UseFilePreviewOptions) 
     previewFile.value = null;
     previewError.value = null;
     previewLoading.value = false;
+    previewRefreshing.value = false;
+    previewStale.value = false;
+    loadedPathStatus = null;
   }
 
   function closeFilePreview(): void {
@@ -163,6 +206,14 @@ export function useFilePreview({ client, detailTarget }: UseFilePreviewOptions) 
   watch(detailTarget, (target, oldTarget) => {
     if (oldTarget === 'file' && target !== 'file') resetFilePreview();
   });
+
+  watch(
+    () => client.changes.value,
+    () => {
+      syncStaleFromGit();
+    },
+    { deep: true },
+  );
 
   function openPreviewInEditor(): void {
     const path = previewFile.value?.path ?? previewTarget.value?.path;
@@ -181,10 +232,13 @@ export function useFilePreview({ client, detailTarget }: UseFilePreviewOptions) 
     previewFile,
     previewLoading,
     previewError,
+    previewStale,
+    previewRefreshing,
     previewDownloadUrl,
     previewExternalActions,
     openFilePreview,
     closeFilePreview,
+    refreshFilePreview,
     openPreviewInEditor,
     revealPreviewFile,
   };

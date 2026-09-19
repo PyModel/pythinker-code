@@ -305,6 +305,7 @@ function renderUrlInputBox(
 export type PluginsPanelTabId = 'installed' | 'official' | 'third-party' | 'custom';
 
 export type PluginsPanelSelection =
+  | { readonly kind: 'open-url'; readonly url: string; readonly label: string }
   | { readonly kind: 'toggle'; readonly id: string; readonly enabled: boolean }
   | { readonly kind: 'remove'; readonly id: string }
   | { readonly kind: 'mcp'; readonly id: string }

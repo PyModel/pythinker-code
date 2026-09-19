@@ -108,9 +108,8 @@ export async function touchForkedFileHistory(input: FileHistoryRetentionInput): 
   try {
     const entries = await input.hostFs.readdir(agentsDir);
     agentNames = entries.filter((entry) => entry.isDirectory).map((entry) => entry.name);
-  } catch (error) {
-    if (isMissingPathError(error)) return;
-    throw error;
+  } catch {
+    return;
   }
   for (const name of agentNames) {
     try {
@@ -119,9 +118,8 @@ export async function touchForkedFileHistory(input: FileHistoryRetentionInput): 
         await touchFileHistorySession(input);
         return;
       }
-    } catch (error) {
-      if (isMissingPathError(error)) continue;
-      throw error;
+    } catch {
+      continue;
     }
   }
 }

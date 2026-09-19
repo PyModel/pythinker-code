@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import { commandForExecFile } from '../../../scripts/native/exec.mjs';
 
+const WINDOWS_CMD = 'C:\\Windows\\System32\\cmd.exe';
+
 describe('commandForExecFile', () => {
   it('returns command as-is on non-Windows', () => {
     const result = commandForExecFile('postject', ['pythinker', 'NODE_SEA_BLOB', './blob'], 'darwin');
@@ -17,7 +19,7 @@ describe('commandForExecFile', () => {
     const result = commandForExecFile('postject.cmd', ['pythinker.exe', 'NODE_SEA_BLOB'], 'win32', {
       ComSpec: 'C:\\Windows\\System32\\cmd.exe',
     });
-    expect(result.command).toBe('C:\\Windows\\System32\\cmd.exe');
+    expect(result.command).toBe(WINDOWS_CMD);
     expect(result.args).toEqual([
       '/d',
       '/s',
@@ -29,7 +31,7 @@ describe('commandForExecFile', () => {
 
   it('wraps .bat files through cmd.exe on Windows', () => {
     const result = commandForExecFile('foo.bat', [], 'win32', { ComSpec: 'cmd.exe' });
-    expect(result.command).toBe('cmd.exe');
+    expect(result.command).toBe(WINDOWS_CMD);
   });
 
   it('escapes embedded double quotes in args', () => {
@@ -39,8 +41,15 @@ describe('commandForExecFile', () => {
     expect(result.args[3]).toBe('""foo.cmd" "hello ""world""""');
   });
 
-  it('falls back to cmd.exe when ComSpec missing', () => {
+  it('ignores ComSpec and uses the fixed System32 cmd path', () => {
     const result = commandForExecFile('foo.cmd', [], 'win32', {});
-    expect(result.command).toBe('cmd.exe');
+    expect(result.command).toBe(WINDOWS_CMD);
+  });
+
+  it('ignores a poisoned ComSpec value', () => {
+    const result = commandForExecFile('foo.cmd', [], 'win32', {
+      ComSpec: 'C:\\evil\\cmd.exe',
+    });
+    expect(result.command).toBe(WINDOWS_CMD);
   });
 });

@@ -10,10 +10,10 @@ import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
-import { IAgentDynamicWorkflowService } from '#/features/dynamic_workflow/agent/dynamic_workflow';
-import { DynamicWorkflowModeEnter } from '#/features/dynamic_workflow/dynamicWorkflowOps';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { PlanModeEnter, planKey } from '#/features/plan/planOps';
+import { IAgentDynamicWorkflowService } from '#/features/dynamic_workflow/agent/dynamic_workflow';
+import { DynamicWorkflowModeEnter } from '#/features/dynamic_workflow/dynamicWorkflowOps';
 import { IAgentTowerService } from '#/features/tower/tower';
 import { TowerModeEnter } from '#/features/tower/towerOps';
 
@@ -58,7 +58,6 @@ describe('AgentModeMutexService', () => {
     ix.set(IAgentModeMutexService, new SyncDescriptor(AgentModeMutexService));
     ix.get(IAgentModeMutexService);
   });
-
   afterEach(() => disposables.dispose());
 
   function publish(event: PlanModeEnter | DynamicWorkflowModeEnter | TowerModeEnter): void {
@@ -77,18 +76,18 @@ describe('AgentModeMutexService', () => {
     expect(towerExit).not.toHaveBeenCalled();
   });
 
-  it('Dynamic Workflow entry exits an active tower mode', () => {
+  it('dynamic_workflow mode entry exits an active tower mode', () => {
     towerActive = true;
     publish(new DynamicWorkflowModeEnter({ agentId: 'test-agent', trigger: 'manual' }));
     expect(towerExit).toHaveBeenCalledTimes(1);
   });
 
-  it('Dynamic Workflow entry leaves an inactive tower mode alone', () => {
+  it('dynamic_workflow mode entry leaves an inactive tower mode alone', () => {
     publish(new DynamicWorkflowModeEnter({ agentId: 'test-agent', trigger: 'manual' }));
     expect(towerExit).not.toHaveBeenCalled();
   });
 
-  it('tower mode entry exits active plan and Dynamic Workflow modes', () => {
+  it('tower mode entry exits an active plan mode and an active dynamic_workflow mode', () => {
     ix.get(IAgentStateService).set(planKey, { active: true, id: 'plan_1' });
     dynamicWorkflowActive = true;
     publish(new TowerModeEnter({ agentId: 'test-agent' }));
@@ -96,7 +95,7 @@ describe('AgentModeMutexService', () => {
     expect(dynamicWorkflowExit).toHaveBeenCalledTimes(1);
   });
 
-  it('tower mode entry leaves inactive plan and Dynamic Workflow modes alone', () => {
+  it('tower mode entry leaves inactive plan and dynamic_workflow modes alone', () => {
     publish(new TowerModeEnter({ agentId: 'test-agent' }));
     expect(planExit).not.toHaveBeenCalled();
     expect(dynamicWorkflowExit).not.toHaveBeenCalled();

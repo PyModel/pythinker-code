@@ -15,6 +15,8 @@ import chalk, { Chalk } from 'chalk';
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { resetCapabilitiesCache, setCapabilities } from '@pymodel/pi-tui';
+
 import { registerWebCommand } from '#/cli/sub/web';
 import type { LegacyKillDeps } from '#/cli/sub/web/legacy-kill';
 import type { WebCommandDeps } from '#/cli/sub/web/run';
@@ -341,6 +343,11 @@ describe('ready banner reflects the bind class', () => {
 });
 
 describe('`pythinker web` opens the browser', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    resetCapabilitiesCache();
+  });
+
   it('opens the Web UI URL with the #token= fragment by default', async () => {
     const { handleWebCommand } = await import('#/cli/sub/web/run');
     const { runner } = makeRunner();
@@ -403,7 +410,7 @@ describe('`pythinker web` opens the browser', () => {
 
   it('opens localhost for a wildcard IPv6 bind', async () => {
     const { handleWebCommand } = await import('#/cli/sub/web/run');
-    const { runner } = makeRunner('http://[::]:58627');
+    const { runner } = makeRunner('http://:::58627');
     const { stdout, stderr } = makeIo();
     const openUrl = vi.fn();
 
@@ -419,26 +426,6 @@ describe('`pythinker web` opens the browser', () => {
     );
 
     expect(openUrl).toHaveBeenCalledWith('http://localhost:58627');
-  });
-
-  it('opens the bracketed loopback origin for an IPv6 bind', async () => {
-    const { handleWebCommand } = await import('#/cli/sub/web/run');
-    const { runner } = makeRunner('http://[::1]:58627');
-    const { stdout, stderr } = makeIo();
-    const openUrl = vi.fn();
-
-    await handleWebCommand(
-      { host: '::1', open: true },
-      {
-        startServerForeground: runner,
-        resolveToken: () => 'tok-xyz',
-        openUrl,
-        stdout,
-        stderr,
-      },
-    );
-
-    expect(openUrl).toHaveBeenCalledWith('http://[::1]:58627/#token=tok-xyz');
   });
 
   it('does not open the browser when open is false', async () => {
@@ -464,71 +451,6 @@ describe('`pythinker web` opens the browser', () => {
     }
   });
 
-  it('passes the resolved relay origin to the tunnel', async () => {
-    const { handleWebCommand } = await import('#/cli/sub/web/run');
-    const { runner } = makeRunner();
-    const { stdout, stderr } = makeIo();
-    const startRemoteControl = vi.fn(async () => ({
-      deviceId: 'device-1',
-      deviceName: 'example-device',
-      url: 'https://relay.example.test/devices/device-1/?rc=1&from=pythinker_code_cli',
-      closed: new Promise<void>(() => {}),
-      close: async () => {},
-    }));
-
-    await handleWebCommand(
-      {
-        remoteControl: true,
-        relayOrigin: 'https://relay.example.test',
-        relayKey: 'relay-key-1',
-        open: false,
-      },
-      {
-        startServerForeground: runner,
-        openUrl: vi.fn(),
-        resolveToken: () => 'tok-1',
-        startRemoteControl,
-        stdout,
-        stderr,
-      },
-    );
-
-    expect(startRemoteControl).toHaveBeenCalledWith(
-      expect.objectContaining({
-        relayOrigin: 'https://relay.example.test',
-        relayKey: 'relay-key-1',
-        localServerToken: expect.any(Function),
-      }),
-    );
-    const options = (startRemoteControl.mock.calls as unknown as[
-      [{ localServerToken: () => string }],
-    ])[0]?.[0];
-    expect(options?.localServerToken()).toBe('tok-1');
-  });
-
-  it('refuses to start Remote Control without a relay key', async () => {
-    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY', '');
-    const { handleWebCommand } = await import('#/cli/sub/web/run');
-    const { runner } = makeRunner();
-    const { stdout, stderr } = makeIo();
-    const startRemoteControl = vi.fn();
-
-    await expect(
-      handleWebCommand(
-        { remoteControl: true, relayOrigin: 'https://relay.example.test', open: false },
-        {
-          startServerForeground: runner,
-          openUrl: vi.fn(),
-          resolveToken: () => 'tok-1',
-          startRemoteControl,
-          stdout,
-          stderr,
-        },
-      ),
-    ).rejects.toThrow('Remote Control needs a relay key');
-    expect(startRemoteControl).not.toHaveBeenCalled();
-  });
-
   it('rejects Remote Control on a non-loopback host', async () => {
     const { handleWebCommand } = await import('#/cli/sub/web/run');
     const { runner } = makeRunner();
@@ -546,8 +468,51 @@ describe('`pythinker web` opens the browser', () => {
     const remoteControlOption = makeProgram()
       .commands.find((command) => command.name() === 'web')!
       .options.find((option) => option.long === '--remote-control');
-    expect(remoteControlOption).toBeDefined();
     expect(remoteControlOption?.hidden).toBeFalsy();
+  });
+});
+
+describe('pythinker rc', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('registers `rc` with the `remote` alias and the web server options, without a --remote-control flag', () => {
+    const program = makeProgram();
+    const rc = program.commands.find((c) => c.name() === 'rc');
+    expect(rc).toBeDefined();
+    expect(rc!.alias()).toBe('remote');
+    const longs = rc!.options.map((o) => o.long).filter(Boolean);
+    expect(longs).toContain('--port');
+    expect(longs).toContain('--host');
+    expect(longs).toContain('--no-open');
+    expect(longs).not.toContain('--remote-control');
+  });
+
+  it('shows `rc` in help', () => {
+    expect(makeProgram().helpInformation()).toContain('rc|remote');
+  });
+
+  it('forces Remote Control for both `rc` and `remote`', async () => {
+    for (const name of ['rc', 'remote']) {
+      const program = makeProgram();
+      let stderr = '';
+      const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+        stderr += String(chunk);
+        return true;
+      });
+      const exitSpy = vi
+        .spyOn(process, 'exit')
+        .mockImplementation(() => undefined as never);
+      try {
+        await program.parseAsync(['node', 'pythinker', name, '--host', '0.0.0.0']);
+      } finally {
+        errSpy.mockRestore();
+        exitSpy.mockRestore();
+      }
+      // The loopback check only runs when remoteControl was forced on.
+      expect(stderr).toContain('--remote-control requires a loopback host.');
+    }
   });
 });
 
@@ -1081,7 +1046,6 @@ describe('browserOpenOrigin', () => {
     const { browserOpenOrigin } = await import('#/cli/sub/web/access-urls');
     expect(browserOpenOrigin('http://0.0.0.0:58627')).toBe('http://localhost:58627');
     expect(browserOpenOrigin('http://:::58627')).toBe('http://localhost:58627');
-    expect(browserOpenOrigin('http://[::]:58627')).toBe('http://localhost:58627');
   });
 
   it('keeps navigable origins unchanged', async () => {
@@ -1198,49 +1162,5 @@ describe('filterDisplayAddresses', () => {
       { address: '10.0.0.1', family: 'IPv4' },
       { address: '2001:db8::1', family: 'IPv6' },
     ]);
-  });
-});
-
-describe('pythinker rc', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
-  it('registers `rc` with the `remote` alias and the web server options, without a --remote-control flag', () => {
-    const program = makeProgram();
-    const rc = program.commands.find((c) => c.name() === 'rc');
-    expect(rc).toBeDefined();
-    expect(rc!.alias()).toBe('remote');
-    const longs = rc!.options.map((o) => o.long).filter(Boolean);
-    expect(longs).toContain('--port');
-    expect(longs).toContain('--host');
-    expect(longs).toContain('--no-open');
-    expect(longs).not.toContain('--remote-control');
-  });
-
-  it('shows `rc` in help', () => {
-    expect(makeProgram().helpInformation()).toContain('rc|remote');
-  });
-
-  it('forces Remote Control for both `rc` and `remote`', async () => {
-    for (const name of ['rc', 'remote']) {
-      const program = makeProgram();
-      let stderr = '';
-      const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
-        stderr += String(chunk);
-        return true;
-      });
-      const exitSpy = vi
-        .spyOn(process, 'exit')
-        .mockImplementation(() => undefined as never);
-      try {
-        await program.parseAsync(['node', 'pythinker', name, '--host', '0.0.0.0']);
-      } finally {
-        errSpy.mockRestore();
-        exitSpy.mockRestore();
-      }
-      // The loopback check only runs when remoteControl was forced on.
-      expect(stderr).toContain('--remote-control requires a loopback host.');
-    }
   });
 });

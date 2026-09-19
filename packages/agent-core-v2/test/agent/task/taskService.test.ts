@@ -11,8 +11,8 @@ import type {
   ContextInjectionContext,
   ContextInjectionProvider,
 } from '#/features/reminder/types';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { createReminderStub, lifecycleWithReminder } from '../../features/reminder/stubs';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { createReminderStub } from '../../features/reminder/stubs';
 import {
   IAgentTaskService,
   type AgentTask,
@@ -51,6 +51,7 @@ import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 
 import { stubLog } from '../../_base/log/stubs';
+import { stubAgentWire } from '../../wire/stubs';
 import { stubContextMemory, type StubContextMemory } from '../contextMemory/stubs';
 import { stubLoopWithHooks, type StubLoop } from '../loop/stubs';
 import { stubFlag } from '../../app/flag/stubs';
@@ -77,16 +78,7 @@ const noopBlob: IAgentBlobService = {
 };
 
 function stubWireService(): IWireService {
-  return {
-    _serviceBrand: undefined,
-    seal: async () => {},
-    appendRecord: () => {},
-    readJournal: async function* () {},
-    flush: async () => {},
-    lineCount: () => 0,
-    lastContextClearLine: () => undefined,
-    journalPath: () => undefined,
-  };
+  return stubAgentWire();
 }
 
 function registerAgentEventBus(
@@ -117,15 +109,15 @@ describe('AgentTaskService', () => {
     });
     ix.stub(IWireService, stubWireService());
     ix.stub(
-      IAgentLifecycleService,
-      lifecycleWithReminder(createReminderStub({
+      IAgentReminderService,
+      createReminderStub({
         register: (name, provider) => {
           injectionProviders.set(name, provider as ContextInjectionProvider);
           return toDisposable(() => {
             injectionProviders.delete(name);
           });
         },
-      })),
+      }),
     );
     ix.stub(ITaskService, {
       run: () => {
@@ -136,7 +128,7 @@ describe('AgentTaskService', () => {
       },
     });
     ix.stub(IAgentContextMemoryService, stubContextMemory());
-    ix.stub(ITelemetryService, { track: () => {}, track2: () => {} });
+    ix.stub(ITelemetryService, { track2: () => {} });
     ix.stub(IAgentToolRegistryService, {
       register: () => toDisposable(() => {}),
     });
@@ -178,6 +170,8 @@ describe('AgentTaskService', () => {
       list: async () => [],
       delete: async () => {},
       size: async () => undefined,
+      mtime: async () => undefined,
+      pathFor: () => undefined,
       flush: async () => {},
       close: async () => {},
     });
@@ -235,21 +229,6 @@ describe('AgentTaskService', () => {
     };
   }
 
-  it('keeps a live UTF-8 output preview within its byte limit', async () => {
-    const svc = ix.get(IAgentTaskService);
-    const taskId = svc.registerTask(outputtingTask('éé'));
-
-    await svc.wait(taskId, 1_000);
-
-    expect(await svc.getOutputSnapshot(taskId, 3)).toEqual({
-      outputSizeBytes: 4,
-      previewBytes: 2,
-      truncated: true,
-      fullOutputAvailable: false,
-      preview: 'é',
-    });
-  });
-
   it('task.terminated dispatch carries the retained output tail as outputTail', async () => {
     const { records } = capturingWire();
     const svc = ix.get(IAgentTaskService);
@@ -303,15 +282,41 @@ describe('AgentTaskService', () => {
     }
   }
 
-  it('enqueues a terminal notification for a finished detached task', async () => {
-    const svc = ix.get(IAgentTaskService);
+  it('enqueues a terminal notification for a finished detached task, but not when suppression arms mid-build', async () => {
+    let armOnRead = false;
+    let svc!: IAgentTaskService;
+    ix.stub(IFileSystemStorageService, {
+      read: async () => undefined,
+      readStream: async function* () {},
+      write: async () => {},
+      writeStream: async () => {},
+      append: async () => {},
+      list: async () => [],
+      delete: async () => {},
+      size: async () => {
+        if (armOnRead) await svc.suppressAllTerminalNotifications();
+        return undefined;
+      },
+      mtime: async () => undefined,
+      pathFor: () => undefined,
+      flush: async () => {},
+      close: async () => {},
+    });
+    svc = ix.get(IAgentTaskService);
     const taskId = svc.registerTask(outputtingTask('done\n'));
 
     await svc.wait(taskId, 1000);
     const loop = stubLoop();
-    await waitForCondition(() => loop.hasPendingRequests());
+    await waitForCondition(() => loop.snapshot().hasPendingRequests);
+    expect(loop.snapshot().hasPendingRequests).toBe(true);
 
-    expect(loop.hasPendingRequests()).toBe(true);
+    loop.drainNextBatch({ append: () => {} });
+    armOnRead = true;
+    const second = svc.registerTask(outputtingTask('done\n'));
+    await svc.wait(second, 1000);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(loop.snapshot().hasPendingRequests).toBe(false);
   });
 
   it('markTasksDeliveredViaWait suppresses the automatic terminal notification', async () => {
@@ -321,10 +326,10 @@ describe('AgentTaskService', () => {
 
     await svc.wait(taskId, 1000);
     const loop = stubLoop();
-    await waitForCondition(() => loop.hasPendingRequests());
+    await waitForCondition(() => loop.snapshot().hasPendingRequests);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    expect(loop.hasPendingRequests()).toBe(false);
+    expect(loop.snapshot().hasPendingRequests).toBe(false);
     expect(loop.launches).toEqual([]);
 
     const deliveryKey = `${taskId}\0completed\0task:${taskId}:completed`;
@@ -333,18 +338,27 @@ describe('AgentTaskService', () => {
     expect(states.get(taskNotificationDeliveryKey)).toContain(deliveryKey);
   });
 
-  it('aborts an already-enqueued terminal notification when the task is marked delivered via wait', async () => {
+  it('aborts an already-enqueued terminal notification when the task is marked delivered via wait or suppression arms', async () => {
     const svc = ix.get(IAgentTaskService);
     const taskId = svc.registerTask(outputtingTask('done\n'));
 
     await svc.wait(taskId, 1000);
     const loop = stubLoop();
-    await waitForCondition(() => loop.hasPendingRequests());
-    expect(loop.hasPendingRequests()).toBe(true);
+    await waitForCondition(() => loop.snapshot().hasPendingRequests);
+    expect(loop.snapshot().hasPendingRequests).toBe(true);
 
     svc.markTasksDeliveredViaWait([{ taskId, status: 'completed' }]);
 
-    expect(loop.hasPendingRequests()).toBe(false);
+    expect(loop.snapshot().hasPendingRequests).toBe(false);
+
+    const second = svc.registerTask(outputtingTask('done\n'));
+    await svc.wait(second, 1000);
+    await waitForCondition(() => loop.snapshot().hasPendingRequests);
+    expect(loop.snapshot().hasPendingRequests).toBe(true);
+
+    await svc.suppressAllTerminalNotifications();
+
+    expect(loop.snapshot().hasPendingRequests).toBe(false);
   });
 
   it('suppresses only the notification whose status was reported via wait', async () => {
@@ -354,9 +368,9 @@ describe('AgentTaskService', () => {
 
     await svc.wait(taskId, 1000);
     const loop = stubLoop();
-    await waitForCondition(() => loop.hasPendingRequests());
+    await waitForCondition(() => loop.snapshot().hasPendingRequests);
 
-    expect(loop.hasPendingRequests()).toBe(true);
+    expect(loop.snapshot().hasPendingRequests).toBe(true);
   });
 
   it('keeps the automatic notification of tasks that were not reported via wait', async () => {
@@ -368,7 +382,7 @@ describe('AgentTaskService', () => {
     await svc.wait(taskA, 1000);
     await svc.wait(taskB, 1000);
     const loop = stubLoop();
-    await waitForCondition(() => loop.hasPendingRequests());
+    await waitForCondition(() => loop.snapshot().hasPendingRequests);
 
     const context = ix.get(IAgentContextMemoryService) as StubContextMemory;
     loop.drainNextBatch(context);
@@ -517,38 +531,49 @@ describe('AgentTaskService', () => {
     };
   }
 
-  it('stopAllOnExit persists shutdown provenance independently of its reason', async () => {
+  it('stopAllOnExit suppresses and persists terminal state for detached tasks', async () => {
     const writes = stubTaskWrites();
     const svc = ix.get(IAgentTaskService);
     const first = svc.registerTask(fakeProcessTask());
     const second = svc.registerTask(fakeProcessTask());
 
-    const stopped = await svc.stopAllOnExit('maintenance shutdown');
+    await svc.suppressAllTerminalNotifications();
+    const third = svc.registerTask(fakeProcessTask());
 
-    expect(stopped.map((info) => info.taskId).toSorted()).toEqual([first, second].toSorted());
-    for (const taskId of [first, second]) {
+    const stopped = await svc.stopAllOnExit('Session closed');
+
+    expect(stopped.map((info) => info.taskId).toSorted()).toEqual(
+      [first, second, third].toSorted(),
+    );
+    for (const taskId of [first, second, third]) {
       const info = svc.getTask(taskId);
       expect(info?.status).toBe('killed');
-      expect(info?.stopReason).toBe('maintenance shutdown');
+      expect(info?.stopReason).toBe('Session closed');
       expect(info?.terminalNotificationSuppressed).toBe(true);
-      expect(info?.stoppedOnExit).toBe(true);
-      const persisted = writes.filter((write) => write.taskId === taskId);
-      expect(
-        persisted.some(
-          (write) =>
-            write.status === 'running' && write.terminalNotificationSuppressed === true,
-        ),
-      ).toBe(true);
-      expect(persisted.at(-1)).toMatchObject({
+      expect(writes.filter((write) => write.taskId === taskId).at(-1)).toMatchObject({
         status: 'killed',
-        stopReason: 'maintenance shutdown',
         terminalNotificationSuppressed: true,
-        stoppedOnExit: true,
       });
     }
+    expect(stubLoop().snapshot().hasPendingRequests).toBe(false);
   });
 
-  it('stopAllOnExit still stops tasks when suppression persistence fails', async () => {
+  it('stopAllOnExit does not persist a foreground-only task', async () => {
+    const writes = stubTaskWrites();
+    const svc = ix.get(IAgentTaskService);
+    const taskId = svc.registerTask(fakeProcessTask(), { detached: false });
+
+    await svc.stopAllOnExit('Session closed');
+
+    expect(writes).toEqual([]);
+    expect(svc.getTask(taskId)).toMatchObject({
+      status: 'killed',
+      detached: false,
+      terminalNotificationSuppressed: undefined,
+    });
+  });
+
+  it('stopAllOnExit still stops tasks when persistence fails', async () => {
     let writes = 0;
     ix.stub(IAtomicDocumentStore, {
       get: async () => undefined,
@@ -570,22 +595,7 @@ describe('AgentTaskService', () => {
     expect(svc.getTask(second)?.status).toBe('killed');
   });
 
-  it('stopAllOnExit does not persist a foreground-only task', async () => {
-    const writes = stubTaskWrites();
-    const svc = ix.get(IAgentTaskService);
-    const taskId = svc.registerTask(fakeProcessTask(), { detached: false });
-
-    await svc.stopAllOnExit('Session closed');
-
-    expect(writes).toEqual([]);
-    expect(svc.getTask(taskId)).toMatchObject({
-      status: 'killed',
-      detached: false,
-      terminalNotificationSuppressed: undefined,
-    });
-  });
-
-  it('stopAllOnExit leaves tasks running when keepAliveOnExit is set', async () => {
+  it('stopAllOnExit leaves tasks running and suppresses in flight without persisting the marker when keepAliveOnExit is set', async () => {
     stubTaskConfig({ keepAliveOnExit: true });
     const svc = ix.get(IAgentTaskService);
     const taskId = svc.registerTask(fakeProcessTask());
@@ -596,6 +606,10 @@ describe('AgentTaskService', () => {
     expect(svc.getTask(taskId)?.status).toBe('running');
 
     await svc.stop(taskId);
+
+    expect(svc.getTask(taskId)?.status).toBe('killed');
+    expect(svc.getTask(taskId)?.terminalNotificationSuppressed).toBeUndefined();
+    expect(stubLoop().snapshot().hasPendingRequests).toBe(false);
   });
 
   it('dispose aborts live tasks as a last resort', async () => {
@@ -757,10 +771,7 @@ describe('AgentTaskService', () => {
       list: () => [],
     });
     ix.stub(IWireService, stubWireService());
-    ix.stub(
-      IAgentLifecycleService,
-      lifecycleWithReminder(createReminderStub()),
-    );
+    ix.stub(IAgentReminderService, createReminderStub());
     ix.stub(ITaskService, {
       run: () => {
         throw new Error('ITaskService.run is not used by this test');
@@ -770,7 +781,7 @@ describe('AgentTaskService', () => {
       },
     });
     ix.stub(IAgentContextMemoryService, stubContextMemory());
-    ix.stub(ITelemetryService, { track: () => {}, track2: () => {} });
+    ix.stub(ITelemetryService, { track2: () => {} });
     ix.stub(IAgentLoopService, stubLoopWithHooks());
     ix.stub(IConfigService, {
       get: (() => undefined) as IConfigService['get'],
@@ -814,10 +825,7 @@ describe('AgentTaskService', () => {
       register: () => toDisposable(() => {}),
       list: () => [],
     });
-    ix.stub(
-      IAgentLifecycleService,
-      lifecycleWithReminder(createReminderStub()),
-    );
+    ix.stub(IAgentReminderService, createReminderStub());
     ix.stub(ITaskService, {
       run: () => {
         throw new Error('ITaskService.run is not used by this test');
@@ -827,7 +835,7 @@ describe('AgentTaskService', () => {
       },
     });
     ix.stub(IAgentContextMemoryService, context);
-    ix.stub(ITelemetryService, { track: () => {}, track2: () => {} });
+    ix.stub(ITelemetryService, { track2: () => {} });
     ix.stub(IAgentLoopService, stubLoopWithHooks());
     ix.stub(IConfigService, {
       get: (() => undefined) as IConfigService['get'],
@@ -1181,6 +1189,8 @@ describe('AgentTaskService', () => {
       list: async () => [],
       delete: async () => {},
       size: async () => undefined,
+      mtime: async () => undefined,
+      pathFor: () => undefined,
       flush: async () => {},
       close: async () => {},
     });

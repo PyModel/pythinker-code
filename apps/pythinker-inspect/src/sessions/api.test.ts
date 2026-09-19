@@ -67,7 +67,7 @@ describe('fetchV2SessionsPage', () => {
   it('serializes filters as repeated query params and maps items to camelCase', async () => {
     const { calls, fetchImpl } = fakeFetch(200, okBody(pageData));
     const page = await fetchV2SessionsPage({
-      baseUrl: 'http://h:1',
+      baseUrl: 'http://127.0.0.1:1',
       token: 'tok',
       workspaceIds: ['ws1', 'ws2'],
       statuses: ['approval', 'question'],
@@ -82,7 +82,7 @@ describe('fetchV2SessionsPage', () => {
 
     expect(calls).toHaveLength(1);
     const url = new URL(calls[0]!.url);
-    expect(`${url.origin}${url.pathname}`).toBe('http://h:1/api/v2/sessions');
+    expect(`${url.origin}${url.pathname}`).toBe('http://127.0.0.1:1/api/v2/sessions');
     expect(url.searchParams.getAll('workspace.id')).toEqual(['ws1', 'ws2']);
     expect(url.searchParams.getAll('activity.status')).toEqual(['approval', 'question']);
     expect(url.searchParams.get('meta.updated_after')).toBe('1700000000000');
@@ -118,8 +118,8 @@ describe('fetchV2SessionsPage', () => {
 
   it('omits the query string and authorization header when nothing is set', async () => {
     const { calls, fetchImpl } = fakeFetch(200, okBody(pageData));
-    await fetchV2SessionsPage({ baseUrl: 'http://h:1', fetchImpl });
-    expect(calls[0]!.url).toBe('http://h:1/api/v2/sessions');
+    await fetchV2SessionsPage({ baseUrl: 'http://127.0.0.1:1', fetchImpl });
+    expect(calls[0]!.url).toBe('http://127.0.0.1:1/api/v2/sessions');
     expect(calls[0]!.init?.headers).toEqual({});
   });
 
@@ -139,7 +139,7 @@ describe('fetchV2SessionsPage', () => {
         ],
       }),
     );
-    const page = await fetchV2SessionsPage({ baseUrl: 'http://h:1', includeGit: true, fetchImpl });
+    const page = await fetchV2SessionsPage({ baseUrl: 'http://127.0.0.1:1', includeGit: true, fetchImpl });
     expect(page.items[0]!.git?.pullRequest).toEqual({
       number: 7,
       state: 'open',
@@ -150,27 +150,27 @@ describe('fetchV2SessionsPage', () => {
   it('throws the envelope code/msg on a business failure (2xx with code != 0)', async () => {
     const { fetchImpl } = fakeFetch(200, errBody(40922, 'page_token is corrupted'));
     await expect(
-      fetchV2SessionsPage({ baseUrl: 'http://h:1', pageToken: 'bad', fetchImpl }),
+      fetchV2SessionsPage({ baseUrl: 'http://127.0.0.1:1', pageToken: 'bad', fetchImpl }),
     ).rejects.toThrow(/40922.*page_token is corrupted/);
   });
 
   it('throws the envelope code/msg on a non-2xx response (e.g. 401 from the auth hook)', async () => {
     const { fetchImpl } = fakeFetch(401, errBody(40101, 'unauthorized'));
-    await expect(fetchV2SessionsPage({ baseUrl: 'http://h:1', fetchImpl })).rejects.toThrow(
+    await expect(fetchV2SessionsPage({ baseUrl: 'http://127.0.0.1:1', fetchImpl })).rejects.toThrow(
       /40101.*unauthorized/,
     );
   });
 
   it('falls back to the HTTP status when the error body is malformed', async () => {
     const { fetchImpl } = fakeFetch(500, null);
-    await expect(fetchV2SessionsPage({ baseUrl: 'http://h:1', fetchImpl })).rejects.toThrow(
+    await expect(fetchV2SessionsPage({ baseUrl: 'http://127.0.0.1:1', fetchImpl })).rejects.toThrow(
       /http_500/,
     );
   });
 
   it('throws on a malformed success payload', async () => {
     const { fetchImpl } = fakeFetch(200, okBody({ has_more: false }));
-    await expect(fetchV2SessionsPage({ baseUrl: 'http://h:1', fetchImpl })).rejects.toThrow(
+    await expect(fetchV2SessionsPage({ baseUrl: 'http://127.0.0.1:1', fetchImpl })).rejects.toThrow(
       /unexpected response shape/,
     );
   });
@@ -201,7 +201,7 @@ describe('fetchV2SessionGroups', () => {
   it('requests the by_workspace view and parses groups with per-group totals', async () => {
     const { calls, fetchImpl } = fakeFetch(200, okBody(groupData));
     const page = await fetchV2SessionGroups({
-      baseUrl: 'http://h:1',
+      baseUrl: 'http://127.0.0.1:1',
       token: 'tok',
       statuses: ['running'],
       sort: 'meta.updated_at_asc',
@@ -230,11 +230,11 @@ describe('fetchV2SessionGroups', () => {
 
   it('omits group.page_size when not set and throws on a malformed success payload', async () => {
     const { calls, fetchImpl } = fakeFetch(200, okBody(groupData));
-    await fetchV2SessionGroups({ baseUrl: 'http://h:1', fetchImpl });
+    await fetchV2SessionGroups({ baseUrl: 'http://127.0.0.1:1', fetchImpl });
     expect(new URL(calls[0]!.url).searchParams.get('group.page_size')).toBeNull();
 
     const { fetchImpl: broken } = fakeFetch(200, okBody({ has_more: false }));
-    await expect(fetchV2SessionGroups({ baseUrl: 'http://h:1', fetchImpl: broken })).rejects.toThrow(
+    await expect(fetchV2SessionGroups({ baseUrl: 'http://127.0.0.1:1', fetchImpl: broken })).rejects.toThrow(
       /unexpected response shape/,
     );
   });

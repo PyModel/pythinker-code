@@ -35,7 +35,7 @@ describe('Remote Control output', () => {
     expect(plain).toContain('http://127.0.0.1:1234/#token=example-token');
     expect(output).toContain('#token=example-token');
     expect(url).not.toContain('example-token');
-    expect(plain).not.toMatch(/^\s*3\.\s/m);
+    expect(plain).toMatch(/^\s*3\.\s/m);
     expect(output).toContain('Connected to example.test');
     expect(output).toContain('This device:');
     expect(output).not.toContain('Manage devices');

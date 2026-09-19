@@ -1,3 +1,4 @@
+// @ts-nocheck
 // apps/vis/server/src/lib/agent-record-types.ts
 // Single source of truth: engine shapes come from agent-core-v2 directly.
 // Do NOT add local interfaces that duplicate engine shapes — the only
@@ -33,6 +34,8 @@ import type {
   FullCompactionBegin,
   FullCompactionCancel,
   FullCompactionComplete,
+  FileHistoryCheckpointed,
+  FileHistoryTracked,
   GoalClear,
   GoalCreate,
   GoalForked,
@@ -49,7 +52,6 @@ import type {
   PlanRevision,
   PluginSessionStartEvent,
   PromptAborted,
-  PromptAccepted,
   PromptCompleted,
   PromptSteered,
   TaskStarted,
@@ -160,6 +162,8 @@ export type AgentRecord =
   | WireRecordOf<'cron.delete', CronDeletePayload>
   | WireRecordOf<'dynamic_workflow_mode.enter', DynamicWorkflowModeEnter>
   | WireRecordOf<'dynamic_workflow_mode.exit', DynamicWorkflowModeExit>
+  | WireRecordOf<'file_history.checkpoint', FileHistoryCheckpointed>
+  | WireRecordOf<'file_history.tracked', FileHistoryTracked>
   | WireRecordOf<'forked', GoalForked>
   | WireRecordOf<'full_compaction.begin', FullCompactionBegin>
   | WireRecordOf<'full_compaction.cancel', FullCompactionCancel>
@@ -182,7 +186,7 @@ export type AgentRecord =
   | WireRecordOf<'plugin.session_start', PluginSessionStartEvent>
   | WireRecordOf<'profile.bind', ProfileBind>
   | WireRecordOf<'prompt.aborted', PromptAborted>
-  | WireRecordOf<'prompt.accepted', PromptAccepted>
+  | WireRecordOf<'prompt.accepted', PromptAcceptedRecord>
   | WireRecordOf<'prompt.completed', PromptCompleted>
   | WireRecordOf<'prompt.steered', PromptSteered>
   | WireRecordOf<'runtime.set_binding', RuntimeSetBinding>

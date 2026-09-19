@@ -1,5 +1,13 @@
 # @pymodel/agent-gateway
 
+## 0.2.3
+
+### Patch Changes
+
+- Updated dependencies [[`f143130`](https://github.com/PyModel/pythinker-code/commit/f143130c072e9dba8d60ef40c49d4305b93ab2fe)]:
+  - @pymodel/agent-core-v2@0.4.2
+  - @pymodel/transcript@0.0.2
+
 ## 0.2.2
 
 ### Patch Changes

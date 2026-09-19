@@ -186,7 +186,7 @@ describe('server /api/v2/mcp', () => {
     }
   });
 
-  async function boot(stub: McpStub, enabled = true): Promise<void> {
+  async function boot(stub: McpStub): Promise<void> {
     home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-mcp-'));
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
@@ -194,9 +194,6 @@ describe('server /api/v2/mcp', () => {
       port: 0,
       homeDir: home,
       logLevel: 'silent',
-      env: enabled
-        ? { PYTHINKER_CODE_EXPERIMENTAL_MCP_MANAGEMENT: '1' }
-        : { PYTHINKER_CODE_EXPERIMENTAL_MCP_MANAGEMENT: '0' },
       seeds: [[IMcpManagementService, stub.service]],
     });
     base = `http://127.0.0.1:${server.port}`;
@@ -216,31 +213,6 @@ describe('server /api/v2/mcp', () => {
   }
 
   describe('routes', () => {
-    it('does not register the management routes while the flag is disabled', async () => {
-      const stub = makeMcpStub();
-      await boot(stub, false);
-
-      const response = await call('GET', '/api/v2/mcp/servers');
-
-      expect(response.status).toBe(404);
-      expect(stub.calls).toEqual([]);
-    });
-
-    it('shares one rate limit across MCP authentication routes by source', async () => {
-      const stub = makeMcpStub();
-      await boot(stub);
-
-      for (let index = 0; index < 15; index += 1) {
-        const status = await call('GET', '/api/v2/mcp/auth-statuses?verify=false');
-        expect(status.status).toBe(200);
-        const cancel = await call('POST', '/api/v2/mcp/auth:cancel', { flowId: 'flow-1' });
-        expect(cancel.status).toBe(200);
-      }
-      const limited = await call('GET', '/api/v2/mcp/auth-statuses?verify=false');
-      expect(limited.status).toBe(429);
-      expect(limited.body.code).toBe(42901);
-    });
-
     it('round-trips a server through add/get/update/remove', async () => {
       const stub = makeMcpStub();
       await boot(stub);

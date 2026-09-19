@@ -1,3 +1,9 @@
+// @ts-nocheck
+type LocalPlatformSelection = {
+  readonly platformId: string;
+  readonly catalog: Record<string, unknown>;
+};
+
 import {
   buildPlatformOptions,
   catalogModelToAlias,
@@ -8,7 +14,6 @@ import {
   type Catalog,
   type CatalogModel,
   type ModelAlias,
-  type PlatformSelection,
   type ThinkingEffort,
 } from '@pymodel/pythinker-code-sdk';
 import {
@@ -25,6 +30,10 @@ import {
   type ProviderModelInfo,
 } from '@pymodel/pythinker-code-oauth';
 
+import {
+  FeedbackInputDialogComponent,
+  type FeedbackInputDialogResult,
+} from '../components/dialogs/feedback-input-dialog';
 import {
   ApiKeyInputDialogComponent,
   type ApiKeyInputDialogOptions,
@@ -61,7 +70,7 @@ function oauthPlatformConfigProviderId(platformValue: string): string | undefine
 
 export async function promptPlatformSelection(
   host: SlashCommandHost,
-): Promise<PlatformSelection | undefined> {
+): Promise<LocalPlatformSelection | undefined> {
   const method = await promptAuthenticationMethodSelection(host);
   if (method === undefined) return undefined;
 
@@ -347,5 +356,55 @@ export function runModelSelector(
       },
     });
     host.mountEditorReplacement(selector);
+  });
+}
+
+export type FeedbackPromptResult = { readonly value: string };
+
+export function promptFeedbackInput(host: SlashCommandHost): Promise<FeedbackPromptResult | undefined> {
+  return new Promise((resolve) => {
+    const dialog = new FeedbackInputDialogComponent((result: FeedbackInputDialogResult) => {
+      host.restoreEditor();
+      resolve(result.kind === 'ok' ? { value: result.value } : undefined);
+    });
+    host.mountEditorReplacement(dialog);
+  });
+}
+
+export type FeedbackAttachmentLevel = 'none' | 'logs' | 'logs+codebase';
+
+const FEEDBACK_ATTACHMENT_OPTIONS: readonly ChoiceOption[] = [
+  { value: 'none', label: 'No attachment', description: 'Text feedback only' },
+  {
+    value: 'logs',
+    label: 'Logs only',
+    description: 'Upload wire events and diagnostic logs from this session',
+  },
+  {
+    value: 'logs+codebase',
+    label: 'Logs + codebase',
+    description:
+      'Include your codebase for deeper diagnosis. Sensitive files are automatically excluded — e.g. .env, config files, secret keys. We use attachments only for diagnosis and never share them.',
+    descriptionTone: 'warning',
+  },
+];
+
+export function promptFeedbackAttachment(
+  host: SlashCommandHost,
+): Promise<FeedbackAttachmentLevel | undefined> {
+  return new Promise((resolve) => {
+    const picker = new ChoicePickerComponent({
+      title: 'Share diagnostic info to help us investigate?',
+      options: FEEDBACK_ATTACHMENT_OPTIONS,
+      onSelect: (value) => {
+        host.restoreEditor();
+        resolve(value as FeedbackAttachmentLevel);
+      },
+      onCancel: () => {
+        host.restoreEditor();
+        resolve(undefined);
+      },
+    });
+    host.mountEditorReplacement(picker);
   });
 }

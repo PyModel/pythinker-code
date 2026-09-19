@@ -1,12 +1,8 @@
-import {
-  createRPC,
-  ErrorCodes,
-  PythinkerError,
-  parseConfigString,
-  resolveConfigPath,
-  type RPCMethods,
-} from '@pymodel/agent-core';
+import { resolveConfigPath } from '@pymodel/agent-core-v2';
 import { z } from 'zod';
+
+import { parseConfigString } from '#/config/index';
+import { ErrorCodes, PythinkerError } from '#/errors';
 
 export type PythinkerConfigValidationPathSegment = string | number;
 
@@ -30,19 +26,12 @@ export interface PythinkerConfigRpc {
   validateConfigToml(input: ValidatePythinkerConfigTomlInput): Promise<void>;
 }
 
-interface PythinkerConfigCoreRpc {
-  resolveConfigPath(input: ResolvePythinkerConfigPathInput): string;
-  validateConfigToml(input: ValidatePythinkerConfigTomlInput): void;
-}
-
-interface PythinkerConfigClientRpc {}
-
-class PythinkerConfigCoreRpcImpl implements PythinkerConfigCoreRpc {
-  resolveConfigPath(input: ResolvePythinkerConfigPathInput): string {
+export class PythinkerConfigRpcClient implements PythinkerConfigRpc {
+  async resolveConfigPath(input: ResolvePythinkerConfigPathInput = {}): Promise<string> {
     return resolveConfigPath(input);
   }
 
-  validateConfigToml(input: ValidatePythinkerConfigTomlInput): void {
+  async validateConfigToml(input: ValidatePythinkerConfigTomlInput): Promise<void> {
     try {
       parseConfigString(input.text, input.filePath);
     } catch (error) {
@@ -52,26 +41,6 @@ class PythinkerConfigCoreRpcImpl implements PythinkerConfigCoreRpc {
       }
       throw error;
     }
-  }
-}
-
-export class PythinkerConfigRpcClient implements PythinkerConfigRpc {
-  private readonly ready: Promise<RPCMethods<PythinkerConfigCoreRpc>>;
-
-  constructor() {
-    const [coreRpc, clientRpc] = createRPC<PythinkerConfigCoreRpc, PythinkerConfigClientRpc>();
-    void coreRpc(new PythinkerConfigCoreRpcImpl());
-    this.ready = clientRpc({});
-  }
-
-  async resolveConfigPath(input: ResolvePythinkerConfigPathInput = {}): Promise<string> {
-    const rpc = await this.ready;
-    return rpc.resolveConfigPath(input);
-  }
-
-  async validateConfigToml(input: ValidatePythinkerConfigTomlInput): Promise<void> {
-    const rpc = await this.ready;
-    await rpc.validateConfigToml(input);
   }
 }
 

@@ -2,7 +2,7 @@
  * Scenario: the VS Code host and another Node SDK client share one in-process Pythinker home.
  * Responsibilities: outbound host identity, config/session interoperability, MCP credential/edit compatibility, and terminal provider failures.
  * Wiring: PythinkerRuntime, PythinkerHarness, core, storage, and HTTP provider adapter are real; only the remote provider is local.
- * Run: pnpm --filter pythinker exec vitest run test/pythinker-harness.integration.test.ts
+ * Run: pnpm --filter pythinker-code exec vitest run test/pythinker-harness.integration.test.ts
  */
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -71,10 +71,10 @@ interface RuntimeRig {
 }
 
 interface McpHandlerRig {
+  readonly homeDir: string;
   readonly harness: PythinkerHarness;
   readonly broadcasts: BroadcastRecord[];
   readonly logs: LogRecord[];
-  readonly listOptions: Array<{ cwd?: string }>;
 }
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -140,13 +140,10 @@ async function createRuntimeRig(extraAliases: readonly string[] = []): Promise<R
 }
 
 async function createPlainHarness(homeDir: string): Promise<PythinkerHarness> {
+  process.env["PYTHINKER_CODE_EXPERIMENTAL_MCP_MANAGEMENT"] = "1";
   const harness = createPythinkerHarness({
     homeDir,
-    identity: {
-      productName: "pythinker-code-cli",
-      version: "test",
-      platform: "pythinker_code_cli",
-    },
+    identity: { productName: "pythinker-code-cli", version: "test", platform: "pythinker_code_cli" },
   });
   cleanups.push(() => harness.close());
   return harness;
@@ -156,33 +153,9 @@ async function createMcpHandlerRig(): Promise<McpHandlerRig> {
   const homeDir = await mkdtemp(join(tmpdir(), "pythinker-vscode-mcp-handler-"));
   cleanups.push(() => rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const harness = await createPlainHarness(homeDir);
-  const servers: any[] = [];
-  const listOptions: Array<{ cwd?: string }> = [];
-  (harness as any).listMcpServers = async (options: { cwd?: string } = {}) => {
-    listOptions.push(options);
-    return [...servers];
-  };
-  (harness as any).addMcpServer = async (server: any) => {
-    servers.push(server);
-    return [...servers];
-  };
-  (harness as any).updateMcpServer = async (server: any) => {
-    const idx = servers.findIndex((s) => s.name === server.name);
-    if (idx >= 0) servers[idx] = server;
-    else servers.push(server);
-    return [...servers];
-  };
-  (harness as any).removeMcpServer = async (name: string) => {
-    const idx = servers.findIndex((s) => s.name === name);
-    if (idx >= 0) servers.splice(idx, 1);
-    return [...servers];
-  };
-  (harness as any).authenticateMcpServer = async () => {};
-  (harness as any).resetMcpServerAuth = async () => {};
-  (harness as any).testMcpServer = async () => ({ success: true, output: "ok" });
   const broadcasts: BroadcastRecord[] = [];
   const logs: LogRecord[] = [];
-  return { harness, broadcasts, logs, listOptions };
+  return { homeDir, harness, broadcasts, logs };
 }
 
 async function updateMcpServer(
@@ -196,10 +169,29 @@ async function getMcpServers(rig: McpHandlerRig): Promise<MCPServerConfig[]> {
   return mcpHandlers[Methods.GetMCPServers]!(undefined, mcpHandlerContext(rig)) as Promise<MCPServerConfig[]>;
 }
 
+/**
+ * `harness.listMcpServers()` without the management-plane tags (`source` /
+ * `origin` / `mutable`) — these tests assert the stored config payload only.
+ */
+async function listStoredMcpServers(rig: McpHandlerRig): Promise<unknown[]> {
+  return (await rig.harness.listMcpServers()).map(
+    ({ source: _source, origin: _origin, mutable: _mutable, ...entry }) => entry,
+  );
+}
+
+/**
+ * The Webview payload minus the management-plane tags — most handler tests
+ * assert the config payload only; the tags have their own passthrough test.
+ */
+function stripMcpTags(servers: MCPServerConfig[]): unknown[] {
+  return servers.map(
+    ({ source: _source, origin: _origin, mutable: _mutable, ...entry }) => entry,
+  );
+}
+
 function mcpHandlerContext(rig: McpHandlerRig): HandlerContext {
   return {
     harness: rig.harness,
-    workDir: "/workspace",
     broadcast: (event: string, data: unknown, webviewId?: string) => {
       rig.broadcasts.push({ event, data, webviewId });
     },
@@ -240,7 +232,7 @@ support_efforts = ["low", "high"]
     `default_model = "${MODEL_ALIAS}"
 
 [providers.local]
-type = "openai"
+type = "pythinker"
 base_url = "${baseUrl}"
 api_key = "${PROVIDER_TOKEN}"
 
@@ -250,7 +242,9 @@ model = "mock-model"
 max_context_size = 128000
 ${extra}
 [loop_control]
+# The v1 engine reads max_retries_per_step; v2 renamed it to max_attempts_per_step.
 max_retries_per_step = 1
+max_attempts_per_step = 1
 `,
     "utf8",
   );
@@ -365,81 +359,33 @@ async function runSlash(
   raw: string,
   ctx = {} as HandlerContext,
 ): Promise<boolean> {
-  return (await startSlash(runtime, raw, ctx))();
-}
-
-/** Parses first and hands back the dispatch, for tests that assert on the busy flag. */
-async function startSlash(
-  runtime: SessionRuntime,
-  raw: string,
-  ctx = {} as HandlerContext,
-): Promise<() => Promise<boolean>> {
-  const command = await parseHostSlashCommand(raw, () => runtime.session.listSkills());
+  const command = await parseHostSlashCommand(raw);
   if (command === undefined) throw new Error(`Expected host slash command: ${raw}`);
-  return () => runHostSlashCommand(runtime, command, ctx);
+  return runHostSlashCommand(runtime, command, ctx);
 }
 
 describe("VS Code Pythinker harness integration (shares one in-process SDK home)", () => {
   it("only intercepts released slash commands and user-invoked skills", async () => {
-    await expect(parseHostSlashCommand("/plan on")).resolves.toEqual({
-      name: "plan",
-      args: "on",
-      raw: "/plan on",
-    });
-    await expect(parseHostSlashCommand(" /skill:review carefully ")).resolves.toEqual({
+    expect(await parseHostSlashCommand("/plan on")).toEqual({ name: "plan", args: "on", raw: "/plan on" });
+    expect(await parseHostSlashCommand(" /skill:review carefully ")).toEqual({
       name: "skill:review",
       args: "carefully",
       raw: "/skill:review carefully",
       skillName: "review",
     });
-    await expect(parseHostSlashCommand("/not-a-host-command")).resolves.toBeUndefined();
-    await expect(parseHostSlashCommand([{ type: "text", text: "/clear" }])).resolves.toBeUndefined();
+    expect(await parseHostSlashCommand("/not-a-host-command")).toBeUndefined();
+    expect(await parseHostSlashCommand([{ type: "text", text: "/clear" }])).toBeUndefined();
   });
 
-  it("degrades to the skill prefix when the skill catalog fails", async () => {
-    // The parser runs on every message starting with "/", and its caller in
-    // chat.handler awaits it outside any try block — a rejection here silently
-    // drops the user's message instead of sending it.
-    const listSkills = () => Promise.reject(new Error("engine unavailable"));
-
-    await expect(parseHostSlashCommand("/skill:review carefully", listSkills)).resolves.toEqual({
-      name: "skill:review",
-      args: "carefully",
-      raw: "/skill:review carefully",
-      skillName: "review",
-    });
-    await expect(parseHostSlashCommand("/plan on", listSkills)).resolves.toEqual({
-      name: "plan",
-      args: "on",
-      raw: "/plan on",
-    });
-    await expect(parseHostSlashCommand("/unknown-thing", listSkills)).resolves.toBeUndefined();
-  });
-
-  it("resolves a built-in skill invoked under its bare name", async () => {
-    const listSkills = async () => [
-      { name: "gen-changesets", description: "", path: "/s", source: "builtin", type: "prompt" },
-    ];
-
-    await expect(
-      parseHostSlashCommand("/gen-changesets", listSkills as never),
-    ).resolves.toMatchObject({ skillName: "gen-changesets" });
-    await expect(
-      parseHostSlashCommand("/still-not-a-command", listSkills as never),
-    ).resolves.toBeUndefined();
-  });
-
-  it("combines the released slash commands with the session's user-activatable skills", async () => {
+  it("combines the released slash commands with user-activatable workspace skills", async () => {
     const commands = await configHandlers[Methods.GetSlashCommands]!(undefined, {
-      getSession: () => ({
-        session: {
-          listSkills: async () => [
-            { name: "review", description: "Review changes", path: "/skills/review", source: "user", type: "prompt" },
-            { name: "reference-only", description: "Reference", path: "/skills/ref", source: "user", type: "reference" },
-            { name: "builtin-one", description: "Builtin", path: "/skills/b", source: "builtin", type: "prompt" },
-          ],
-        },
-      }),
+      workDir: "/workspace",
+      harness: {
+        listWorkspaceSkills: async () => [
+          { name: "review", description: "Review changes", path: "/skills/review", source: "user", type: "prompt" },
+          { name: "reference-only", description: "Reference", path: "/skills/ref", source: "user", type: "reference" },
+        ],
+      },
       logError: () => undefined,
     } as unknown as HandlerContext);
 
@@ -453,18 +399,35 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
       "add-dir",
       "export",
       "import",
-      "builtin-one",
       "skill:review",
     ]);
   });
 
-  it("falls back to the released commands when no session is open yet", async () => {
+  it("omits skills restricted to specific client scopes from the slash commands", async () => {
     const commands = await configHandlers[Methods.GetSlashCommands]!(undefined, {
-      getSession: () => undefined,
+      workDir: "/workspace",
+      harness: {
+        listWorkspaceSkills: async () => [
+          { name: "tui-only", description: "TUI only", path: "/skills/tui-only", source: "builtin", type: "inline", scopes: ["tui"] },
+          { name: "web-only", description: "Web only", path: "/skills/web-only", source: "builtin", type: "inline", scopes: ["web"] },
+          { name: "unrestricted", description: "Unrestricted", path: "/skills/unrestricted", source: "builtin", type: "inline" },
+        ],
+      },
       logError: () => undefined,
     } as unknown as HandlerContext);
 
-    expect((commands as Array<{ name: string }>).some((command) => command.name.startsWith("skill:"))).toBe(false);
+    expect((commands as Array<{ name: string }>).map((command) => command.name)).toEqual([
+      "init",
+      "compact",
+      "clear",
+      "yolo",
+      "auto",
+      "plan",
+      "add-dir",
+      "export",
+      "import",
+      "skill:unrestricted",
+    ]);
   });
 
   it("sends the package version in User-Agent when VS Code prompts the provider", async () => {
@@ -474,7 +437,9 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
     await expect(session.prompt("hello")).resolves.toEqual({ status: "finished" });
 
-    expect(rig.provider.requests[0]?.headers["user-agent"]).toMatch(/pythinker-code-vscode|OpenAI/);
+    expect(rig.provider.requests[0]?.headers["user-agent"]).toBe(
+      `pythinker-code-vscode/${rig.version}`,
+    );
   });
 
   it("reloads sequential config writes from either harness sharing one home", async () => {
@@ -492,7 +457,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
   it("masks credential-valued MCP fields at the Webview list boundary while leaving ordinary values visible", async () => {
     const rig = await createMcpHandlerRig();
-    await (rig.harness as any).addMcpServer({
+    await rig.harness.addMcpServer({
       name: "remote",
       transport: "http",
       url: "https://example.test/mcp",
@@ -503,7 +468,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
         "X-Workspace": "workspace-visible",
       },
     });
-    await (rig.harness as any).addMcpServer({
+    await rig.harness.addMcpServer({
       name: "local",
       transport: "stdio",
       command: "example-mcp",
@@ -515,7 +480,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
     const servers = await getMcpServers(rig);
 
-    expect(servers).toEqual([
+    expect(stripMcpTags(servers)).toEqual([
       {
         name: "remote",
         transport: "http",
@@ -540,34 +505,70 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
     expect(JSON.stringify(servers)).not.toMatch(/header-secret|cookie-secret|api-key-secret|env-secret/);
   });
 
-  it("lists MCP servers for the workspace and omits nested plugin origin details", async () => {
+  it("passes the management-plane tags through to the Webview payload", async () => {
     const rig = await createMcpHandlerRig();
-    await (rig.harness as any).addMcpServer({
-      name: "plugin-server",
-      transport: "stdio",
-      command: "example-mcp",
-      source: "plugin",
-      origin: "plugin",
-      mutable: false,
-      plugin: { id: "example-plugin" },
+    await rig.harness.addMcpServer({
+      name: "remote",
+      transport: "http",
+      url: "https://example.test/mcp",
     });
 
     const servers = await getMcpServers(rig);
 
-    expect(rig.listOptions).toContainEqual({ cwd: "/workspace" });
-    expect(servers).toEqual([{
-      name: "plugin-server",
-      transport: "stdio",
-      command: "example-mcp",
-      source: "plugin",
-      origin: "plugin",
-      mutable: false,
-    }]);
+    expect(servers).toEqual([
+      {
+        name: "remote",
+        transport: "http",
+        url: "https://example.test/mcp",
+        source: "global",
+        origin: join(rig.homeDir, "mcp.json"),
+        mutable: true,
+      },
+    ]);
+  });
+
+  it("keeps project-layer servers in the list refreshed after every mutation", async () => {
+    const rig = await createMcpHandlerRig();
+    const project = await mkdtemp(join(tmpdir(), "pythinker-vscode-mcp-project-"));
+    cleanups.push(() => rm(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+    await mkdir(join(project, ".git"), { recursive: true });
+    await writeFile(
+      join(project, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: { "project-api": { transport: "http", url: "https://example.test/project" } },
+      }),
+    );
+    const ctx = { ...mcpHandlerContext(rig), workDir: project } as HandlerContext;
+    const call = <T>(handler: string, params: unknown) =>
+      mcpHandlers[handler]!(params, ctx) as Promise<T>;
+
+    await rig.harness.trustWorkspace(project);
+
+    // The initial workspace-aware list shows the project entry as read-only,
+    // and every mutation's refreshed list keeps showing it (the mutation RPCs
+    // return a cwd-less list, so the handler must re-list with the workspace).
+    const assertList = (servers: MCPServerConfig[]): void => {
+      const projectEntry = servers.find((server) => server.name === "project-api");
+      expect(projectEntry).toMatchObject({ mutable: false, url: "https://example.test/project" });
+    };
+    assertList(await call(Methods.GetMCPServers, undefined));
+
+    const added = await call<MCPServerConfig[]>(Methods.AddMCPServer, {
+      name: "user-api",
+      transport: "http",
+      url: "https://example.test/user",
+    });
+    assertList(added);
+    assertList(rig.broadcasts.at(-1)!.data as MCPServerConfig[]);
+
+    const removed = await call<MCPServerConfig[]>(Methods.RemoveMCPServer, { name: "user-api" });
+    assertList(removed);
+    assertList(rig.broadcasts.at(-1)!.data as MCPServerConfig[]);
   });
 
   it("logs a failed MCP test without returning credential values to the Webview", async () => {
     const rig = await createMcpHandlerRig();
-    vi.spyOn(rig.harness as any, "testMcpServer").mockResolvedValue({
+    vi.spyOn(rig.harness, "testMcpServer").mockResolvedValue({
       success: false,
       output: [
         "spawn missing-mcp ENOENT",
@@ -593,7 +594,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
   it("preserves an unchanged masked HTTP credential without exposing it in the response or broadcast", async () => {
     const rig = await createMcpHandlerRig();
-    await (rig.harness as any).addMcpServer({
+    await rig.harness.addMcpServer({
       name: "remote",
       transport: "http",
       url: "https://old.example.test/mcp",
@@ -616,7 +617,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
       },
     });
 
-    expect(servers).toEqual([
+    expect(stripMcpTags(servers)).toEqual([
       {
         name: "remote",
         transport: "http",
@@ -630,7 +631,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
     expect(rig.broadcasts).toEqual([
       { event: Events.MCPServersChanged, data: servers, webviewId: undefined },
     ]);
-    await expect((rig.harness as any).listMcpServers()).resolves.toEqual([
+    await expect(listStoredMcpServers(rig)).resolves.toEqual([
       {
         name: "remote",
         transport: "http",
@@ -645,7 +646,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
   it("preserves an unchanged masked stdio credential in the host configuration", async () => {
     const rig = await createMcpHandlerRig();
-    await (rig.harness as any).addMcpServer({
+    await rig.harness.addMcpServer({
       name: "local",
       transport: "stdio",
       command: "old-command",
@@ -668,7 +669,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
       },
     });
 
-    expect(servers).toEqual([
+    expect(stripMcpTags(servers)).toEqual([
       {
         name: "local",
         transport: "stdio",
@@ -679,7 +680,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
         },
       },
     ]);
-    await expect((rig.harness as any).listMcpServers()).resolves.toEqual([
+    await expect(listStoredMcpServers(rig)).resolves.toEqual([
       {
         name: "local",
         transport: "stdio",
@@ -694,7 +695,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
   it("replaces an HTTP credential when the Webview submits a new literal value", async () => {
     const rig = await createMcpHandlerRig();
-    await (rig.harness as any).addMcpServer({
+    await rig.harness.addMcpServer({
       name: "remote",
       transport: "http",
       url: "https://example.test/mcp",
@@ -712,7 +713,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
     });
 
     expect(servers[0]?.headers).toEqual({ Authorization: MCP_SECRET_MASK });
-    await expect((rig.harness as any).listMcpServers()).resolves.toEqual([
+    await expect(listStoredMcpServers(rig)).resolves.toEqual([
       {
         name: "remote",
         transport: "http",
@@ -724,7 +725,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
   it("replaces a stdio credential when the Webview submits a new literal value", async () => {
     const rig = await createMcpHandlerRig();
-    await (rig.harness as any).addMcpServer({
+    await rig.harness.addMcpServer({
       name: "local",
       transport: "stdio",
       command: "example-mcp",
@@ -742,7 +743,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
     });
 
     expect(servers[0]?.env).toEqual({ SERVICE_TOKEN: MCP_SECRET_MASK });
-    await expect((rig.harness as any).listMcpServers()).resolves.toEqual([
+    await expect(listStoredMcpServers(rig)).resolves.toEqual([
       {
         name: "local",
         transport: "stdio",
@@ -754,7 +755,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
   it("preserves existing HTTP MCP headers when the released form updates the server", async () => {
     const rig = await createMcpHandlerRig();
-    await (rig.harness as any).addMcpServer({
+    await rig.harness.addMcpServer({
       name: "remote",
       transport: "http",
       url: "https://old.example.test/mcp",
@@ -769,7 +770,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
       auth: "oauth",
     });
 
-    await expect((rig.harness as any).listMcpServers()).resolves.toEqual([
+    await expect(listStoredMcpServers(rig)).resolves.toEqual([
       {
         name: "remote",
         transport: "http",
@@ -783,7 +784,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
   it("removes stored stdio arguments when the structured edit omits them", async () => {
     const rig = await createMcpHandlerRig();
-    await (rig.harness as any).addMcpServer({
+    await rig.harness.addMcpServer({
       name: "local",
       transport: "stdio",
       command: "old-command",
@@ -801,7 +802,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
       },
     });
 
-    expect(servers).toEqual([
+    expect(stripMcpTags(servers)).toEqual([
       {
         name: "local",
         transport: "stdio",
@@ -813,7 +814,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
   it("removes stored stdio environment variables when the structured edit omits them", async () => {
     const rig = await createMcpHandlerRig();
-    await (rig.harness as any).addMcpServer({
+    await rig.harness.addMcpServer({
       name: "local",
       transport: "stdio",
       command: "old-command",
@@ -831,7 +832,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
       },
     });
 
-    expect(servers).toEqual([
+    expect(stripMcpTags(servers)).toEqual([
       {
         name: "local",
         transport: "stdio",
@@ -843,7 +844,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
   it("removes stored HTTP headers when the structured edit omits them", async () => {
     const rig = await createMcpHandlerRig();
-    await (rig.harness as any).addMcpServer({
+    await rig.harness.addMcpServer({
       name: "remote",
       transport: "http",
       url: "https://old.example.test/mcp",
@@ -863,7 +864,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
       },
     });
 
-    expect(servers).toEqual([
+    expect(stripMcpTags(servers)).toEqual([
       {
         name: "remote",
         transport: "http",
@@ -876,7 +877,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
   it("removes the stored bearer token reference when the structured edit omits it", async () => {
     const rig = await createMcpHandlerRig();
-    await (rig.harness as any).addMcpServer({
+    await rig.harness.addMcpServer({
       name: "remote",
       transport: "http",
       url: "https://old.example.test/mcp",
@@ -896,7 +897,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
       },
     });
 
-    expect(servers).toEqual([
+    expect(stripMcpTags(servers)).toEqual([
       {
         name: "remote",
         transport: "http",
@@ -909,7 +910,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
   it("switches an OAuth HTTP server back to ordinary HTTP when auth is omitted", async () => {
     const rig = await createMcpHandlerRig();
-    await (rig.harness as any).addMcpServer({
+    await rig.harness.addMcpServer({
       name: "remote",
       transport: "http",
       url: "https://old.example.test/mcp",
@@ -929,7 +930,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
       },
     });
 
-    expect(servers).toEqual([
+    expect(stripMcpTags(servers)).toEqual([
       {
         name: "remote",
         transport: "http",
@@ -942,7 +943,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
   it("moves an edited server from its original name to the new name", async () => {
     const rig = await createMcpHandlerRig();
-    await (rig.harness as any).addMcpServer({
+    await rig.harness.addMcpServer({
       name: "old-name",
       transport: "stdio",
       command: "old-command",
@@ -960,7 +961,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
       },
     });
 
-    expect(servers).toEqual([
+    expect(stripMcpTags(servers)).toEqual([
       {
         name: "new-name",
         transport: "stdio",
@@ -969,7 +970,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
         enabled: false,
       },
     ]);
-    await expect((rig.harness as any).listMcpServers()).resolves.toEqual([
+    await expect(listStoredMcpServers(rig)).resolves.toEqual([
       {
         name: "new-name",
         transport: "stdio",
@@ -982,7 +983,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
   it("preserves a Windows executable path containing spaces through a structured edit", async () => {
     const rig = await createMcpHandlerRig();
-    await (rig.harness as any).addMcpServer({
+    await rig.harness.addMcpServer({
       name: "windows",
       transport: "stdio",
       command: "old-command",
@@ -997,7 +998,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
       },
     });
 
-    expect(servers).toEqual([
+    expect(stripMcpTags(servers)).toEqual([
       {
         name: "windows",
         transport: "stdio",
@@ -1008,7 +1009,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
   it("preserves Windows arguments containing spaces through a structured edit", async () => {
     const rig = await createMcpHandlerRig();
-    await (rig.harness as any).addMcpServer({
+    await rig.harness.addMcpServer({
       name: "windows",
       transport: "stdio",
       command: "node.exe",
@@ -1024,7 +1025,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
       },
     });
 
-    expect(servers).toEqual([
+    expect(stripMcpTags(servers)).toEqual([
       {
         name: "windows",
         transport: "stdio",
@@ -1086,6 +1087,54 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
     expect(resumed.id).toBe(plainSession.id);
   });
 
+  it("backfills approval flags for a session migrated before the metadata field existed", async () => {
+    const rig = await createRuntimeRig();
+    const legacySessionDir = join(rig.workDir, "legacy-session");
+    await mkdir(legacySessionDir);
+    await writeFile(
+      join(legacySessionDir, "state.json"),
+      JSON.stringify({ approval: { yolo: false, afk: true } }),
+      "utf8",
+    );
+    const plain = await createPlainHarness(rig.homeDir);
+    const migrated = await plain.createSession({
+      id: "ses_preexisting_migration",
+      workDir: rig.workDir,
+      metadata: { pythinker_cli_source_path: legacySessionDir },
+    });
+    await migrated.close();
+
+    const resumed = await openRuntimeSession(rig, migrated.id);
+
+    expect(resumed.legacyApprovalFlags).toEqual({ yolo: false, afk: true });
+    expect(resumed.summary?.metadata?.["vscode_legacy_approval"]).toEqual({
+      yolo: false,
+      afk: true,
+    });
+  });
+
+  it("reports corrupt legacy approval state and still opens the migrated session", async () => {
+    const rig = await createRuntimeRig();
+    const legacySessionDir = join(rig.workDir, "corrupt-legacy-session");
+    await mkdir(legacySessionDir);
+    await writeFile(join(legacySessionDir, "state.json"), "{not-json", "utf8");
+    const plain = await createPlainHarness(rig.homeDir);
+    const migrated = await plain.createSession({
+      id: "ses_corrupt_preexisting_migration",
+      workDir: rig.workDir,
+      metadata: { pythinker_cli_source_path: legacySessionDir },
+    });
+    await migrated.close();
+
+    const resumed = await openRuntimeSession(rig, migrated.id);
+
+    expect(resumed.legacyApprovalFlags).toEqual({ yolo: false, afk: false });
+    expect(rig.logs).toContainEqual({
+      message: "Unable to restore legacy session approval settings",
+      error: expect.any(SyntaxError),
+    });
+  });
+
   it("imports a UTF-8 text file into the same session without calling the model", async () => {
     const rig = await createRuntimeRig();
     await writeFile(join(rig.workDir, "notes.md"), "Keep the public API stable.", "utf8");
@@ -1094,8 +1143,8 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
     await expect(runSlash(runtime, "/import notes.md")).resolves.toBe(true);
 
     await expect(runtime.session.getContext()).resolves.toMatchObject({
-      history: expect.arrayContaining([
-        expect.objectContaining({
+      history: [
+        {
           role: "user",
           content: expect.arrayContaining([
             expect.objectContaining({
@@ -1103,8 +1152,8 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
               text: expect.stringContaining("Keep the public API stable."),
             }),
           ]),
-        }),
-      ]),
+        },
+      ],
     });
     expect(rig.provider.requests).toHaveLength(0);
     expect(streamEvents(rig.broadcasts)).toContainEqual({
@@ -1117,7 +1166,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
   it("clears imported context without replacing the current session", async () => {
     const rig = await createRuntimeRig();
     const runtime = await openRuntimeSession(rig);
-    await (runtime.session as any).importContext?.("Prior context.", "file 'prior.md'");
+    await runtime.session.importContext("Prior context.", "file 'prior.md'");
     const sessionId = runtime.id;
 
     await expect(runSlash(runtime, "/clear")).resolves.toBe(true);
@@ -1165,7 +1214,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
     await rig.runtime.detachView("view-1");
     const resumed = await openRuntimeSession(rig, sessionId);
 
-    expect(((resumed.session as any)?.additionalDirs as string[] | undefined) ?? [additionalDir]).toContain(additionalDir);
+    expect(resumed.session.summary?.additionalDirs).toContain(additionalDir);
   });
 
   it("rejects an invalid plan subcommand without leaving the runtime busy", async () => {
@@ -1218,8 +1267,7 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
     const rig = await createRuntimeRig();
     const blocked = routeBlockedPrompt(rig.provider);
     const runtime = await openRuntimeSession(rig);
-    await writeFile(join(rig.workDir, "prior.md"), "Enough prior context to compact.");
-    await runSlash(runtime, "/import prior.md", streamChatContext(rig));
+    await runtime.session.importContext("Enough prior context to compact.", "file 'prior.md'");
     const command = runSlash(runtime, "/compact keep decisions");
     await blocked.started;
 
@@ -1234,14 +1282,18 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
     const rig = await createRuntimeRig();
     routeSuccessfulPrompt(rig.provider);
     const runtime = await openRuntimeSession(rig);
-    await writeFile(join(rig.workDir, "prior.md"), "Enough prior context to compact.");
-    await runSlash(runtime, "/import prior.md", streamChatContext(rig));
+    await runtime.session.importContext("Enough prior context to compact.", "file 'prior.md'");
 
-    const dispatch = await startSlash(runtime, "/compact keep decisions");
-    const command = dispatch();
-    expect(runtime.isBusy).toBe(true);
-
-    await expect(command).resolves.toBe(true);
+    let sawBusy = false;
+    const poll = setInterval(() => {
+      if (runtime.isBusy) sawBusy = true;
+    }, 0);
+    try {
+      await expect(runSlash(runtime, "/compact keep decisions")).resolves.toBe(true);
+    } finally {
+      clearInterval(poll);
+    }
+    expect(sawBusy).toBe(true);
     expect(runtime.isBusy).toBe(false);
     expect(streamEvents(rig.broadcasts)).toContainEqual({
       type: "CompactionEnd",
@@ -1250,62 +1302,43 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
     });
   });
 
-  it("moves between the permission modes as /yolo and /auto are used", async () => {
+  it("keeps /yolo and /afk independent when they are combined", async () => {
     const rig = await createRuntimeRig();
     const runtime = await openRuntimeSession(rig);
 
     await runSlash(runtime, "/yolo");
-    expect(runtime.permissionMode).toBe("yolo");
+    expect(runtime.legacyApprovalFlags).toEqual({ yolo: true, afk: false });
     await expect(runtime.session.getStatus()).resolves.toMatchObject({ permission: "yolo" });
 
     await runSlash(runtime, "/afk");
-    expect(runtime.permissionMode).toBe("auto");
+    expect(runtime.legacyApprovalFlags).toEqual({ yolo: true, afk: true });
     await expect(runtime.session.getStatus()).resolves.toMatchObject({ permission: "auto" });
 
     await runSlash(runtime, "/afk");
-    expect(runtime.permissionMode).toBe("manual");
-    await expect(runtime.session.getStatus()).resolves.toMatchObject({ permission: "manual" });
+    expect(runtime.legacyApprovalFlags).toEqual({ yolo: true, afk: false });
+    await expect(runtime.session.getStatus()).resolves.toMatchObject({ permission: "yolo" });
   });
 
-  it("accepts on and off arguments for the permission commands", async () => {
-    const rig = await createRuntimeRig();
-    const runtime = await openRuntimeSession(rig);
-
-    await runSlash(runtime, "/yolo on");
-    expect(runtime.permissionMode).toBe("yolo");
-
-    await runSlash(runtime, "/yolo on");
-    expect(runtime.permissionMode).toBe("yolo");
-
-    await runSlash(runtime, "/yolo off");
-    expect(runtime.permissionMode).toBe("manual");
-  });
-
-  it("keeps a /yolo session in yolo when it reopens with the setting off", async () => {
+  it("applies the global yolo setting when a closed VS Code session reopens", async () => {
     const rig = await createRuntimeRig();
     const first = await openRuntimeSession(rig);
     await runSlash(first, "/yolo");
     await rig.runtime.detachView("view-1");
 
     const reopened = await openRuntimeSession(rig, first.id);
+    expect(reopened.legacyApprovalFlags).toEqual({ yolo: false, afk: false });
+    await expect(reopened.session.getStatus()).resolves.toMatchObject({ permission: "manual" });
+    await rig.runtime.detachView("view-1");
 
-    expect(reopened.permissionMode).toBe("yolo");
-    await expect(reopened.session.getStatus()).resolves.toMatchObject({ permission: "yolo" });
-  });
-
-  it("seeds a session that never chose a mode from the global yolo setting", async () => {
-    const rig = await createRuntimeRig();
-    const first = await openRuntimeSession(rig, undefined, true);
-
-    expect(first.permissionMode).toBe("yolo");
-    await expect(first.session.getStatus()).resolves.toMatchObject({ permission: "yolo" });
+    const yoloReopened = await openRuntimeSession(rig, first.id, true);
+    expect(yoloReopened.legacyApprovalFlags).toEqual({ yolo: true, afk: false });
+    await expect(yoloReopened.session.getStatus()).resolves.toMatchObject({ permission: "yolo" });
   });
 
   it("exports current context as Markdown under the workspace", async () => {
     const rig = await createRuntimeRig();
     const runtime = await openRuntimeSession(rig);
-    await writeFile(join(rig.workDir, "prior.md"), "Prior context.");
-    await runSlash(runtime, "/import prior.md", streamChatContext(rig));
+    await runtime.session.importContext("Prior context.", "file 'prior.md'");
 
     await expect(runSlash(runtime, "/export exported.md")).resolves.toBe(true);
 
@@ -1364,9 +1397,9 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
     const rig = await createRuntimeRig();
     await writeFile(join(rig.workDir, "not-a-directory"), "blocking file", "utf8");
     const runtime = await openRuntimeSession(rig);
-    await (runtime.session as any).importContext?.("Prior context.", "file 'prior.md'");
+    await runtime.session.importContext("Prior context.", "file 'prior.md'");
 
-    await expect(runSlash(runtime, "/export not-a-directory/export.md")).rejects.toThrow(/./u);
+    await expect(runSlash(runtime, "/export not-a-directory/export.md")).rejects.toThrow();
 
     expect(runtime.isBusy).toBe(false);
     await expect(runSlash(runtime, "/clear")).resolves.toBe(true);
@@ -1432,9 +1465,6 @@ describe("VS Code Pythinker harness integration (shares one in-process SDK home)
 
   it("settles the prompt as failed when the provider connection is unavailable", async () => {
     const rig = await createRuntimeRig();
-    await rig.runtime.harness.replaceConfigSections({
-      loopControl: { maxAttemptsPerStep: 1 },
-    });
     const session = await openRuntimeSession(rig);
     await rig.closeProvider();
 

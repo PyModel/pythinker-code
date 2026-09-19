@@ -447,6 +447,9 @@ async function startGoalWithPermission(
     await setPermissionForGoal(host, previousMode);
     return;
   }
+  // Announce the switch only once the goal actually starts: shown earlier, a
+  // failed creation would leave a stale permissive-mode notice in the
+  // transcript even though the rollback above restored the previous mode.
   if (switched) {
     host.showNotice(`Permission mode: ${PERMISSION_MODE_DISPLAY_NAMES[choice]}`);
     host.showStatus(PERMISSION_MODE_DESCRIPTIONS[choice], 'warning');

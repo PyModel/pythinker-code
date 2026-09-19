@@ -6,6 +6,7 @@ export default {
   expertTalk: { desc: 'Configure and arm Discussion for the next message' },
   dynamicWorkflow: { desc: 'Toggle Dynamic Workflow mode; /workflow <task> runs a task in parallel' },
   goal: { desc: 'Create/control a goal: /goal <objective>, /goal pause|resume|cancel' },
+  tower: { desc: 'Toggle tower mode; /tower <base-branch> turns it on with a base branch' },
   btw: { desc: 'Side chat: /btw <question> asks a forked side session' },
   compact: { desc: 'Compact the conversation history' },
   fork: { desc: 'Fork this session into a new one' },

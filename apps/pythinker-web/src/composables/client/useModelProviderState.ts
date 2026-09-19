@@ -79,6 +79,8 @@ export interface PersistSessionProfilePatch {
   permissionMode?: string;
   planMode?: boolean;
   dynamicWorkflowMode?: boolean;
+  towerMode?: boolean;
+  towerBase?: string;
   goalObjective?: string;
   goalControl?: 'pause' | 'resume' | 'cancel';
   thinking?: string;

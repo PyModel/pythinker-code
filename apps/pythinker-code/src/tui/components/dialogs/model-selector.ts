@@ -196,7 +196,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
   private draftFor(choice: ModelChoice): string {
     const override = this.thinkingOverrides.get(choice.alias);
     if (override !== undefined) return override;
-    return coerceEffortForModel(choice.model, this.opts.currentThinkingEffort);
+    return coerceEffortForModel(choice.model as any, this.opts.currentThinkingEffort);
   }
 
   /** Draft coerced onto the model's segment list so rendering/selection never

@@ -6,7 +6,9 @@ import { appRoot } from './paths.mjs';
 
 const execFileAsync = promisify(execFile);
 
-export function commandForExecFile(command, args, platform = process.platform, env = process.env) {
+const WINDOWS_CMD = 'C:\\Windows\\System32\\cmd.exe';
+
+export function commandForExecFile(command, args, platform = process.platform, _env = process.env) {
   if (platform !== 'win32' || !/\.(?:bat|cmd)$/i.test(command)) {
     return { command, args };
   }
@@ -14,7 +16,7 @@ export function commandForExecFile(command, args, platform = process.platform, e
     .map((arg) => `"${String(arg).replaceAll('"', '""')}"`)
     .join(' ');
   return {
-    command: env.ComSpec ?? 'cmd.exe',
+    command: WINDOWS_CMD,
     args: ['/d', '/s', '/c', `"${shellCommand}"`],
     options: { windowsVerbatimArguments: true },
   };
@@ -51,6 +53,7 @@ export async function tryRun(command, args, options = {}) {
       cwd: appRoot,
       maxBuffer: 1024 * 1024 * 16,
       ...exec.options,
+      ...options,
     });
   } catch (error) {
     const details = [error.stdout?.trim(), error.stderr?.trim(), error.message]

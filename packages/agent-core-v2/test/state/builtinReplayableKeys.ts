@@ -12,8 +12,6 @@ import {
 } from '#/agent/permissionMode/permissionModeOps';
 import { permissionRulesKey } from '#/agent/permissionRules/permissionRulesOps';
 import { pluginSessionStartSnapshotKey } from '#/agent/plugin/agentPluginOps';
-import { promptAdmissionKey } from '#/agent/prompt/promptOps';
-import { promptResolutionKey } from '#/agent/prompt/promptService';
 import { profileActiveToolsKey, profileKey } from '#/agent/profile/profileOps';
 import { runtimeBindingKey } from '#/agent/runtimeBinding/runtimeBindingOps';
 import { taskKey } from '#/agent/task/taskOps';
@@ -23,10 +21,8 @@ import { fileHistoryKey } from '#/features/fileHistory/fileHistoryOps';
 import { planKey } from '#/features/plan/planOps';
 import { dynamicWorkflowKey } from '#/features/dynamic_workflow/dynamicWorkflowOps';
 import { towerBaseKey, towerKey, towerOwnerKey } from '#/features/tower/towerOps';
-import { subagentBindingProvenanceKey } from '#/session/subagent/bindingProvenance';
 
 export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] = [
-  subagentBindingProvenanceKey,
   contextMemoryKey,
   fullCompactionKey,
   fullCompactionWireRangesKey,
@@ -38,8 +34,6 @@ export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] =
   permissionModeConfiguredKey,
   permissionRulesKey,
   pluginSessionStartSnapshotKey,
-  promptAdmissionKey,
-  promptResolutionKey,
   profileKey,
   profileActiveToolsKey,
   runtimeBindingKey,

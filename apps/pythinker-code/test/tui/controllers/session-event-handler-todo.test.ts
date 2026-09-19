@@ -23,7 +23,6 @@ function makeHarness() {
   };
   const host = {
     state: {
-      footer: { setStreamSpeed: vi.fn() },
       appState: { availableModels: {}, workDir: '/tmp/work', stepRetry: null },
       ui: { requestRender: vi.fn() },
       transcriptContainer: { addChild: vi.fn() },
@@ -34,7 +33,11 @@ function makeHarness() {
     patchLivePane: vi.fn(),
     setAppState: vi.fn(),
     btwPanelController: { routeEvent: vi.fn(() => false) },
-    surveyController: { notifyToolCallStarted: vi.fn(), notifyCompactionFinished: vi.fn() },
+    surveyController: {
+      notifyToolCallStarted: vi.fn(),
+      notifyToolCallEnded: vi.fn(),
+      notifySubagentSpawned: vi.fn(),
+    },
     updateActivityPane: vi.fn(),
     showStatus: vi.fn(),
   };
@@ -66,10 +69,10 @@ function todoResult(toolCallId: string, isError = false): Event {
   } as unknown as Event;
 }
 
-describe('SessionEventHandler — todo panel feed', () => {
+describe('SessionEventHandler  todo panel feed', () => {
   it('feeds the panel from TodoList call args when the tool result arrives', () => {
     const { handler, streamingUI } = makeHarness();
-    const todos = [{ title: 'test todo item', status: 'in_progress' }];
+    const todos = [{ title: 'zh Todo zh', status: 'in_progress' }];
 
     handler.handleEvent(todoCallStarted('tc-1', todos), vi.fn());
     expect(streamingUI.setTodoList).not.toHaveBeenCalled();

@@ -16,6 +16,7 @@
 
 import type { WsLikeCtor } from '../channel/wsLike';
 import { GlobalEventsWs, type SessionWorkFacts } from './ws';
+import { joinApiUrl } from '../httpUrl';
 
 export type { SessionWorkFacts };
 
@@ -106,6 +107,10 @@ export class SessionActivityHub {
           this.store.remove(sessionId);
           opts.onListChanged();
         },
+        onSessionDeleted: (sessionId) => {
+          this.store.remove(sessionId);
+          opts.onListChanged();
+        },
         onWorkspaceChanged: () => opts.onListChanged(),
         onReconnected: () => void this.seed(),
       },
@@ -122,7 +127,7 @@ export class SessionActivityHub {
       headers['authorization'] = `Bearer ${this.token}`;
     }
     try {
-      const res = await this.fetchImpl(`${this.baseUrl}/api/v1/sessions`, { headers });
+      const res = await this.fetchImpl(joinApiUrl(this.baseUrl, '/api/v1/sessions'), { headers });
       const envelope = (await res.json()) as {
         code: number;
         data?: { items?: Record<string, unknown>[] };

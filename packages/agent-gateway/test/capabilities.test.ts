@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { listCapabilitiesResponseSchema } from '../src/protocol/rest-capability';
+import {
+  capabilityStatusSchema,
+  listCapabilitiesResponseSchema,
+} from '../src/protocol/rest-capability';
 import { sharedAuthHeaders, sharedServer } from './helpers/sharedServer';
 
 interface Envelope<T> {
@@ -27,7 +30,7 @@ describe('server-v2 /api/v1 capabilities', () => {
     return { status: res.status, body: (await res.json()) as Envelope<T> };
   }
 
-  it('lists an empty capability registry with the documented shape', async () => {
+  it('lists zero built-in capabilities after managed surface strip', async () => {
     const { body } = await getJson<unknown>('/api/v1/capabilities');
     expect(body.code).toBe(0);
     const parsed = listCapabilitiesResponseSchema.parse(body.data);
@@ -46,9 +49,9 @@ describe('server-v2 /api/v1 capabilities', () => {
   });
 
   it('rejects bare ids and unknown actions with 40001', async () => {
-    const bare = await postJson<unknown>('/api/v1/capabilities/nope');
+    const bare = await postJson<unknown>('/api/v1/capabilities/pythinker-cu');
     expect(bare.body.code).toBe(40001);
-    const bogus = await postJson<unknown>('/api/v1/capabilities/nope:uninstall');
+    const bogus = await postJson<unknown>('/api/v1/capabilities/pythinker-cu:uninstall');
     expect(bogus.body.code).toBe(40001);
   });
 });

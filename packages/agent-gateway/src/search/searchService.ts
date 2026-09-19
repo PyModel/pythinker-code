@@ -5,6 +5,7 @@ import { stat } from 'node:fs/promises';
 import {
   createDecorator,
   databaseSearchEnabled,
+  databaseSearchSyncTuning,
   IBootstrapService,
   IConfigService,
   ILogService,
@@ -157,12 +158,13 @@ export interface SearchBackend {
 export class InlineSearchBackend implements SearchBackend {
   readonly core: SearchIndexCore;
 
-  constructor(options: { indexDir: string; log: ILogService }) {
+  constructor(options: { indexDir: string; log: ILogService; syncSessionCap?: number }) {
     this.core = new SearchIndexCore({
       ...options,
       bootSalt: randomUUID(),
       onLockToken: noteLiveLockToken,
     });
+    if (options.syncSessionCap !== undefined) this.core.syncSessionCap = options.syncSessionCap;
   }
 
   beginClose(): void {
@@ -255,9 +257,15 @@ export class GlobalSearchService implements IGlobalSearchService {
     if (this.backend !== null) return Promise.resolve(this.backend);
     this.backendPromise ??= this.config.ready.then(() => {
       if (this.backend === null) {
+        const tuning = databaseSearchSyncTuning(this.config);
+        if (tuning.debounceMs !== undefined) this.syncDebounceMs = tuning.debounceMs;
         this.backend = databaseSearchEnabled(this.config)
-          ? new SearchWorkerHost({ dir: this.indexDir, log: this.log })
-          : new InlineSearchBackend({ indexDir: this.indexDir, log: this.log });
+          ? new SearchWorkerHost({ dir: this.indexDir, log: this.log, syncSessionCap: tuning.sessionCap })
+          : new InlineSearchBackend({
+              indexDir: this.indexDir,
+              log: this.log,
+              syncSessionCap: tuning.sessionCap,
+            });
         if (this.disposed) this.backend.beginClose();
       }
       return this.backend;
@@ -356,7 +364,8 @@ export class GlobalSearchService implements IGlobalSearchService {
     }
     this.summaries = new Map(sessions.map((s) => [s.id, s]));
     this.lastSyncStartedAt = Date.now();
-    await backend.sync(sessions.map((s) => this.toSyncInput(s)));
+    const outcome = await backend.sync(sessions.map((s) => this.toSyncInput(s)));
+    if (outcome.truncated || outcome.failures > 0) this.requestSync();
   }
 
   private async listAllSessions(): Promise<SessionSummary[]> {
@@ -620,7 +629,7 @@ export class GlobalSearchService implements IGlobalSearchService {
     return {
       sessionId: doc.sessionId,
       workspaceId: doc.workspaceId,
-      sessionTitle: this.summaries.get(doc.sessionId)?.title ?? doc.sessionTitle,
+      sessionTitle: doc.sessionTitle,
       agentId: doc.agentId,
       role: doc.role,
       snippet:

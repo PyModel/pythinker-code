@@ -7,7 +7,7 @@ import {
   sessionWarningsResponseSchema,
   updateSessionProfileRequestSchema,
   type UpdateSessionProfileRequest,
-} from '@pymodel/agent-core-v2/app/sessionManager/sessionProtocol';
+} from '@pymodel/agent-core-v2/app/sessionLegacy/sessionProtocol';
 
 import { goalSnapshotSchema } from './goal';
 import { cursorQuerySchema, pageResponseSchema } from './pagination';
@@ -29,7 +29,7 @@ export type {
   SessionWarning,
   SessionWarningsResponse,
   UpdateSessionProfileRequest,
-} from '@pymodel/agent-core-v2/app/sessionManager/sessionProtocol';
+} from '@pymodel/agent-core-v2/app/sessionLegacy/sessionProtocol';
 
 export const createSessionRequestSchema = sessionCreateSchema;
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
@@ -162,13 +162,10 @@ export type ArchiveSessionResponse = z.infer<typeof archiveSessionResponseSchema
 export const restoreSessionResponseSchema = sessionSchema;
 export type RestoreSessionResponse = z.infer<typeof restoreSessionResponseSchema>;
 
-export const deleteSessionResponseSchema = archiveSessionResponseSchema;
-export type DeleteSessionResponse = ArchiveSessionResponse;
-
-export const deleteSessionSuccessResponseSchema = z.object({
+export const deleteSessionResponseSchema = z.object({
   deleted: z.literal(true),
 });
-export type DeleteSessionSuccessResponse = z.infer<typeof deleteSessionSuccessResponseSchema>;
+export type DeleteSessionResponse = z.infer<typeof deleteSessionResponseSchema>;
 
 export const sessionAbortResponseSchema = z.object({
   aborted: z.boolean(),

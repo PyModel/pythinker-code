@@ -404,7 +404,7 @@ describe('Composer toolbar overflow valves', () => {
 
     expect(wrapper.get('.composer-card').classes()).not.toContain('labels-collapsed');
     expect(wrapper.get('.model-pill').classes()).not.toContain('icon-only');
-    expect(wrapper.get('.perm-pill-label').text()).toBe('Manual');
+    expect(wrapper.get('.perm-pill-label').text()).toBe('Always Ask');
   });
 
   it('opens thinking effort separately and closes it with Escape', async () => {

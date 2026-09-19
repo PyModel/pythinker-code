@@ -1,5 +1,7 @@
 import { ErrorCodes, type HostUiCapability } from '@pymodel/pythinker-code-sdk';
 
+import { currentPythinkerProfile } from '#/utils/region';
+
 export const PRODUCT_NAME = 'Pythinker Code';
 export const CLI_COMMAND_NAME = 'pythinker';
 export const PROCESS_NAME = 'pythinker-code';
@@ -7,6 +9,8 @@ export const PROCESS_NAME = 'pythinker-code';
 // Used in telemetry app names and HTTP User-Agent headers.
 export const CLI_USER_AGENT_PRODUCT = 'pythinker-code-cli';
 export const CLI_UI_MODE = 'shell';
+// UI surfaces the TUI renders; declared to the engine at bootstrap so features that need a
+// host-side surface (the NotifyUser update panel) are offered to this process only.
 export const TUI_HOST_UI_CAPABILITIES: readonly HostUiCapability[] = ['update_panel'];
 // Telemetry ui_mode for the `pythinker web` host. Same product
 // as the CLI (CLI_USER_AGENT_PRODUCT); the surface is distinguished by ui_mode.
@@ -42,22 +46,6 @@ export const HEADLESS_STDIO_DRAIN_TIMEOUT_MS = 10000;
 // Published npm package name; this can differ from the executable command.
 export const NPM_PACKAGE_NAME = '@pymodel/pythinker-code';
 
-// Update sources. Version checks read the CDN (`/latest` plain text and the
-// `/latest.json` rollout manifest); native binaries come from the GitHub
-// release for that version: `manifest.json` (per-platform zip name + sha256)
-// next to the `pythinker-code-<target>.zip` archives.
-export const PYTHINKER_CODE_CDN_BASE = 'https://code.pythinker.com/pythinker-code';
-export const PYTHINKER_CODE_CDN_LATEST_URL = `${PYTHINKER_CODE_CDN_BASE}/latest`;
-export const PYTHINKER_CODE_CDN_LATEST_JSON_URL = `${PYTHINKER_CODE_CDN_BASE}/latest.json`;
-export const PYTHINKER_CODE_GITHUB_RELEASES_BASE =
-  'https://github.com/PyModel/pythinker-code/releases/download';
-export function pythinkerCodeReleaseTag(version: string): string {
-  return `${NPM_PACKAGE_NAME}@${version}`;
-}
-export function pythinkerCodeReleaseAssetUrl(version: string, filename: string): string {
-  return `${PYTHINKER_CODE_GITHUB_RELEASES_BASE}/${encodeURIComponent(pythinkerCodeReleaseTag(version))}/${filename}`;
-}
-
 // App-owned data paths. SDK/core runtime config is intentionally not routed here.
 export const PYTHINKER_CODE_HOME_ENV = 'PYTHINKER_CODE_HOME';
 export const PYTHINKER_CODE_DATA_DIR_NAME = '.pythinker-code';
@@ -80,20 +68,85 @@ export const PYTHINKER_CODE_INPUT_HISTORY_DIR_NAME = 'user-history';
 export const PYTHINKER_CODE_BANNER_DIR_NAME = 'banner';
 export const PYTHINKER_CODE_BANNER_STATE_FILE_NAME = 'state.json';
 export const PYTHINKER_CODE_SURVEY_STATE_FILE_NAME = 'feedback-survey-state.json';
+export const PYTHINKER_CODE_RECOMMENDED_EFFORT_STATE_FILE_NAME = 'recommended-effort-state.json';
+
+// Managed Pythinker auth provider key shared with OAuth/SDK config.
+export const DEFAULT_OAUTH_PROVIDER_NAME = 'openai';
 
 // SDK/core error code that tells the TUI to show a login-required startup
 // notice. Derived from sdk's ErrorCodes so a future rename in core
 // auto-propagates instead of silently breaking the startup recovery path.
 export const OAUTH_LOGIN_REQUIRED_CODE = ErrorCodes.AUTH_LOGIN_REQUIRED;
 
-// The marketplace catalog location constants live in the shared
-// agent-core-v2 plugin domain (agent-gateway consumes them from there).
-// Deep-path import: this module is evaluated on every CLI invocation, so it
-// must not pull in the engine root.
-export {
-  PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV,
-} from '@pymodel/agent-core-v2/app/plugin/marketplace';
+export const FEEDBACK_ISSUE_URL = 'https://github.com/PyModel/pythinker-code/issues';
+// Sign-up / sign-in page offered to signed-out users so they can create an
+// account and submit feedback through the authenticated channel next time.
+export function pythinkerCodeSignupUrl(): string {
+  return `${currentPythinkerProfile().siteBase}/code`;
+}
+
+// Sent in the feedback `version` field so the backend can distinguish this
+// TypeScript client from clients that send a bare version.
+export const FEEDBACK_VERSION_PREFIX = 'pythinker-code-';
+
+// Telemetry event name; keep stable for dashboard queries.
+export const FEEDBACK_TELEMETRY_EVENT = 'feedback_submitted';
+
+// CDN source of truth: all version checks and native install scripts pull from here.
+// The off-session endpoints derive from the current region profile so a
+// global login points at the .ai deployment; they are resolved per call so
+// a region switch (login/logout + refreshPythinkerRegion) takes effect immediately.
+export function pythinkerCodeCdnBase(): string {
+  return currentPythinkerProfile().cdnBase;
+}
+export function pythinkerCodeCdnLatestUrl(): string {
+  return `${pythinkerCodeCdnBase()}/latest`;
+}
+// Rollout manifest consumed by update checks; the plain-text `/latest` above
+// stays unchanged forever — already-shipped clients hard-fail on non-semver
+// bodies, and the CDN install scripts read it for fresh installs.
+export function pythinkerCodeCdnLatestJsonUrl(): string {
+  return `${pythinkerCodeCdnBase()}/latest.json`;
+}
+// Per-release native artifacts: `/binaries/<version>/manifest.json` +
+// `/binaries/<version>/pythinker-code-<target>[.exe]` — the bare platform binary
+// (same layout install.ps1 consumes).
+export function pythinkerCodeCdnBinariesBase(): string {
+  return `${pythinkerCodeCdnBase()}/binaries`;
+}
+// The marketplace env override name lives in the shared agent-core-v2 plugin
+// domain (agent-gateway consumes it from there). Deep-path import: this module is
+// evaluated on every CLI invocation, so it must not pull in the engine root.
+export { PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL_ENV } from '@pymodel/agent-core-v2/app/plugin/marketplace';
+// The CLI-side default catalog derives from the current region profile; the
+// env override above takes priority at the call site.
+export function pythinkerCodePluginMarketplaceUrl(): string {
+  return `${pythinkerCodeCdnBase()}/plugins/marketplace.json`;
+}
 // Bound on each background "latest release" lookup when the TUI fills in
 // marketplace versions. Without it a stalled connection to github.com hangs
 // the version phase for undici's default header timeout (300s).
 export const MARKETPLACE_VERSION_LOOKUP_TIMEOUT_MS = 5000;
+export const INTERACTIVE_UPDATE_CHECK_TIMEOUT_MS = 10_000;
+// Official plugins whose usage bills against the user's plan quota. Installing
+// one of these shows a quota note after the install result.
+export const QUOTA_CONSUMING_PLUGIN_IDS: readonly string[] = ['pythinker-datasource'];
+export function pythinkerCodeInstallShUrl(): string {
+  return `${pythinkerCodeCdnBase()}/install.sh`;
+}
+export function pythinkerCodeInstallPs1Url(): string {
+  return `${pythinkerCodeCdnBase()}/install.ps1`;
+}
+// Official download page, referenced by prompt copy that steers users away
+// from third-party install sources.
+export function pythinkerCodeOfficialInstallUrl(): string {
+  return `${currentPythinkerProfile().siteBase}/code`;
+}
+
+// Native install commands, split by platform. Use these for prompt copy and spawn calls only; do not assemble the strings elsewhere.
+export function nativeInstallCommandUnix(): string {
+  return `curl -fsSL ${pythinkerCodeInstallShUrl()} | bash`;
+}
+export function nativeInstallCommandWin(): string {
+  return `irm ${pythinkerCodeInstallPs1Url()} | iex`;
+}

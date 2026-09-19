@@ -10,11 +10,6 @@ import {
 } from '@pymodel/transcript';
 import { ulid } from 'ulid';
 import type { RawData, WebSocket } from 'ws';
-import {
-  ISessionExpertTalkService,
-  resumeSessionById,
-  type Scope,
-} from '@pymodel/agent-core-v2';
 
 import type { CredentialValidator } from '../../../services/auth/credentials';
 import type { IConnectionRegistry } from '../connectionRegistry';
@@ -36,14 +31,14 @@ import {
   type SessionEventBroadcaster,
   type TargetSubscription,
 } from './sessionEventBroadcaster';
-import { FsWatchBridge } from './fsWatchBridge';
 
-const DEFAULT_MAX_BUFFER_SIZE = 1000;
 export const WS_MAX_PAYLOAD_BYTES = 4 << 20;
-export const WS_MAX_PENDING_CONTROLS = 64;
-export const WS_MAX_SUBSCRIPTIONS = 256;
 export const WS_CLOSE_OVERLOADED = 1013;
 export const WS_CLOSE_POLICY = 1008;
+export const WS_MAX_PENDING_CONTROLS = 32;
+export const WS_MAX_SUBSCRIPTIONS = 64;
+
+const DEFAULT_MAX_BUFFER_SIZE = 1000;
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000;
 const HEARTBEAT_MISS_LIMIT = 2;
@@ -55,7 +50,6 @@ const DEFAULT_MAX_BATCH_SIZE = 64;
 const DEFAULT_HIGH_WATER_MARK_BYTES = 1 << 20;
 const DEFAULT_BACKPRESSURE_RETRY_MS = 5;
 const DEFAULT_BACKPRESSURE_MAX_DELAY_MS = 100;
-const DEFAULT_MAX_BUFFERED_BYTES_FACTOR = 8;
 
 interface InboundFrame {
   type: string;
@@ -64,10 +58,9 @@ interface InboundFrame {
 }
 
 export interface WsConnectionV1Options {
-  readonly core?: Scope;
+  readonly core?: unknown;
   readonly socket: WebSocket;
   readonly broadcaster: SessionEventBroadcaster;
-  readonly fsWatchBridge?: FsWatchBridge;
   readonly connectionRegistry: IConnectionRegistry;
   readonly validateCredential?: CredentialValidator;
   readonly remoteAddress: string | null;
@@ -82,13 +75,17 @@ export interface WsConnectionV1Options {
 
 export class WsConnectionV1 implements BroadcastTarget {
   readonly id: string;
+  clientId = "";
+  private pendingControls = 0;
+  get pendingControlCount(): number {
+    return this.pendingControls;
+  }
   readonly connectedAt: string;
   readonly remoteAddress: string | null;
   readonly userAgent: string | null;
 
   private readonly socket: WebSocket;
   private readonly broadcaster: SessionEventBroadcaster;
-  private readonly fsWatchBridge?: FsWatchBridge;
   private readonly validateCredential?: CredentialValidator;
   private readonly maxBufferSize: number;
   private readonly flushIntervalMs: number;
@@ -96,15 +93,11 @@ export class WsConnectionV1 implements BroadcastTarget {
   private readonly highWaterMarkBytes: number;
   private readonly heartbeatIntervalMs: number;
   private readonly logger?: JournalLogger;
-  private readonly core?: Scope;
 
   private closed = false;
   private gotClientHello = false;
-  private clientIdValue: string | undefined;
-  private expertTalkEvents = false;
   readonly subscriptions = new Map<string, SessionSubscription>();
   private controlQueue: Promise<void> = Promise.resolve();
-  private pendingControls = 0;
 
   private outbound: unknown[] = [];
   private flushTimer?: ReturnType<typeof setTimeout>;
@@ -120,9 +113,7 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.remoteAddress = opts.remoteAddress;
     this.userAgent = opts.userAgent;
     this.socket = opts.socket;
-    this.core = opts.core;
     this.broadcaster = opts.broadcaster;
-    this.fsWatchBridge = opts.fsWatchBridge;
     this.validateCredential = opts.validateCredential;
     this.logger = opts.logger;
     this.maxBufferSize = opts.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
@@ -154,14 +145,6 @@ export class WsConnectionV1 implements BroadcastTarget {
 
   get hasClientHello(): boolean {
     return this.gotClientHello;
-  }
-
-  get supportsExpertTalkEvents(): boolean {
-    return this.expertTalkEvents;
-  }
-
-  get clientId(): string | undefined {
-    return this.clientIdValue;
   }
 
   get subscriptionSessionIds(): readonly string[] {
@@ -202,33 +185,26 @@ export class WsConnectionV1 implements BroadcastTarget {
       case 'unsubscribe':
         this.enqueueControl(() => this.onUnsubscribe(frame));
         return;
-      case 'watch_fs_add':
-        this.enqueueControl(() => this.onWatchFs(frame, true));
-        return;
-      case 'watch_fs_remove':
-        this.enqueueControl(() => this.onWatchFs(frame, false));
-        return;
       default:
         return;
     }
   }
 
-  get pendingControlCount(): number {
-    return this.pendingControls;
-  }
-
   private enqueueControl(task: () => Promise<void>): void {
+    if (this.closed) return;
     if (this.pendingControls >= WS_MAX_PENDING_CONTROLS) {
-      this.closeOverloaded('control queue overflow');
+      this.close(WS_CLOSE_OVERLOADED, 'control queue overflow');
       return;
     }
     this.pendingControls += 1;
     this.controlQueue = this.controlQueue
-      .then(() => (this.closed ? undefined : task()))
-      .catch(() => {
+      .then(async () => {
+        if (this.closed) return;
+        await task();
       })
+      .catch(() => {})
       .finally(() => {
-        this.pendingControls -= 1;
+        this.pendingControls = Math.max(0, this.pendingControls - 1);
       });
   }
 
@@ -240,20 +216,26 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.sendImmediateFrame(buildPing(ulid()));
   }
 
+  private rejectIfAtSubscriptionLimit(requestedNew: number): boolean {
+    if (requestedNew <= 0) return false;
+    if (this.subscriptions.size < WS_MAX_SUBSCRIPTIONS) return false;
+    this.close(WS_CLOSE_POLICY, 'subscription limit exceeded');
+    return true;
+  }
+
+  private tryAcceptNewSubscription(): boolean {
+    return this.subscriptions.size < WS_MAX_SUBSCRIPTIONS;
+  }
+
   private async onClientHello(frame: InboundFrame): Promise<void> {
     if (!(await this.authorize(frame))) return;
     this.gotClientHello = true;
 
     const payload = frame.payload ?? {};
-    const nextClientId = payload['client_id'];
-    this.clientIdValue = typeof nextClientId === 'string' && nextClientId.trim().length > 0
-      ? nextClientId.trim()
-      : undefined;
-    const clientCapabilities = payload['client_capabilities'];
-    this.expertTalkEvents =
-      typeof clientCapabilities === 'object' &&
-      clientCapabilities !== null &&
-      (clientCapabilities as { expert_talk_v1?: unknown }).expert_talk_v1 === true;
+    const rawClientId = payload['client_id'];
+    if (typeof rawClientId === 'string') {
+      this.clientId = rawClientId.trim();
+    }
     const subscriptions = asStringArray(payload['subscriptions']);
     const cursors = payload['cursors'] as Record<string, SessionCursor> | undefined;
     const agentFilter = parseAgentFilter(payload['agent_filter']);
@@ -264,7 +246,10 @@ export class WsConnectionV1 implements BroadcastTarget {
     const resyncRequired: string[] = [];
     const serverCursors: Record<string, { seq: number; epoch?: string }> = {};
 
+    const helloNew = subscriptions.filter((sid) => !this.subscriptions.has(sid));
+    if (this.rejectIfAtSubscriptionLimit(helloNew.length)) return;
     for (const sid of subscriptions) {
+      if (!this.subscriptions.has(sid) && !this.tryAcceptNewSubscription()) break;
       await this.attachSession(
         sid,
         cursors?.[sid],
@@ -295,7 +280,10 @@ export class WsConnectionV1 implements BroadcastTarget {
     const resyncRequired: string[] = [];
     const serverCursors: Record<string, { seq: number; epoch?: string }> = {};
 
+    const subNew = sessionIds.filter((sid) => !this.subscriptions.has(sid));
+    if (this.rejectIfAtSubscriptionLimit(subNew.length)) return;
     for (const sid of sessionIds) {
+      if (!this.subscriptions.has(sid) && !this.tryAcceptNewSubscription()) break;
       await this.attachSession(
         sid,
         cursors?.[sid],
@@ -328,6 +316,9 @@ export class WsConnectionV1 implements BroadcastTarget {
     const notFound: string[] = [];
     const resyncRequired: string[] = [];
     const serverCursors: Record<string, { seq: number; epoch?: string }> = {};
+
+    if (!this.subscriptions.has(sid) && this.rejectIfAtSubscriptionLimit(1)) return;
+    if (!this.subscriptions.has(sid) && !this.tryAcceptNewSubscription()) return;
 
     await this.attachSession(
       sid,
@@ -380,7 +371,6 @@ export class WsConnectionV1 implements BroadcastTarget {
     const payload = frame.payload ?? {};
     const sessionIds = asStringArray(payload['session_ids']);
     for (const sid of sessionIds) {
-      await this.releaseExpertTalkArm(sid);
       this.broadcaster.unsubscribe(sid, this);
       this.subscriptions.delete(sid);
     }
@@ -389,40 +379,6 @@ export class WsConnectionV1 implements BroadcastTarget {
         accepted: [],
         not_found: [],
         resync_required: [],
-      }),
-    );
-  }
-
-  private async onWatchFs(frame: InboundFrame, isAdd: boolean): Promise<void> {
-    const payload = frame.payload ?? {};
-    const sessionId = typeof payload['session_id'] === 'string' ? payload['session_id'] : '';
-    const runtimeId =
-      typeof payload['runtime_id'] === 'string' && payload['runtime_id'].length > 0
-        ? payload['runtime_id']
-        : 'local';
-    const paths = asStringArray(payload['paths']);
-    const bridge = this.fsWatchBridge;
-    if (bridge === undefined) {
-      this.sendImmediateFrame(buildAck(frame.id ?? '', 1, 'fs watch unavailable', {}));
-      return;
-    }
-    let result;
-    try {
-      result = isAdd
-        ? await bridge.addWatch(this, sessionId, paths, runtimeId)
-        : await bridge.removeWatch(this, sessionId, paths, runtimeId);
-    } catch (error) {
-      this.sendImmediateFrame(
-        buildAck(frame.id ?? '', 1, 'internal error', {
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      );
-      return;
-    }
-    this.sendImmediateFrame(
-      buildAck(frame.id ?? '', result.code, result.msg, {
-        watched_paths: result.watched_paths ?? [],
-        current_count: result.current_count ?? 0,
       }),
     );
   }
@@ -441,22 +397,17 @@ export class WsConnectionV1 implements BroadcastTarget {
     },
   ): Promise<void> {
     const { accepted, resyncRequired, serverCursors, notFound } = collectors;
-    if (this.closed) return;
-    if (!this.subscriptions.has(sid) && this.subscriptions.size >= WS_MAX_SUBSCRIPTIONS) {
-      this.close(WS_CLOSE_POLICY, 'subscription limit exceeded');
-      return;
-    }
     const ok = await this.broadcaster.subscribe(sid, this, filter, transcriptGrades, {
       deferTranscriptReset: cursor !== undefined,
       transcriptSince,
     });
-    if (this.closed) {
-      if (ok) this.broadcaster.unsubscribe(sid, this);
-      return;
-    }
     if (!ok) {
       if (notFound !== undefined) notFound.push(sid);
       else resyncRequired.push(sid);
+      return;
+    }
+    if (this.closed) {
+      this.broadcaster.unsubscribe(sid, this);
       return;
     }
     this.subscriptions.set(sid, { agentFilter: filter, transcriptGrades });
@@ -508,23 +459,14 @@ export class WsConnectionV1 implements BroadcastTarget {
     return true;
   }
 
-  private async releaseExpertTalkArm(sessionId: string): Promise<void> {
-    const clientId = this.clientIdValue;
-    if (clientId === undefined || this.core === undefined) return;
-    const session = await resumeSessionById(this.core.accessor, sessionId);
-    if (session === undefined) return;
-    const expertTalk = session.accessor.get(ISessionExpertTalkService);
-    await expertTalk.ready;
-    expertTalk.releaseClient(clientId);
-  }
-
   private sendSubscribedFrame(msg: unknown): void {
     if (this.closed) return;
-    if (this.outbound.length >= this.maxBufferSize) {
-      this.closeOverloaded('outbound buffer overflow');
+    this.outbound.push(msg);
+    if (this.outbound.length > this.maxBufferSize) {
+      this.outbound = [];
+      this.close(WS_CLOSE_OVERLOADED, 'outbound buffer overflow');
       return;
     }
-    this.outbound.push(msg);
     if (this.outbound.length >= this.maxBatchSize) {
       this.flush();
       return;
@@ -579,8 +521,9 @@ export class WsConnectionV1 implements BroadcastTarget {
     const now = Date.now();
     if (this.backpressureSince === undefined) this.backpressureSince = now;
     if (now - this.backpressureSince >= DEFAULT_BACKPRESSURE_MAX_DELAY_MS) {
-      if (this.socket.bufferedAmount > this.highWaterMarkBytes * DEFAULT_MAX_BUFFERED_BYTES_FACTOR) {
-        this.closeOverloaded('slow consumer');
+      if (this.socket.bufferedAmount > this.highWaterMarkBytes * 8) {
+        this.outbound = [];
+        this.close(WS_CLOSE_OVERLOADED, 'slow consumer');
         return;
       }
       this.flush(true);
@@ -594,15 +537,13 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.backpressureRetryTimer.unref?.();
   }
 
-  private closeOverloaded(reason: string): void {
-    if (this.closed) return;
-    this.outbound = [];
-    this.close(WS_CLOSE_OVERLOADED, reason);
-  }
-
   close(code = 1000, reason?: string): void {
     if (this.closed) return;
-    this.flush(true);
+    if (reason === 'outbound buffer overflow' || reason === 'slow consumer' || reason === 'control queue overflow') {
+      this.outbound = [];
+    } else {
+      this.flush(true);
+    }
     try {
       this.socket.close(code, reason);
     } catch {
@@ -617,19 +558,15 @@ export class WsConnectionV1 implements BroadcastTarget {
     if (this.heartbeatTimer !== undefined) clearInterval(this.heartbeatTimer);
     this.outbound = [];
     this.broadcaster.removeGlobalTarget(this);
-    for (const sid of this.subscriptions.keys()) {
-      void this.releaseExpertTalkArm(sid).catch((error: unknown) =>
-        this.logger?.warn({ error, session_id: sid }, 'Expert Talk arm cleanup failed'),
-      );
-      this.broadcaster.unsubscribe(sid, this);
-    }
-    this.fsWatchBridge?.detachConnection(this);
+    const sessionIds = Array.from(this.subscriptions.keys());
+    this.subscriptions.clear();
+    for (const sid of sessionIds) this.broadcaster.unsubscribe(sid, this);
   }
 }
 
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((v): v is string => typeof v === 'string').slice(0, WS_MAX_SUBSCRIPTIONS);
+  return value.filter((v): v is string => typeof v === 'string');
 }
 
 function parseAgentFilter(value: unknown): Record<string, AgentFilter> | undefined {

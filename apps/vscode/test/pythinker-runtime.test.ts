@@ -18,19 +18,19 @@ import type {
   Session,
   SessionStatus,
   SessionSummary,
+  ThinkingEffort,
 } from "@pymodel/pythinker-code-sdk";
+import { setTelemetryContext, track, withTelemetryContext } from "@pymodel/pythinker-telemetry";
 import { describe, expect, it, vi } from "vitest";
-
-type ThinkingEffort = string;
 
 import { Events } from "../shared/bridge";
 import { PythinkerRuntime, type OpenSessionOptions } from "../src/runtime/pythinker-runtime";
 
 const sdkFactories = vi.hoisted(() => {
-  const v2Harness = { homeDir: "/tmp/pythinker-runtime-v2-home", close: vi.fn(async () => undefined) };
+  const harness = { homeDir: "/tmp/pythinker-runtime-home", close: vi.fn(async () => undefined) };
   return {
-    v2Harness,
-    createPythinkerHarnessV2: vi.fn(() => v2Harness),
+    harness,
+    createPythinkerHarness: vi.fn(() => harness),
   };
 });
 
@@ -38,7 +38,7 @@ vi.mock("@pymodel/pythinker-code-sdk", async (importOriginal) => {
   const original = await importOriginal<typeof import("@pymodel/pythinker-code-sdk")>();
   return {
     ...original,
-    createPythinkerHarnessV2: sdkFactories.createPythinkerHarnessV2,
+    createPythinkerHarness: sdkFactories.createPythinkerHarness,
   };
 });
 
@@ -71,11 +71,10 @@ function createFakeSession(
   let closes = 0;
   let promptImpl: (input: string | PromptInput) => Promise<void> = async () => {};
   let status: SessionStatus = {
-    model: initial.model ?? "acme-test",
+    model: initial.model ?? "pythinker-test",
     thinkingEffort: initial.thinkingEffort ?? "off",
     permission: initial.permission ?? "manual",
     planMode: initial.planMode ?? false,
-    dynamicWorkflowMode: false,
     contextTokens: 0,
     maxContextTokens: 128_000,
     contextUsage: 0,
@@ -203,7 +202,7 @@ function createFakeHarness(
         normalizeCreatedWorkDir(options.workDir),
         {
           model: options.model,
-          thinkingEffort: options.thinking ?? "off",
+          thinkingEffort: options.thinking,
           permission: options.permission,
         },
         options.metadata,
@@ -242,7 +241,7 @@ function openOptions(overrides: Partial<OpenSessionOptions> = {}): OpenSessionOp
   return {
     webviewId: "view-1",
     workDir: "/workspace",
-    model: "acme-test",
+    model: "pythinker-test",
     effort: "off",
     yoloMode: false,
     ...overrides,
@@ -264,15 +263,15 @@ function createRuntime(
 }
 
 describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
-  it("creates the v2 harness", async () => {
-    const defaults = new PythinkerRuntime({
+  it("creates the harness through the SDK factory when none is injected", async () => {
+    const runtime = new PythinkerRuntime({
       version: "0.6.0",
       broadcast: () => undefined,
       captureBaseline: () => undefined,
       log: () => undefined,
     });
-    expect(sdkFactories.createPythinkerHarnessV2).toHaveBeenCalledOnce();
-    expect(sdkFactories.createPythinkerHarnessV2).toHaveBeenCalledWith({
+    expect(sdkFactories.createPythinkerHarness).toHaveBeenCalledOnce();
+    expect(sdkFactories.createPythinkerHarness).toHaveBeenCalledWith({
       homeDir: undefined,
       identity: {
         productName: "pythinker-code-vscode",
@@ -280,9 +279,14 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
         platform: "pythinker_code_vscode",
       },
       uiMode: "vscode",
+      telemetry: {
+        track,
+        withContext: withTelemetryContext,
+        setContext: setTelemetryContext,
+      },
     });
-    expect(defaults.harness).toBe(sdkFactories.v2Harness as unknown as PythinkerHarness);
-    await defaults.dispose();
+    expect(runtime.harness).toBe(sdkFactories.harness as unknown as PythinkerHarness);
+    await runtime.dispose();
   });
 
   it("forwards the requested settings when creating an SDK session", async () => {
@@ -298,7 +302,7 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
         model: "kimi-k2",
         thinking: "high",
         permission: "yolo",
-        metadata: { vscode_permission_mode: "yolo" },
+        metadata: { vscode_legacy_approval: { yolo: true, afk: false } },
       },
     ]);
     expect(opened.subscribers).toEqual(["view-1"]);
@@ -308,19 +312,19 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
     const { runtime } = createRuntime((workDir) => workDir.replaceAll("\\", "/"));
 
     const opened = await runtime.openSession(openOptions({
-      workDir: "C:\\Users\\Example User\\\u9879\u76EE",
+      workDir: "C:\\Users\\Example User\\zh",
     }));
 
-    expect(opened.session.workDir).toBe("C:/Users/Example User/\u9879\u76EE");
+    expect(opened.session.workDir).toBe("C:/Users/Example User/zh");
   });
 
   it("resumes a Windows session when only separators and casing differ", async () => {
     const { runtime, sdk } = createRuntime();
-    sdk.addSession("saved-win", "C:/Users/Example User/\u9879\u76EE");
+    sdk.addSession("saved-win", "C:/Users/Example User/zh");
 
     const opened = await runtime.openSession(openOptions({
       sessionId: "saved-win",
-      workDir: "c:\\users\\example user\\\u9879\u76EE",
+      workDir: "c:\\users\\example user\\zh",
     }));
 
     expect(opened.id).toBe("saved-win");
@@ -493,14 +497,14 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
     const runtime = new PythinkerRuntime({
       version: "0.6.0",
       harness: sdk.harness,
-      broadcast: (event: string, data: unknown, webviewId?: string) => {
+      broadcast: (event, data, webviewId) => {
         broadcasts.push({ event, data, webviewId });
       },
       captureBaseline: () => undefined,
       log: () => undefined,
     });
     sdk.addSession("saved-1", "/workspace", {
-      model: "acme-test",
+      model: "pythinker-test",
       thinkingEffort: "max",
       planMode: true,
     });
@@ -511,13 +515,10 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
       event: Events.StreamEvent,
       data: {
         type: "StatusUpdate",
-        // The permission mode rides along: the chat badge is the only place the
-        // user can see which mode a toggle command just landed on.
         payload: {
-          model: "acme-test",
+          model: "pythinker-test",
           thinking_effort: "max",
           plan_mode: true,
-          permission: "manual",
           context_usage: 0,
         },
         _sessionId: "saved-1",
@@ -526,161 +527,91 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
     });
   });
 
-  it("announces the new permission mode so the chat badge can show it", async () => {
-    const sdk = createFakeHarness();
-    const broadcasts: { event: string; data: unknown; webviewId?: string }[] = [];
-    const runtime = new PythinkerRuntime({
-      version: "0.6.0",
-      harness: sdk.harness,
-      broadcast: (event: string, data: unknown, webviewId?: string) => {
-        broadcasts.push({ event, data, webviewId });
-      },
-      captureBaseline: () => undefined,
-      log: () => undefined,
-    });
-    sdk.addSession("saved-1", "/workspace", { permission: "manual" });
-    const opened = await runtime.openSession(openOptions({ sessionId: "saved-1" }));
-
-    broadcasts.length = 0;
-    await opened.setPermissionMode("yolo");
-
-    // `/yolo` toggles, so a mode the chat cannot see is a command that silently
-    // does the opposite of what the user meant.
-    expect(broadcasts).toContainEqual({
-      event: Events.StreamEvent,
-      data: {
-        type: "StatusUpdate",
-        payload: {
-          model: "acme-test",
-          thinking_effort: "off",
-          plan_mode: false,
-          permission: "yolo",
-          context_usage: 0,
-        },
-        _sessionId: "saved-1",
-      },
-      webviewId: "view-1",
-    });
-  });
-
-  it("seeds an unmarked resumed session from the yolo setting", async () => {
+  it("uses the yolo setting as the initial value for an unmarked resumed session", async () => {
     const { runtime, sdk } = createRuntime();
     const session = sdk.addSession("saved-1", "/workspace", { permission: "manual" });
 
     await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: true }));
 
-    expect(session.metadataUpdates).toEqual([{ vscode_permission_mode: "yolo" }]);
+    expect(session.metadataUpdates).toEqual([
+      { vscode_legacy_approval: { yolo: true, afk: false } },
+    ]);
   });
 
-  it("keeps a stored yolo mode when the global setting is off", async () => {
+  it("lets the global yolo setting override a persisted off flag on resume", async () => {
     const { runtime, sdk } = createRuntime();
     const session = sdk.addSession(
       "saved-1",
       "/workspace",
       { permission: "manual" },
-      { vscode_permission_mode: "yolo" },
+      { vscode_legacy_approval: { yolo: false, afk: false } },
     );
 
-    const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: false }));
+    const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: true }));
 
     expect(session.setPermissions).toEqual(["yolo"]);
-    expect(session.metadataUpdates).toEqual([]);
-    expect(opened.permissionMode).toBe("yolo");
+    expect(session.metadataUpdates).toEqual([
+      { vscode_legacy_approval: { yolo: true, afk: false } },
+    ]);
+    expect(opened.legacyApprovalFlags).toEqual({ yolo: true, afk: false });
   });
 
-  it("keeps a stored manual mode when the global setting is on", async () => {
+  it("lets the global yolo setting disable a persisted session yolo flag on resume", async () => {
     const { runtime, sdk } = createRuntime();
     const session = sdk.addSession(
       "saved-1",
       "/workspace",
-      { permission: "manual" },
-      { vscode_permission_mode: "manual" },
-    );
-
-    const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: true }));
-
-    expect(session.setPermissions).toEqual([]);
-    expect(session.metadataUpdates).toEqual([]);
-    expect(opened.permissionMode).toBe("manual");
-  });
-
-  it("restores a stored auto mode", async () => {
-    const { runtime, sdk } = createRuntime();
-    const session = sdk.addSession(
-      "saved-1",
-      "/workspace",
-      { permission: "manual" },
-      { vscode_permission_mode: "auto" },
+      { permission: "yolo" },
+      { vscode_legacy_approval: { yolo: true, afk: false } },
     );
 
     const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: false }));
+
+    expect(session.setPermissions).toEqual(["manual"]);
+    expect(session.metadataUpdates).toEqual([
+      { vscode_legacy_approval: { yolo: false, afk: false } },
+    ]);
+    expect(opened.legacyApprovalFlags).toEqual({ yolo: false, afk: false });
+  });
+
+  it("keeps the persisted afk flag while applying the global yolo setting on resume", async () => {
+    const { runtime, sdk } = createRuntime();
+    const session = sdk.addSession(
+      "saved-1",
+      "/workspace",
+      { permission: "manual" },
+      { vscode_legacy_approval: { yolo: false, afk: true } },
+    );
+
+    const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: true }));
 
     expect(session.setPermissions).toEqual(["auto"]);
-    expect(opened.permissionMode).toBe("auto");
+    expect(opened.legacyApprovalFlags).toEqual({ yolo: true, afk: true });
   });
 
-  it("ignores an unrecognised stored mode and falls back to the setting", async () => {
+  it("restores persisted afk with core auto permission", async () => {
     const { runtime, sdk } = createRuntime();
     const session = sdk.addSession(
       "saved-1",
       "/workspace",
       { permission: "manual" },
-      { vscode_permission_mode: "nonsense" },
+      { vscode_legacy_approval: { yolo: false, afk: true } },
     );
 
-    const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: true }));
+    await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: false }));
 
-    expect(opened.permissionMode).toBe("yolo");
-    expect(session.metadataUpdates).toEqual([{ vscode_permission_mode: "yolo" }]);
+    expect(session.setPermissions).toEqual(["auto"]);
   });
 
-  it("applies an explicit settings change to the live sessions", async () => {
+  it("changes the setting-backed yolo flag without clearing session afk", async () => {
     const { runtime } = createRuntime();
     const opened = await runtime.openSession(openOptions());
+    await opened.toggleLegacyApproval("afk");
 
-    await runtime.setPermissionModeForActiveSessions("yolo");
+    await runtime.setYoloModeForActiveSessions(true);
 
-    expect(opened.permissionMode).toBe("yolo");
-    await expect(opened.session.getStatus()).resolves.toMatchObject({ permission: "yolo" });
-  });
-
-  it("applies a permission mode requested before the view had a session", async () => {
-    const { runtime } = createRuntime();
-    const target = runtime.pendingPermissionTarget("view-1", "manual");
-
-    expect(await target.togglePermissionMode("yolo")).toBe("yolo");
-    const opened = await runtime.openSession(openOptions({ webviewId: "view-1" }));
-
-    expect(opened.permissionMode).toBe("yolo");
-    await expect(opened.session.getStatus()).resolves.toMatchObject({ permission: "yolo" });
-    // Consumed once: the next session opened by that view starts from its own mode.
-    expect(runtime.pendingPermissionTarget("view-1", "manual").permissionMode).toBe("manual");
-  });
-
-  it("keeps a pending permission mode when applying it to the session fails", async () => {
-    const { runtime, sdk } = createRuntime();
-    const boundary = sdk.addSession("saved-1", "/workspace");
-    (boundary.session as { setPermission: (mode: PermissionMode) => Promise<void> }).setPermission =
-      async () => {
-        throw new Error("engine offline");
-      };
-    await runtime.pendingPermissionTarget("view-1", "manual").setPermissionMode("yolo");
-
-    await expect(
-      runtime.openSession(openOptions({ webviewId: "view-1", sessionId: "saved-1" })),
-    ).rejects.toThrow("engine offline");
-
-    expect(runtime.pendingPermissionTarget("view-1", "manual").permissionMode).toBe("yolo");
-  });
-
-  it("persists a mode change so the next attach restores it", async () => {
-    const { runtime, sdk } = createRuntime();
-    const session = sdk.addSession("saved-1", "/workspace", { permission: "manual" });
-    const opened = await runtime.openSession(openOptions({ sessionId: "saved-1", yoloMode: false }));
-
-    await opened.setPermissionMode("yolo");
-
-    expect(session.metadataUpdates.at(-1)).toEqual({ vscode_permission_mode: "yolo" });
+    expect(opened.legacyApprovalFlags).toEqual({ yolo: true, afk: true });
+    await expect(opened.session.getStatus()).resolves.toMatchObject({ permission: "auto" });
   });
 
   it("keeps a shared session open when one of its Webviews detaches", async () => {
@@ -772,7 +703,7 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
     const runtime = new PythinkerRuntime({
       version: "test",
       harness: sdk.harness,
-      broadcast: (event: string, data: unknown) => {
+      broadcast: (event, data) => {
         broadcasts.push({ event, data });
       },
       captureBaseline: () => undefined,

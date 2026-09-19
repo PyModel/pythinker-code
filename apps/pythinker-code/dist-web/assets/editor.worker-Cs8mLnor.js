@@ -1,0 +1,1 @@
+function e(e){return new Worker(`/assets/editor.worker-DBDBTILD.js`,{type:`module`,name:e?.name})}export{e as default};

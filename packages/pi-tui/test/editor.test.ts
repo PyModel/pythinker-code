@@ -906,31 +906,31 @@ describe("Editor component", () => {
 		it("stops at fullwidth Chinese punctuation (issue #4972)", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			// \u4F60\u597D，\u4E16\u754C = \u4F60\u597D(0-2) ，(2-3) \u4E16\u754C(3-5)
-			editor.setText("\u4F60\u597D，\u4E16\u754C");
+			// CJK，CJK = CJK(0-2) ，(2-3) CJK(3-5)
+			editor.setText("\u4f60\u597d，\u4e16\u754c");
 			// Cursor at end (col 5)
 
-			// Move left over \u4E16\u754C
+			// Move left over CJK
 			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 3 }); // after ，
 
 			// Move left over ，
 			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
-			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 2 }); // after \u4F60\u597D
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 2 }); // after \u4f60\u597d
 
-			// Move left over \u4F60\u597D
+			// Move left over CJK
 			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 0 }); // start
 
-			// Move right over \u4F60\u597D
+			// Move right over CJK
 			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
-			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 2 }); // after \u4F60\u597D
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 2 }); // after \u4f60\u597d
 
 			// Move right over ，
 			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 3 }); // after ，
 
-			// Move right over \u4E16\u754C
+			// Move right over CJK
 			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 5 }); // end
 		});
@@ -938,11 +938,11 @@ describe("Editor component", () => {
 		it("handles mixed CJK and ASCII word movement", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			// "hello\u4F60\u597D，world\u4E16\u754C" = hello(0-5) \u4F60\u597D(5-7) ，(7-8) world(8-13) \u4E16\u754C(13-15)
-			editor.setText("hello\u4F60\u597D，world\u4E16\u754C");
+			// "helloCJK，worldCJK" = hello(0-5) CJK(5-7) ，(7-8) world(8-13) CJK(13-15)
+			editor.setText("hello\u4f60\u597d，world\u4e16\u754c");
 			// Cursor at end (col 15)
 
-			// Move left over \u4E16\u754C
+			// Move left over CJK
 			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 13 }); // after 'world'
 
@@ -952,9 +952,9 @@ describe("Editor component", () => {
 
 			// Move left over ，
 			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
-			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 7 }); // after \u4F60\u597D
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 7 }); // after \u4f60\u597d
 
-			// Move left over \u4F60\u597D
+			// Move left over CJK
 			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 5 }); // after 'hello'
 
@@ -967,7 +967,7 @@ describe("Editor component", () => {
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 5 }); // after 'hello'
 
 			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
-			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 7 }); // after \u4F60\u597D
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 7 }); // after \u4f60\u597d
 
 			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 8 }); // after ，
@@ -981,6 +981,19 @@ describe("Editor component", () => {
 	});
 
 	describe("Scroll indicators", () => {
+		it("centers scroll indicators on wide borders", () => {
+			const width = 40;
+			const editor = new Editor(createTestTUI(width), defaultEditorTheme);
+			editor.setText(Array.from({ length: 20 }, (_, index) => `line ${index}`).join("\n"));
+
+			editor.render(width);
+			for (let index = 0; index < 10; index++) editor.handleInput("\x1b[A");
+
+			const lines = editor.render(width);
+			assert.strictEqual(stripVTControlCharacters(lines[0]!), `${"─".repeat(15)} ↑ 9 more ${"─".repeat(15)}`);
+			assert.strictEqual(stripVTControlCharacters(lines.at(-1)!), `${"─".repeat(15)} ↓ 4 more ${"─".repeat(15)}`);
+		});
+
 		it("keeps truncated scroll indicators within width and preserves their color (issue #6962)", () => {
 			const width = 10;
 			const borderColor = (text: string) => `\x1b[35m${text}\x1b[39m`;
@@ -1054,8 +1067,8 @@ describe("Editor component", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 			const width = 10 + 1; // +1 col reserved for cursor
 
-			// Each CJK char is 2 columns. "\u65E5\u672C\u8A9Eテスト" = 6 chars = 12 columns
-			editor.setText("\u65E5\u672C\u8A9Eテスト");
+			// Each CJK char is 2 columns. "CJKテスト" = 6 chars = 12 columns
+			editor.setText("\u65e5\u672c\u8a9eテスト");
 			const lines = editor.render(width);
 
 			for (let i = 1; i < lines.length - 1; i++) {
@@ -1066,7 +1079,7 @@ describe("Editor component", () => {
 			// Verify content split correctly
 			const contentLines = lines.slice(1, -1).map((l) => stripVTControlCharacters(l).trim());
 			assert.strictEqual(contentLines.length, 2);
-			assert.strictEqual(contentLines[0], "\u65E5\u672C\u8A9Eテス"); // 5 chars = 10 columns
+			assert.strictEqual(contentLines[0], "\u65e5\u672c\u8a9eテス"); // 5 chars = 10 columns
 			assert.strictEqual(contentLines[1], "ト"); // 1 char = 2 columns (+ padding)
 		});
 
@@ -1074,8 +1087,8 @@ describe("Editor component", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 			const width = 15 + 1; // +1 col reserved for cursor
 
-			// "Test ✅ OK \u65E5\u672C" = 4 + 1 + 2 + 1 + 2 + 1 + 4 = 15 columns (fits in width-1=15)
-			editor.setText("Test ✅ OK \u65E5\u672C");
+			// "Test ✅ OK CJK" = 4 + 1 + 2 + 1 + 2 + 1 + 4 = 15 columns (fits in width-1=15)
+			editor.setText("Test ✅ OK \u65e5\u672c");
 			const lines = editor.render(width);
 
 			// Should fit in one content line
@@ -1321,10 +1334,10 @@ describe("Editor component", () => {
 		});
 
 		it("force-breaks when wide char after word boundary wrap still overflows", () => {
-			// " " (1) + "a"*186 (186) + "\u4F60" (2) = 189 visible width
+			// " " (1) + "a"*186 (186) + "CJK" (2) = 189 visible width
 			// maxWidth = 187: backtracking to the space would leave 186 + 2 = 188 > 187,
 			// so the algorithm must force-break before the wide char instead.
-			const line = ` ${"a".repeat(186)}\u4F60`;
+			const line = ` ${"a".repeat(186)}\u4f60`;
 			const chunks = wordWrapLine(line, 187);
 
 			for (const chunk of chunks) {
@@ -4632,18 +4645,18 @@ describe("Editor component", () => {
 
 describe("wordWrapLine narrow width", () => {
 	it("does not recurse infinitely on a wide grapheme at maxWidth 1", () => {
-		const chunks = wordWrapLine("\u4E2D", 1);
+		const chunks = wordWrapLine("\u4e2d", 1);
 		assert.deepStrictEqual(
 			chunks.map((c) => c.text),
-			["\u4E2D"],
+			["\u4e2d"],
 		);
 	});
 
 	it("splits CJK text into per-grapheme overflow chunks at maxWidth 1", () => {
-		const chunks = wordWrapLine("\u4E2D\u6587\u6587\u672C", 1);
+		const chunks = wordWrapLine("\u4e2d\u6587\u6587\u672c", 1);
 		assert.deepStrictEqual(
 			chunks.map((c) => c.text),
-			["\u4E2D", "\u6587", "\u6587", "\u672C"],
+			["\u4e2d", "\u6587", "\u6587", "\u672c"],
 		);
 		assert.deepStrictEqual(
 			chunks.map((c) => [c.startIndex, c.endIndex]),
@@ -4657,10 +4670,10 @@ describe("wordWrapLine narrow width", () => {
 	});
 
 	it("handles mixed narrow and wide graphemes at maxWidth 1", () => {
-		const chunks = wordWrapLine("ab\u4E2Dcd", 1);
+		const chunks = wordWrapLine("ab\u4e2dcd", 1);
 		assert.deepStrictEqual(
 			chunks.map((c) => c.text),
-			["a", "b", "\u4E2D", "c", "d"],
+			["a", "b", "\u4e2d", "c", "d"],
 		);
 	});
 
@@ -4692,7 +4705,7 @@ describe("Editor narrow width rendering", () => {
 	it("renders CJK text without crashing at widths 1-8 (default padding)", () => {
 		for (let width = 1; width <= 8; width++) {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
-			editor.setText("\u4F60\u597D\u4E16\u754C");
+			editor.setText("\u4f60\u597d\u4e16\u754c");
 			assert.doesNotThrow(() => editor.render(width), `width ${width}`);
 		}
 	});
@@ -4700,14 +4713,14 @@ describe("Editor narrow width rendering", () => {
 	it("renders CJK text without crashing at widths 1-8 (paddingX 4, matches pythinker-code)", () => {
 		for (let width = 1; width <= 8; width++) {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme, { paddingX: 4 });
-			editor.setText("\u4F60\u597D，\u4E16\u754C！");
+			editor.setText("\u4f60\u597d，\u4e16\u754c！");
 			assert.doesNotThrow(() => editor.render(width), `width ${width}`);
 		}
 	});
 
 	it("recalls history without crashing after rendering at width 1", () => {
 		const editor = new Editor(createTestTUI(), defaultEditorTheme);
-		editor.addToHistory("\u4F60\u597D\u4E16\u754C");
+		editor.addToHistory("\u4f60\u597d\u4e16\u754c");
 		editor.render(1); // narrow render pins lastWidth at 1
 		assert.doesNotThrow(() => {
 			(editor as unknown as { navigateHistory(direction: 1 | -1): void }).navigateHistory(-1);
@@ -4715,7 +4728,7 @@ describe("Editor narrow width rendering", () => {
 			// without the guard this overflows the stack.
 			editor.render(1);
 		});
-		assert.strictEqual(editor.getText(), "\u4F60\u597D\u4E16\u754C");
+		assert.strictEqual(editor.getText(), "\u4f60\u597d\u4e16\u754c");
 	});
 
 	it("renders inside a TUI at 5 columns without crashing or overflowing", async () => {
@@ -4723,7 +4736,7 @@ describe("Editor narrow width rendering", () => {
 		const tui = new TuiMainScreen(terminal);
 		const editor = new Editor(tui, defaultEditorTheme, { paddingX: 4 });
 		tui.addChild(editor);
-		editor.setText("\u4F60\u597D\u4E16\u754C");
+		editor.setText("\u4f60\u597d\u4e16\u754c");
 		tui.start();
 		await terminal.waitForRender();
 		const viewport = terminal.getViewport();
@@ -4735,17 +4748,17 @@ describe("Editor narrow width rendering", () => {
 		// + right padding 2) and is truncated to 5, leaving the trailing
 		// space.
 		assert.strictEqual(viewport[0], "─────");
-		assert.strictEqual(viewport[1], "  \u4F60 ");
-		assert.strictEqual(viewport[2], "  \u597D ");
-		assert.strictEqual(viewport[3], "  \u4E16 ");
-		assert.strictEqual(viewport[4], "  \u754C ");
+		assert.strictEqual(viewport[1], "  \u4f60 ");
+		assert.strictEqual(viewport[2], "  \u597d ");
+		assert.strictEqual(viewport[3], "  \u4e16 ");
+		assert.strictEqual(viewport[4], "  \u754c ");
 		assert.strictEqual(viewport[5], "─────");
 		tui.stop();
 	});
 
 	it("does not throw at zero or negative widths", () => {
 		const editor = new Editor(createTestTUI(), defaultEditorTheme);
-		editor.setText("\u4F60\u597D\u4E16\u754C");
+		editor.setText("\u4f60\u597d\u4e16\u754c");
 		assert.doesNotThrow(() => editor.render(0));
 		assert.doesNotThrow(() => editor.render(-1));
 	});

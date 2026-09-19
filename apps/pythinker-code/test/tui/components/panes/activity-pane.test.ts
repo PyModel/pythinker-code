@@ -21,7 +21,7 @@ function createMockSpinner(initialText = 'working') {
         availableWidth = width;
         update();
       },
-    }) as unknown as import('#/tui/components/chrome/moon-loader').MoonLoader,
+    }) as unknown as import('#/tui/components/chrome/activity-spinner').ActivitySpinner,
     getTip: () => tip,
   };
 }

@@ -15,6 +15,7 @@ import {
   ExperimentsSelectorComponent,
   type ExperimentalFeatureDraftChange,
 } from '../components/dialogs/experiments-selector';
+import { MermaidPreferenceSelectorComponent } from '../components/dialogs/mermaid-preference-selector';
 import { modelDisplayName, segmentsFor } from '../components/dialogs/model-selector';
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
 import { PermissionSelectorComponent } from '../components/dialogs/permission-selector';
@@ -22,11 +23,12 @@ import { SettingsSelectorComponent, type SettingsSelection } from '../components
 import { SurveyPreferenceSelectorComponent } from '../components/dialogs/survey-preference-selector';
 import { ThemeSelectorComponent } from '../components/dialogs/theme-selector';
 import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-preference-selector';
-import { DEFAULT_TUI_CONFIG, saveTuiConfig, type TuiConfig } from '../config';
+import { DEFAULT_MARKDOWN_CONFIG, DEFAULT_TUI_CONFIG, saveTuiConfig, type MarkdownConfig, type TuiConfig } from '../config';
 import type { ThemeName } from '#/tui/theme';
 import { currentTheme, isBuiltInTheme, lightColors, loadCustomThemeMerged } from '#/tui/theme';
 import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/pythinker-tui';
 import { formatErrorMessage } from '../utils/event-payload';
+import { setMarkdownMermaidMode, type MermaidRenderMode } from '../utils/markdown-options';
 import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
 import { showUsage } from './info';
@@ -66,6 +68,7 @@ export function currentTuiConfig(host: Pick<SlashCommandHost, 'state'>): TuiConf
     notifications: host.state.appState.notifications,
     upgrade: host.state.appState.upgrade,
     statusLine: host.state.appState.statusLine ?? DEFAULT_TUI_CONFIG.statusLine,
+    markdown: host.state.appState.markdown ?? DEFAULT_MARKDOWN_CONFIG,
   };
 }
 
@@ -194,7 +197,7 @@ export async function handleSecondaryModelCommand(host: SlashCommandHost, args: 
   if (Object.keys(models).length === 0) {
     host.showNotice(
       'No models configured',
-      'Run /login or /provider to configure a model.',
+      'Run /login to sign in to Pythinker, or /provider to add another provider from a model catalog.',
     );
     return;
   }
@@ -290,9 +293,10 @@ function showEditorPicker(host: SlashCommandHost): void {
 }
 
 async function refreshModelsForPicker(host: SlashCommandHost): Promise<void> {
+  if (typeof host.authFlow.refreshOAuthProviderModels !== 'function') return;
   try {
     const result = await withTimeout(
-      host.authFlow.refreshProviderModels(),
+      host.authFlow.refreshOAuthProviderModels(),
       MODEL_PICKER_REFRESH_TIMEOUT_MS,
     );
     if (result === undefined) return;
@@ -369,7 +373,7 @@ export function showModelPicker(host: SlashCommandHost, selectedValue: string = 
   if (entries.length === 0) {
     host.showNotice(
       'No models configured',
-      'Run /login or /provider to configure a model.',
+      'Run /login to sign in to Pythinker, or /provider to add another provider from a model catalog.',
     );
     return;
   }
@@ -402,7 +406,7 @@ async function performModelSwitch(
   persist: boolean,
 ): Promise<void> {
   let session = host.session;
-  if (session === undefined && host.engineV2) {
+  if (session === undefined) {
     // A first prompt may still be inside lazy creation: wait it out so the
     // switch lands on the new session instead of being overwritten by its
     // assembly.
@@ -729,6 +733,9 @@ export async function applyExperimentalFeatureChanges(
       );
     }
     if (changes.some((change) => change.id === 'tower')) {
+      // TowerFeature assembles its tool/profile contributions once at App
+      // scope construction, so a live flag flip cannot install or retract
+      // them; only the mode machinery (enter/injection/guards) reacts live.
       host.showNotice('Tower mode takes effect after restarting Pythinker Code.');
     }
     host.track('experimental_features_apply', {
@@ -810,9 +817,6 @@ async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMod
   try {
     if (host.session !== undefined) {
       await host.session.setPermission(mode);
-    } else if (!host.engineV2) {
-      host.showError(NO_ACTIVE_SESSION_MESSAGE);
-      return;
     }
     // v2 session-less: the chosen mode is recorded in appState and passed to
     // the lazy-created session.
@@ -826,33 +830,6 @@ async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMod
   host.showNotice(`Permission mode: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}`);
   if (mode !== 'manual') {
     host.showStatus(PERMISSION_MODE_DESCRIPTIONS[mode], 'warning');
-  }
-}
-
-export function showSettingsSelector(host: SlashCommandHost): void {
-  host.mountEditorReplacement(
-    new SettingsSelectorComponent({
-      onSelect: (value) => {
-        handleSettingsSelection(host, value);
-      },
-      onCancel: () => {
-        host.restoreEditor();
-      },
-    }),
-  );
-}
-
-function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelection): void {
-  host.restoreEditor();
-  switch (value) {
-    case 'model': showModelPicker(host); return;
-    case 'permission': showPermissionPicker(host); return;
-    case 'theme': showThemePicker(host); return;
-    case 'editor': showEditorPicker(host); return;
-    case 'experiments': void showExperimentsPanel(host); return;
-    case 'survey': showSurveyPreferencePicker(host); return;
-    case 'upgrade': showUpdatePreferencePicker(host); return;
-    case 'usage': void showUsage(host); return;
   }
 }
 
@@ -909,4 +886,91 @@ export async function applySurveyPreferenceChoice(
 
   host.setAppState({ disableFeedbackSurvey });
   host.showStatus(`Feedback survey ${enabled ? 'enabled' : 'disabled'}.`);
+}
+
+export function showMermaidPreferencePicker(host: SlashCommandHost): void {
+  host.mountEditorReplacement(
+    new MermaidPreferenceSelectorComponent({
+      currentValue: host.state.appState.markdown?.mermaid !== 'off',
+      onSelect: (value) => {
+        host.restoreEditor();
+        void applyMermaidPreferenceChoice(host, value);
+      },
+      onCancel: () => {
+        host.restoreEditor();
+      },
+    }),
+  );
+}
+
+type MermaidPreferenceHost = {
+  readonly state: {
+    readonly appState: Pick<
+      SlashCommandHost['state']['appState'],
+      'theme' | 'editorCommand' | 'notifications' | 'upgrade' | 'markdown'
+    >;
+    readonly transcriptContainer: { invalidate(): void };
+    readonly ui: { requestRender(force?: boolean): void };
+  };
+  setAppState(patch: Pick<SlashCommandHost['state']['appState'], 'markdown'>): void;
+  showStatus(msg: string, color?: string): void;
+};
+
+export async function applyMermaidPreferenceChoice(
+  host: MermaidPreferenceHost,
+  enabled: boolean,
+): Promise<void> {
+  const mermaid: MermaidRenderMode = enabled ? 'final' : 'off';
+  if (mermaid === (host.state.appState.markdown?.mermaid ?? DEFAULT_MARKDOWN_CONFIG.mermaid)) {
+    host.showStatus(`Mermaid diagrams already ${enabled ? 'enabled' : 'disabled'}.`);
+    return;
+  }
+
+  const markdown: MarkdownConfig = { mermaid };
+  try {
+    await saveTuiConfig({
+      ...currentTuiConfig(host as unknown as SlashCommandHost),
+      markdown,
+    });
+  } catch (error) {
+    host.showStatus(
+      `Failed to save mermaid diagram setting: ${formatErrorMessage(error)}`,
+      'error',
+    );
+    return;
+  }
+
+  setMarkdownMermaidMode(mermaid);
+  host.setAppState({ markdown });
+  host.state.transcriptContainer.invalidate();
+  host.state.ui.requestRender(true);
+  host.showStatus(`Mermaid diagrams ${enabled ? 'enabled' : 'disabled'}.`);
+}
+
+export function showSettingsSelector(host: SlashCommandHost): void {
+  host.mountEditorReplacement(
+    new SettingsSelectorComponent({
+      onSelect: (value) => {
+        handleSettingsSelection(host, value);
+      },
+      onCancel: () => {
+        host.restoreEditor();
+      },
+    }),
+  );
+}
+
+function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelection): void {
+  host.restoreEditor();
+  switch (value) {
+    case 'model': showModelPicker(host); return;
+    case 'permission': showPermissionPicker(host); return;
+    case 'theme': showThemePicker(host); return;
+    case 'mermaid': showMermaidPreferencePicker(host); return;
+    case 'editor': showEditorPicker(host); return;
+    case 'survey': showSurveyPreferencePicker(host); return;
+    case 'experiments': void showExperimentsPanel(host); return;
+    case 'upgrade': showUpdatePreferencePicker(host); return;
+    case 'usage': void showUsage(host); return;
+  }
 }

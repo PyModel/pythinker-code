@@ -15,15 +15,15 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
-import {
-  ErrorCode,
-  type FileMeta,
-  type Message,
-  type ModelCatalogItem,
-  type ProviderCatalogItem,
-  type Session,
-  type SessionStatusResponse,
-} from '@pymodel/protocol';
+import type { FileMeta } from '@pymodel/agent-core-v2/app/file/fileService';
+import type {
+  ModelCatalogItem,
+  ProviderCatalogItem,
+} from '@pymodel/agent-core-v2/llm-adapter/model/catalog';
+import { ErrorCode } from '@pymodel/agent-gateway/protocol/error-codes';
+import type { Message } from '@pymodel/agent-gateway/protocol/message';
+import type { SessionStatusResponse } from '@pymodel/agent-gateway/protocol/rest-session';
+import type { Session } from '@pymodel/agent-gateway/protocol/session';
 
 import { DaemonClient, EnvelopeError } from '../harness/index.js';
 import { fetchWithReport } from '../harness/report.js';
@@ -430,17 +430,16 @@ describe('DaemonClient session action helpers', () => {
   it('model catalog helpers call the catalog and action-suffix routes', async () => {
     const log = createCaseLogger('client helper: model catalog');
     const calls: FetchCall[] = [];
-    const model = testModel({ model: 'example/test-model' });
+    const model = testModel({ model: 'openai/gpt-4o' });
     const provider = testProvider({ id: 'pythinker', models: [model.model] });
     const client = new DaemonClient({
       baseUrl: 'http://server.example.test',
       fetchImpl: recordingFetchSequence(
         [
           okEnvelope({
-            ready: true,
             models_ready: true,
             providers_count: 1,
-            default_model: model.model,
+            managed_provider: null,
           }),
           okEnvelope({ items: [model] }),
           okEnvelope({ default_model: model.model, model }),
@@ -451,7 +450,7 @@ describe('DaemonClient session action helpers', () => {
       ),
     });
 
-    await expect(client.getAuth()).resolves.toMatchObject({ default_model: model.model });
+    await expect(client.getAuth()).resolves.toMatchObject({ models_ready: true });
     await expect(client.listModels()).resolves.toEqual({ items: [model] });
     await expect(client.setDefaultModel(model.model)).resolves.toEqual({
       default_model: model.model,
@@ -464,7 +463,7 @@ describe('DaemonClient session action helpers', () => {
     expect(calls.map((call) => [call.init.method, call.url])).toEqual([
       ['GET', 'http://server.example.test/api/v1/auth'],
       ['GET', 'http://server.example.test/api/v1/models'],
-      ['POST', 'http://server.example.test/api/v1/models/example%2Ftest-model:set_default'],
+      ['POST', 'http://server.example.test/api/v1/models/openai%2Fgpt-4o:set_default'],
       ['GET', 'http://server.example.test/api/v1/providers'],
       ['GET', 'http://server.example.test/api/v1/providers/pythinker'],
     ]);
@@ -707,7 +706,7 @@ function testMessage(overrides: Partial<Message> = {}): Message {
 function testSessionStatus(): SessionStatusResponse {
   return {
     busy: false,
-    model: 'example/test-model',
+    model: 'openai/gpt-4o',
     thinking_level: 'off',
     permission: 'manual',
     plan_mode: false,

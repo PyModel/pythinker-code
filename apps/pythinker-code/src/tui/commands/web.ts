@@ -43,13 +43,6 @@ export async function handleWebCommand(host: SlashCommandHost): Promise<void> {
   await host.stop();
 }
 
-/**
- * `/remote-control` — hand the current session off to a remote device.
- *
- * Same exit takeover as `/web`, except the process also opens a relay tunnel
- * so the session is reachable from a phone or another machine. The relay link
- * and its QR code print once the tunnel is up.
- */
 export async function handleRemoteControlCommand(host: SlashCommandHost): Promise<void> {
   await host.waitForLazyCreation();
   const session = host.session;
@@ -60,8 +53,6 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
     return;
   }
 
-  // Before the takeover: a missing relay key is a configuration problem the
-  // user can still fix, so it must not cost them the terminal UI.
   let relayKey: string;
   try {
     relayKey = resolveRelayKey();
@@ -74,8 +65,6 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
     const options = parseServerOptions({});
     let remoteControl: Awaited<ReturnType<typeof startRemoteControl>> | undefined;
     try {
-      // Inside the try: a malformed relay setting throws here, and the user
-      // should see it through the same handler as any other startup failure.
       const relayOrigin = resolveRelayOrigin();
       await startServerForeground(options, {
         onReady: async (origin) => {
@@ -145,9 +134,7 @@ function startNewServerAfterExit(host: SlashCommandHost, sessionId: string): voi
           // gate.
           const token = tryResolveServerToken(getDataDir());
           const url = webSessionUrl(origin, sessionId, token);
-          process.stdout.write(
-            formatReadyBanner(origin, options.host, { token, useTuiLogo: true }),
-          );
+          process.stdout.write(formatReadyBanner(origin, options.host, { token, useTuiLogo: true }));
           process.stdout.write(`\n  ${sessionLine(url)}\n`);
           void openUrl(url);
         },
@@ -161,12 +148,12 @@ function startNewServerAfterExit(host: SlashCommandHost, sessionId: string): voi
 
 /** Styled `Session:` line for the foreground handoff; the token fragment is
  * dimmed like in the ready banner so the host/path stands out. */
-function sessionLine(url: string): string {
+function sessionLine(url: string, labelText = 'Session:  '): string {
   const label = (text: string): string => chalk.bold.hex(darkColors.textDim)(text);
   const accent = (text: string): string => chalk.hex(darkColors.accent)(text);
   const dim = (text: string): string => chalk.hex(darkColors.textDim)(text);
   const [base, frag] = splitTokenFragment(url);
-  return `${label('Session:  ')}${accent(base)}${frag === '' ? '' : dim(frag)}`;
+  return `${label(labelText)}${accent(base)}${frag === '' ? '' : dim(frag)}`;
 }
 
 /**

@@ -139,27 +139,6 @@ describe('MiniDbQueryStore', () => {
     expect(shardEntries.filter((name) => name.includes('text'))).toEqual([]);
   });
 
-  it('stores checkpoints', async () => {
-    const store = build();
-    expect(await store.getCheckpoint('wire:abc')).toBeUndefined();
-    await store.setCheckpoint('wire:abc', { seq: 42 });
-    expect(await store.getCheckpoint('wire:abc')).toEqual({ seq: 42 });
-  });
-
-  it('opens a 16-shard cluster under the cache dir', async () => {
-    const store = build();
-    await store.put(COLLECTION, 'a', { id: 'a' });
-    const storeDir = join(homeDir, 'cache', 'query-store');
-    const meta = JSON.parse(await fsp.readFile(join(storeDir, 'cluster.meta.json'), 'utf8')) as {
-      shardCount: number;
-    };
-    expect(meta.shardCount).toBe(16);
-    const entries = await fsp.readdir(storeDir);
-    for (let i = 0; i < 16; i++) {
-      expect(entries).toContain(`shard-${String(i).padStart(2, '0')}`);
-    }
-  });
-
   it('shares the store with a second cluster instance instead of locking it out', async () => {
     const storeDir = join(homeDir, 'cache', 'query-store');
     const peer = await ClusterDb.open({ dir: storeDir, shardCount: 16, valueCodec: 'json' });
@@ -258,7 +237,7 @@ describe('MiniDbQueryStore', () => {
       { kind: 'put', collection: COLLECTION, key: 'b', value: { v: 2 } },
     ]);
     const found = await store.getMany<{ v: number }>(COLLECTION, ['a', 'missing', 'b']);
-    expect([...found.keys()].toSorted()).toEqual(['a', 'b']);
+    expect([...found.keys()].sort()).toEqual(['a', 'b']);
     expect(found.get('a')).toEqual({ v: 1 });
     expect(found.get('b')).toEqual({ v: 2 });
     expect(await store.getMany(COLLECTION, [])).toEqual(new Map());

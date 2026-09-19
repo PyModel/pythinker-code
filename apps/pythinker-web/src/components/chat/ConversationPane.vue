@@ -44,6 +44,8 @@ const props = defineProps<{
   sessionPlans?: Record<string, SessionPlanEntry>;
   overlayOpen?: boolean;
   goalMode?: boolean;
+  towerMode?: boolean;
+  towerAvailable?: boolean;
   dynamicWorkflowMode?: boolean;
   questions?: UIQuestion[];
   /** Question ids with an in-flight respond/dismiss (drives the card loading
@@ -146,6 +148,7 @@ const emit = defineEmits<{
   togglePlan: [];
   toggleWorkflow: [];
   toggleGoal: [];
+  toggleTower: [];
   createGoal: [objective: string];
   controlGoal: [action: 'pause' | 'resume' | 'cancel'];
   compact: [];
@@ -1538,6 +1541,8 @@ defineExpose({ loadComposerForEdit, focusComposer, insertComposerQuote });
               :thinking="thinking"
               :plan-mode="planMode"
               :goal-mode="goalMode"
+              :tower-mode="towerMode"
+              :tower-available="towerAvailable"
               :workflow-active="dynamicWorkflowMode"
               :goal="goal"
               :activation-badges="activationBadges"
@@ -1557,6 +1562,7 @@ defineExpose({ loadComposerForEdit, focusComposer, insertComposerQuote });
               @toggle-plan="emit('togglePlan')"
               @toggle-workflow="emit('toggleWorkflow')"
               @toggle-goal="emit('toggleGoal')"
+              @toggle-tower="emit('toggleTower')"
               @open-btw="emit('command', '/btw')"
               @create-goal="emit('createGoal', $event)"
               @control-goal="emit('controlGoal', $event)"
@@ -1631,6 +1637,8 @@ defineExpose({ loadComposerForEdit, focusComposer, insertComposerQuote });
         :plan-armed="planArmed"
         :working="working"
         :goal-mode="goalMode"
+        :tower-mode="towerMode"
+        :tower-available="towerAvailable"
         :dynamic-workflow-mode="dynamicWorkflowMode"
         :activation-badges="activationBadges"
         :models="models"
@@ -1671,6 +1679,7 @@ defineExpose({ loadComposerForEdit, focusComposer, insertComposerQuote });
         @toggle-plan="emit('togglePlan')"
         @toggle-workflow="emit('toggleWorkflow')"
         @toggle-goal="emit('toggleGoal')"
+        @toggle-tower="emit('toggleTower')"
           @open-btw="emit('command', '/btw')"
           @create-goal="emit('createGoal', $event)"
           @focus-goal="focusGoal"

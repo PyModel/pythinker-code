@@ -7,6 +7,7 @@ const container = document.querySelector("#root");
 
 const queryClient = new QueryClient();
 
+
 if (container) {
   createRoot(container).render(
     <StrictMode>

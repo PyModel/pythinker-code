@@ -8,21 +8,28 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
-import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
+import {
+  rootDelegationExtras,
+  subagentAllowlistFor,
+  subagentTypeNotAllowedMessage,
+  withoutDelegatingTargets,
+} from '#/app/agentProfileCatalog/profile-shared';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import type { Runtime } from '#/runtime/runtime';
+import { IConfigService } from '#/app/config/config';
+import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { ILogService } from '#/_base/log/log';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { createHooks } from '#/hooks';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { agentContextOf } from '#/agent/scopeContext/scopeContext';
-import { AgentReminder } from '#/features/reminder/reminderAgentRuntime';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 
 import {
   type AgentRunHandle,
@@ -33,16 +40,19 @@ import {
   type RunAgentOptions,
 } from './subagent';
 import { runAgentTurn } from './runAgentTurn';
-import { wrapSubagentModelError } from './configSection';
-import { IAgentBindingProvenanceService } from './bindingProvenance';
 import {
+  resolveSubagentBinding,
+  resolveSubagentThinking,
+  wrapSubagentModelError,
+} from './configSection';
+import {
+  DEFAULT_PROFILE_NAME,
   FORK_CONTEXT_NOTICE,
   type SpawnSubagentOptions,
   type SpawnedSubagent,
   type SubagentSpawnPlan,
   type SubagentSpawnPlanInput,
 } from './spawn';
-import { ISubagentRoutingService } from './subagentRoutingService';
 
 export class SessionSubagentService extends Service implements ISessionSubagentService {
   declare readonly _serviceBrand: undefined;
@@ -59,9 +69,10 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
   constructor(
     @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
     @ISessionAgentProfileCatalog private readonly catalog: ISessionAgentProfileCatalog,
+    @IConfigService private readonly configService: IConfigService,
+    @IModelCatalog private readonly modelCatalog: IModelCatalog,
     @ISessionContext private readonly sessionContext: ISessionContext,
     @ILogService private readonly log: ILogService,
-    @ISubagentRoutingService private readonly routing: ISubagentRoutingService,
   ) {
     super();
   }
@@ -73,37 +84,86 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
         details: { agentId: agent.agentId },
       });
     }
-    return runAgentTurn(handle, request, {
-      summaryPolicy: opts.summaryPolicy ?? this.summaryPolicyFor(handle),
-      signal: opts.signal,
-      onReady: opts.onReady,
-    });
+    return runAgentTurn(handle, request, { signal: opts.signal, onReady: opts.onReady });
   }
 
   async planSpawn(input: SubagentSpawnPlanInput): Promise<SubagentSpawnPlan> {
-    return this.routing.resolve(input);
+    const caller = this.requireCaller(input.callerAgentId);
+    const fork = input.fork === true;
+    await this.catalog.ready;
+    const own = caller.accessor.get(IAgentProfileService).data();
+    const requested = input.profileName !== undefined && input.profileName.length > 0
+      ? input.profileName
+      : undefined;
+    const requestedProfileName =
+      requested ?? (fork ? (own.profileName ?? DEFAULT_PROFILE_NAME) : DEFAULT_PROFILE_NAME);
+    const extras =
+      input.callerAgentId === MAIN_AGENT_ID
+        ? rootDelegationExtras(this.catalog, own, this.catalog.list())
+        : undefined;
+    let allowlist = subagentAllowlistFor(this.catalog, own, extras);
+    if (allowlist !== undefined && own.subagents === undefined) {
+      allowlist = withoutDelegatingTargets(this.catalog, allowlist);
+    }
+    if (!fork && allowlist !== undefined && !allowlist.includes(requestedProfileName)) {
+      throw new Error2(
+        ErrorCodes.AGENT_TYPE_NOT_ALLOWED,
+        subagentTypeNotAllowedMessage(requestedProfileName, allowlist),
+        { details: { profileName: requestedProfileName, allowlist } },
+      );
+    }
+    const profile = this.catalog.get(requestedProfileName);
+    if (!fork && profile === undefined) {
+      throw new Error2(ErrorCodes.PROFILE_UNKNOWN, `Unknown agent type: "${requestedProfileName}"`, {
+        details: { profileName: requestedProfileName },
+      });
+    }
+    if (own.modelAlias === undefined) {
+      throw new Error2(ErrorCodes.MODEL_NOT_CONFIGURED, 'Caller agent has no model bound', {
+        details: { agentId: input.callerAgentId },
+      });
+    }
+    const binding = fork
+      ? { model: own.modelAlias, thinking: own.thinkingLevel, modelSource: 'inherited' as const }
+      : resolveSubagentBinding(
+          this.configService,
+          { modelAlias: own.modelAlias, thinkingLevel: own.thinkingLevel },
+          input.model,
+        );
+    let model: Model;
+    try {
+      model = this.modelCatalog.get(binding.model);
+    } catch (error) {
+      throw wrapSubagentModelError(error, binding.model, own.modelAlias);
+    }
+    return {
+      profileName: profile?.name ?? requestedProfileName,
+      model: binding.model,
+      modelSource: binding.modelSource,
+      thinking: resolveSubagentThinking(this.configService, model, binding.thinking),
+      fork,
+    };
   }
 
   async spawn(opts: SpawnSubagentOptions): Promise<SpawnedSubagent> {
-    opts.signal?.throwIfAborted();
     const caller = this.requireCaller(opts.callerAgentId);
     const { plan } = opts;
     const lease = plan.fork
       ? undefined
       : caller.accessor.get(IAgentRuntimeService).acquire(['process']);
     try {
-      const promptText = plan.fork
-        ? opts.prompt
-        : await this.applyPromptPrefix(plan.profileName, opts.prompt, lease!.runtime);
-      opts.signal?.throwIfAborted();
-      let createdContext: AgentContext;
+      let created: IAgentScopeHandle;
       try {
         if (plan.fork) {
-          createdContext = await this.agentLifecycle.fork(agentContextOf(caller), {
+          const forked = await this.agentLifecycle.fork(agentContextOf(caller), {
             labels: opts.labels,
           });
+          created = this.agentLifecycle.handleOf(forked.agentId)!;
+          created.accessor
+            .get(IAgentReminderService)
+            .notify(FORK_CONTEXT_NOTICE, { variant: 'fork_context' });
         } else {
-          createdContext = await this.agentLifecycle.create({
+          const createdContext = await this.agentLifecycle.create({
             binding: {
               profile: plan.profileName,
               model: plan.model,
@@ -112,6 +172,7 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
             labels: opts.labels,
             runtimeId: lease!.runtime.identity.runtimeId,
           });
+          created = this.agentLifecycle.handleOf(createdContext.agentId)!;
         }
       } catch (error) {
         throw wrapSubagentModelError(
@@ -120,48 +181,27 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
           caller.accessor.get(IAgentProfileService).data().modelAlias,
         );
       }
-      if (opts.signal?.aborted === true) {
-        await this.removeFailedSpawn(createdContext);
-        opts.signal.throwIfAborted();
+      created.accessor
+        .get(IAgentPermissionModeService)
+        .setMode(caller.accessor.get(IAgentPermissionModeService).mode);
+      const createdUserTools = created.accessor.get(IAgentUserToolService);
+      const callerUserTools = caller.accessor.get(IAgentUserToolService);
+      if (plan.fork) {
+        const activeToolNames = created.accessor.get(IAgentProfileService).getActiveToolNames();
+        createdUserTools.inheritUserTools(callerUserTools, activeToolNames);
+      } else {
+        createdUserTools.inheritUserTools(callerUserTools);
       }
-      const created = this.agentLifecycle.handleOf(createdContext.agentId);
-      if (created === undefined) {
-        await this.removeFailedSpawn(createdContext);
-        throw new Error2(
-          ErrorCodes.AGENT_NOT_FOUND,
-          `Agent "${createdContext.agentId}" was created without an agent scope`,
-          { details: { agentId: createdContext.agentId } },
-        );
-      }
-      try {
-        if (plan.routing !== undefined) {
-          created.accessor.get(IAgentBindingProvenanceService).record(plan.routing);
-        }
-        created.accessor
-          .get(IAgentPermissionModeService)
-          .setMode(caller.accessor.get(IAgentPermissionModeService).mode);
-        const createdUserTools = created.accessor.get(IAgentUserToolService);
-        const callerUserTools = caller.accessor.get(IAgentUserToolService);
-        if (plan.fork) {
-          const activeToolNames = created.accessor.get(IAgentProfileService).getActiveToolNames();
-          createdUserTools.inheritUserTools(callerUserTools, activeToolNames);
-          this.agentLifecycle
-            .resolve(createdContext, AgentReminder)
-            .notify(FORK_CONTEXT_NOTICE, { variant: 'fork_context' });
-        } else {
-          createdUserTools.inheritUserTools(callerUserTools);
-        }
-        opts.onAgentCreated?.(created.id);
-        return {
-          agentId: created.id,
-          profileName: plan.profileName,
-          model: plan.model,
-          promptText,
-        };
-      } catch (error) {
-        await this.removeFailedSpawn(createdContext);
-        throw error;
-      }
+      const promptText = plan.fork
+        ? opts.prompt
+        : await this.applyPromptPrefix(plan.profileName, opts.prompt, lease!.runtime);
+      return {
+        agentId: created.id,
+        profileName: plan.profileName,
+        model: plan.model,
+        modelSource: plan.modelSource,
+        promptText,
+      };
     } finally {
       lease?.dispose();
     }
@@ -169,17 +209,6 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
 
   notifyAgentTaskStopped(context: AgentTaskStopHookContext): void {
     this.onDidStopAgentTaskEmitter.fire(context);
-  }
-
-  private async removeFailedSpawn(agent: AgentContext): Promise<void> {
-    try {
-      await this.agentLifecycle.remove(agent);
-    } catch (error) {
-      this.log.error('failed to remove subagent after spawn setup failed', {
-        agentId: agent.agentId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
   }
 
   private async applyPromptPrefix(
@@ -207,12 +236,6 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
       });
     }
     return handle;
-  }
-
-  private summaryPolicyFor(handle: IAgentScopeHandle): AgentProfileSummaryPolicy | undefined {
-    const profileName = handle.accessor.get(IAgentProfileService).data().profileName;
-    if (profileName === undefined) return undefined;
-    return this.catalog.get(profileName)?.summaryPolicy;
   }
 }
 

@@ -11,7 +11,7 @@ import { Spacer, type Terminal, TuiAltScreen } from '@pymodel/pi-tui';
 import { VirtualTerminal } from '../../../../packages/pi-tui/test/virtual-terminal';
 
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
-import { MoonLoader } from '#/tui/components/chrome/moon-loader';
+import { ActivitySpinner } from '#/tui/components/chrome/activity-spinner';
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
 import { StatusMessageComponent } from '#/tui/components/messages/status-message';
 import { UserMessageComponent } from '#/tui/components/messages/user-message';
@@ -103,7 +103,7 @@ describe('fullscreen layout', () => {
 
     // User message, then a streaming assistant message with the activity pane up.
     state.transcriptContainer.addChild(new UserMessageComponent('\u5206\u6790\u4E0B\u8FD9\u4E2A\u9879\u76EE'));
-    const spinner = new MoonLoader(state.ui);
+    const spinner = new ActivitySpinner(state.ui);
     state.activityContainer.addChild(
       new ActivityPaneComponent({ mode: 'tool', spinner, tip: 'streaming' }),
     );

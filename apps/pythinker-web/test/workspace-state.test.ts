@@ -138,10 +138,20 @@ function createDeps(): UseWorkspaceStateDeps {
   return {
     taskPoller: {},
     sideChat: { clearSideChatForSession: vi.fn() },
-    modelProvider: { resolveThinkingForPrompt: async () => undefined },
+    modelProvider: {
+      resolveThinkingForPrompt: async () => undefined,
+      loadModels: vi.fn().mockResolvedValue(undefined),
+    },
     pushOperationFailure: vi.fn(),
     activity: computed(() => 'running'),
     sessionsKnownEmpty: new Set(),
+    bootStage: ref('idle'),
+    bootRetries: ref(0),
+    selectedDiffPath: ref(null),
+    fileDiffLines: ref([]),
+    fileDiffLoading: ref(false),
+    initialized: ref(true),
+    connectIssue: ref(null),
     setSessions: vi.fn(),
     updateSession: vi.fn(),
     upsertSessionFront: vi.fn(),
@@ -174,10 +184,6 @@ function createDeps(): UseWorkspaceStateDeps {
     resetFastMoon: vi.fn(),
     getExpertTalkArmId: () => undefined,
     onExpertTalkPromptAccepted: vi.fn(),
-    initialized: ref(true),
-    selectedDiffPath: ref(null),
-    fileDiffLines: ref([]),
-    fileDiffLoading: ref(false),
   } as unknown as UseWorkspaceStateDeps;
 }
 
@@ -1368,9 +1374,9 @@ describe('useWorkspaceState — first-load auth gate', () => {
   ): UseWorkspaceStateDeps {
     return {
       ...createDeps(),
-      modelProvider: { loadModels: vi.fn().mockResolvedValue(undefined) },
       initialized,
       connectIssue,
+      bootStage: ref('auth'),
     } as unknown as UseWorkspaceStateDeps;
   }
 

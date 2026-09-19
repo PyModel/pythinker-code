@@ -3,10 +3,10 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
-import { IAgentDynamicWorkflowService } from '#/features/dynamic_workflow/agent/dynamic_workflow';
-import { DynamicWorkflowModeEnter } from '#/features/dynamic_workflow/dynamicWorkflowOps';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { PlanModeEnter, planKey } from '#/features/plan/planOps';
+import { IAgentDynamicWorkflowService } from '#/features/dynamic_workflow/agent/dynamic_workflow';
+import { DynamicWorkflowModeEnter } from '#/features/dynamic_workflow/dynamicWorkflowOps';
 import { IAgentTowerService } from '#/features/tower/tower';
 import { TowerModeEnter } from '#/features/tower/towerOps';
 
@@ -17,7 +17,7 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
 
   constructor(
     @IAgentPlanService private readonly plan: IAgentPlanService,
-    @IAgentDynamicWorkflowService private readonly dynamicWorkflow: IAgentDynamicWorkflowService,
+    @IAgentDynamicWorkflowService private readonly dynamic_workflow: IAgentDynamicWorkflowService,
     @IAgentTowerService private readonly tower: IAgentTowerService,
     @IAgentStateService private readonly agentState: IAgentStateService,
     @IEventBus eventBus: IEventBus,
@@ -25,18 +25,18 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
     super();
     this._register(
       eventBus.subscribe(PlanModeEnter, () => {
-        if (this.tower.isActive) this.tower.exit();
+        if (this.tower.isActive) void this.tower.exit();
       }),
     );
     this._register(
       eventBus.subscribe(DynamicWorkflowModeEnter, () => {
-        if (this.tower.isActive) this.tower.exit();
+        if (this.tower.isActive) void this.tower.exit();
       }),
     );
     this._register(
       eventBus.subscribe(TowerModeEnter, () => {
         if (this.agentState.get(planKey).active) this.plan.exit();
-        if (this.dynamicWorkflow.isActive) this.dynamicWorkflow.exit();
+        if (this.dynamic_workflow.isActive) this.dynamic_workflow.exit();
       }),
     );
   }

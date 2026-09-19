@@ -20,8 +20,8 @@ All flags are optional — run `pythinker` directly to enter an interactive sess
 | `--model <model>` | `-m` | Specify a model alias for this launch. When omitted, new sessions use `default_model` from the config file |
 | `--prompt <prompt>` | `-p` | Run a single prompt non-interactively and stream the Assistant output to stdout. This mode does not open the TUI |
 | `--output-format <format>` | | Set the non-interactive output format; supports `text` and `stream-json`. Can only be used with `--prompt`; defaults to `text` |
-| `--yolo` | `-y` | Start in Ask When Needed mode: routine actions run automatically; risky actions, questions, and plans still ask |
-| `--auto` | | Start in Never Ask mode: actions and decisions run automatically without asking |
+| `--yolo` | `-y` | Start in Ask When Needed mode: routine edits and commands run automatically; risky actions, questions, and plans still ask |
+| `--auto` | | Start in Never Ask mode: never interrupts you; everything runs and is decided automatically |
 | `--plan` | | Start a new session in Plan mode — the AI will prioritize read-only tools for exploration and planning |
 | `--skills-dir <dir>` | | Load Skills from the specified directory, replacing the automatically discovered user and project directories. Can be repeated |
 | `--agent <name>` | | Start a new session with the specified agent as the main Agent. Cannot be combined with `--session`/`--continue` |
@@ -120,7 +120,7 @@ Output uses a transcript style: thinking content and Assistant text are both pre
 Temporarily switch the model:
 
 ```sh
-pythinker -m example/test-model -p "Explain the latest diff"
+pythinker -m openai/gpt-4o -p "Explain the latest diff"
 ```
 
 When you need to parse output programmatically, use the `stream-json` format — each line on stdout is a JSON object:
@@ -157,7 +157,7 @@ pythinker acp
 
 Run the local Pythinker server in the foreground of the current terminal — a single process that exposes the REST + WebSocket API and serves the web UI from the same origin — and open the web UI in the default browser once it is ready. The command stays attached to the terminal and shuts down cleanly on `SIGINT` / `SIGTERM` (e.g. `Ctrl-C`).
 
-When the server is running, `GET /openapi.json` returns the REST OpenAPI document and `GET /asyncapi.json` returns the local WebSocket AsyncAPI document. For browser setup and usage, see [Use in a Browser](../guides/web.md). For an end-to-end walkthrough of driving sessions over the API, see [Local server and API](../guides/server.md); for the protocol details, see the [Server API](./server-api.md) reference.
+When the server is running, `GET /openapi.json` returns the REST OpenAPI document and `GET /asyncapi.json` returns the local WebSocket AsyncAPI document. For an end-to-end walkthrough of driving sessions over the API, see [Server API: Drive a session over the API](./server-api.md#drive-a-session-over-the-api); for the protocol details, see the [Server API](./server-api.md) reference.
 
 ```sh
 pythinker web                 # run the server in the foreground and open the browser
@@ -195,6 +195,16 @@ Deprecated — only stops a server started by a version before 0.28.0. Those ver
 #### `pythinker web rotate-token`
 
 Generate a new persistent bearer token (written to `~/.pythinker-code/server.token`); the previous token stops working immediately. The token is shared by the whole home directory, so every running instance picks the new one up on its next auth check — no restart needed.
+
+### `pythinker install-app`
+
+Print the Pythinker Code desktop app page and open it in the default browser, so you can download and install the desktop app without leaving the terminal. The URL follows the active region: `https://www.kimi.com/code` on the mainland region, `https://www.kimi.ai/code` on the global region.
+
+```sh
+pythinker install-app
+```
+
+This subcommand has no flags. The same page is also reachable from the TUI with the `/desktop` (alias `/install-desktop`) slash command.
 
 ### `pythinker doctor`
 
@@ -251,15 +261,25 @@ pythinker export 01HZ...XYZ -o ./bug-report.zip
 pythinker export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
 ```
 
+### `pythinker migrate`
+
+Migrate local data from a legacy pythinker-cli installation to pythinker-code, including session history and configuration files. Runs entirely interactively, guiding you through the full process.
+
+```sh
+pythinker migrate
+```
+
+For full migration instructions, see [Migrating from pythinker-cli](../guides/migration.md).
+
 ### `pythinker upgrade`
 
-Immediately check for the latest version. In a terminal, the command displays an update prompt and exits after you make a selection. `pythinker update` is an alias for this command.
+Immediately check for the latest version and display an update prompt; exits after you make a selection. `pythinker update` is an alias for this command.
 
 ```sh
 pythinker upgrade [-y]
 ```
 
-For global npm, pnpm, yarn, and bun installations, `pythinker upgrade` shows update options; selecting `Install update now` runs the corresponding foreground install command. For native installations (including Windows), it downloads and verifies the new binary in the foreground and swaps it in on the next start; when there is no terminal, such as in a script or a pipe, there is no prompt and the download starts immediately. When the current installation method cannot be upgraded automatically, the manual update command is printed instead. Pass `-y, --yes` to skip the confirmation prompt and install the update directly.
+For global npm, pnpm, yarn, and bun installations, `pythinker upgrade` shows update options; selecting `Install update now` runs the corresponding foreground install command. For native installations (including Windows), it downloads and verifies the new binary in the foreground and swaps it in on the next start. When the current installation method cannot be upgraded automatically, the manual update command is printed instead. Pass `-y, --yes` to skip the confirmation prompt and install the update directly.
 
 ### `pythinker vis`
 

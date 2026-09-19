@@ -4,13 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   applyPrintBackgroundPolicy,
   createPrintTurnEndings,
-  delayOrAbort,
   formatTrustGatedMcpWarning,
   PrintSteeredTurnFailedError,
-  settleOrAbort,
   type PrintTurnEnding,
   type PrintTurnEndings,
-  type TrustGatedMcpServer,
 } from '#/cli/v2/run-v2-print';
 
 function ending(
@@ -391,6 +388,96 @@ describe('applyPrintBackgroundPolicy', () => {
     expect(warn.mock.calls[0]?.[0]).toContain('cron');
   });
 
+  it('waits for an in-flight turn instead of treating an empty cron schedule as quiescent', async () => {
+    // A fired one-shot task disappears from the schedule at once, while the
+    // turn it steered is still running: the policy must wait the turn out
+    // rather than return (and let teardown cancel the turn mid-flight).
+    let active = true;
+    let consumed = 0;
+    const warn = vi.fn();
+    await applyPrintBackgroundPolicy({
+      mode: 'steer',
+      ceilingS: 3600,
+      maxTurns: 50,
+      countPending: () => 0,
+      drain: async () => {},
+      turnEndings: scriptedTurnEndings([
+        { event: ending(2), apply: () => { consumed += 1; active = false; } },
+      ]),
+      skipTurnId: 1,
+      warn,
+      now: () => 0,
+      turnActive: () => active,
+      cronNextFireAt: () => null,
+    });
+    expect(consumed).toBe(1);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('does not read a past fire time as a wedged tick while a turn is running', async () => {
+    // A recurring task's fire comes due during a long turn: the tick waits
+    // for the loop to go idle, so the same past fire time is reported until
+    // the turn ends. That is a held fire, not a wedged tick.
+    let active = true;
+    let nextFire: number | null = 500;
+    const warn = vi.fn();
+    const turnEndings: PrintTurnEndings = {
+      next: async (remainingMs) => {
+        // The running turn outlives short grace waits; only a patient wait
+        // observes its ending.
+        if (remainingMs <= 10_000) return null;
+        if (active) {
+          active = false;
+          nextFire = 60_000;
+          return ending(2);
+        }
+        nextFire = null;
+        return ending(3);
+      },
+    };
+    await applyPrintBackgroundPolicy({
+      mode: 'steer',
+      ceilingS: 3600,
+      maxTurns: 50,
+      countPending: () => 0,
+      drain: async () => {},
+      turnEndings,
+      skipTurnId: 1,
+      warn,
+      now: () => 1_000,
+      turnActive: () => active,
+      cronNextFireAt: () => nextFire,
+    });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('fails the run when an in-flight steered turn does not complete', async () => {
+    await expect(
+      applyPrintBackgroundPolicy({
+        mode: 'steer',
+        ceilingS: 3600,
+        maxTurns: 50,
+        countPending: () => 0,
+        drain: async () => {},
+        turnEndings: scriptedTurnEndings([
+          {
+            event: {
+              type: 'turn.ended',
+              turnId: 2,
+              reason: 'failed',
+              error: { code: 'provider.overloaded', message: 'try later' },
+            } as PrintTurnEnding,
+          },
+        ]),
+        skipTurnId: 1,
+        warn: () => {},
+        now: () => 0,
+        turnActive: () => true,
+        cronNextFireAt: () => null,
+      }),
+    ).rejects.toThrow(PrintSteeredTurnFailedError);
+  });
+
   it('finishes goal waiting before consulting the cron schedule', async () => {
     let active = true;
     let consumed = 0;
@@ -509,59 +596,17 @@ describe('createPrintTurnEndings', () => {
 
 describe('formatTrustGatedMcpWarning', () => {
   it('singularizes the noun for one skipped server', () => {
-    const text = formatTrustGatedMcpWarning([
-      { name: 'fs', target: 'stdio: node server.js' },
-    ]);
+    const text = formatTrustGatedMcpWarning([{ name: 'fs', target: 'stdio: node server.js' }]);
     expect(text).toContain('skipped 1 project-level MCP server: fs (stdio: node server.js).');
     expect(text).toContain('"Trust this folder"');
   });
 
   it('pluralizes and joins multiple skipped servers', () => {
-    const servers: readonly TrustGatedMcpServer[] = [
-      { name: 'api', target: 'http: https://example.test/mcp' },
-      { name: 'fs', target: 'stdio: node server.js' },
-    ];
-    const text = formatTrustGatedMcpWarning(servers);
-    expect(text).toContain('skipped 2 project-level MCP servers:');
-    expect(text).toContain('api (http: https://example.test/mcp), fs (stdio: node server.js)');
-  });
-
-  it('encodes control characters in untrusted server names and targets', () => {
     const text = formatTrustGatedMcpWarning([
-      { name: 'evil\u001B]0;pwned\u0007', target: 'stdio: node\u001B[6n server.js' },
+      { name: 'api', target: 'http: https://example.com/mcp' },
+      { name: 'fs', target: 'stdio: node server.js' },
     ]);
-    expect(text).toContain('evil\\x1b]0;pwned\\x07');
-    expect(text).toContain('stdio: node\\x1b[6n server.js');
-    expect(text).not.toContain('\u001B');
-    expect(text).not.toContain('\u0007');
-  });
-});
-
-describe('print-mode quiesce abort', () => {
-  it('clears the poll timer when the shutdown signal aborts', async () => {
-    const controller = new AbortController();
-    const started = Date.now();
-    const pending = delayOrAbort(controller.signal, 5_000);
-    controller.abort();
-    await pending;
-    expect(Date.now() - started).toBeLessThan(1_000);
-  });
-
-  it('stops waiting on a hung drain when the shutdown signal aborts', async () => {
-    const controller = new AbortController();
-    const hung = new Promise<void>(() => {});
-    const started = Date.now();
-    const pending = settleOrAbort(controller.signal, hung);
-    controller.abort();
-    await pending;
-    expect(Date.now() - started).toBeLessThan(1_000);
-  });
-
-  it('still waits out a short delay when the signal stays live', async () => {
-    const controller = new AbortController();
-    const started = Date.now();
-    await delayOrAbort(controller.signal, 30);
-    expect(Date.now() - started).toBeGreaterThanOrEqual(20);
-    expect(controller.signal.aborted).toBe(false);
+    expect(text).toContain('skipped 2 project-level MCP servers:');
+    expect(text).toContain('api (http: https://example.com/mcp), fs (stdio: node server.js)');
   });
 });

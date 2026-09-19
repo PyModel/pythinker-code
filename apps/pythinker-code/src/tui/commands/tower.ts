@@ -1,10 +1,6 @@
 import type { Session } from '@pymodel/pythinker-code-sdk';
 
-import {
-  NO_ACTIVE_SESSION_MESSAGE,
-  TOWER_STATUS_PROMPT,
-  TOWER_TEARDOWN_PROMPT,
-} from '../constant/pythinker-tui';
+import { TOWER_STATUS_PROMPT, TOWER_TEARDOWN_PROMPT } from '../constant/pythinker-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { SlashCommandHost } from './dispatch';
 
@@ -43,6 +39,8 @@ async function startTowerWithBase(host: SlashCommandHost, base: string): Promise
 
 async function applyTowerMode(host: SlashCommandHost, enabled: boolean): Promise<void> {
   const wasActive = host.state.appState.towerMode;
+  // The setter is idempotent engine-side, so always reassert — a stale cache
+  // must not leave the authoritative mode unchanged.
   if (!(await setTowerMode(host, enabled))) return;
   if (wasActive === enabled) {
     host.showStatus(`Tower mode is already ${enabled ? 'on' : 'off'}.`);
@@ -60,13 +58,16 @@ async function setTowerMode(
   if (session === undefined) return false;
   try {
     await session.setTowerMode(enabled, base);
+    // The engine may silently refuse entry (flag off, feature not assembled
+    // until a restart, another session owning the workspace tower) — confirm
+    // the mode actually took before reporting success.
     const status = await session.getStatus();
     const effective = status.towerMode ?? false;
     if (effective !== enabled) {
       host.setAppState({ towerMode: effective });
       host.showError(
         enabled
-          ? 'Tower mode could not be enabled — another session owns this workspace tower, or the experiment is off or needs a restart.'
+          ? 'Tower mode could not be enabled — another session owns this workspace tower, or the experiment is off / was just turned on and needs a restart.'
           : 'Tower mode could not be disabled.',
       );
       return false;
@@ -82,10 +83,8 @@ async function setTowerMode(
 }
 
 async function requireSessionEnsured(host: SlashCommandHost): Promise<Session | undefined> {
-  if (!host.engineV2) {
-    host.showError(NO_ACTIVE_SESSION_MESSAGE);
-    return undefined;
-  }
   if (host.session !== undefined) return host.session;
+  // v2 session-less: lazy-create the session, then toggle — the same path
+  // the first prompt takes.
   return host.ensureSession();
 }

@@ -9,14 +9,13 @@ import { getBuiltInPalette } from '#/tui/theme';
 function makeHost() {
   const host = {
     state: {
-      footer: { setStreamSpeed: vi.fn() },
       notifyPanel: new NotifyPanelComponent(),
       notifyPanelContainer: new Container(),
       appState: {
         sessionId: 's1',
         streamingPhase: 'idle',
         isCompacting: false,
-        model: 'test-model',
+        model: 'pythinker-model',
         permissionMode: 'auto',
         stepRetry: null,
       },
@@ -36,7 +35,6 @@ function makeHost() {
       setStep: vi.fn(),
       flushNow: vi.fn(),
       resetToolUi: vi.fn(),
-      setTodoList: vi.fn(),
       clearNotifyPanel: vi.fn(),
       markNotifyPanelEnded: vi.fn(),
       finalizeTurn: vi.fn(),
@@ -67,7 +65,6 @@ function makeHost() {
     sendQueuedMessage: vi.fn(),
     shiftQueuedMessage: vi.fn(),
     btwPanelController: { routeEvent: vi.fn(() => false) },
-    surveyController: { notifyToolCallStarted: vi.fn(), notifyCompactionFinished: vi.fn() },
     tasksBrowserController: {},
   };
   return { host: host as any };

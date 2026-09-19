@@ -77,6 +77,10 @@ const props = defineProps<{
   downloadUrl?: string | null;
   closable?: boolean;
   externalActions?: boolean;
+  /** True when the previewed file changed on disk since this content was loaded. */
+  stale?: boolean;
+  /** True while a preserve-current refresh is in flight. */
+  refreshing?: boolean;
   /** Server supports fs:write and a session is active — shows the Edit button. */
   editable?: boolean;
   /** Open a linked file from inside a Markdown preview (resolved against the
@@ -94,6 +98,7 @@ const emit = defineEmits<{
   openExternal: [];
   reveal: [];
   openEditor: [path: string];
+  refresh: [];
 }>();
 
 function handleMarkdownOpenFile(target: { path: string; line?: number }): void {
@@ -450,6 +455,7 @@ function truncatePath(path: string, maxLen = 55): string {
         :title="t('common.preview')"
         :closable="closable"
         :close-label="t('filePreview.close')"
+        :class="{ 'fp-refreshing': refreshing }"
         @close="emit('close')"
       >
         <Tooltip :text="file.path">
@@ -459,6 +465,18 @@ function truncatePath(path: string, maxLen = 55): string {
           <span v-if="file.lineCount" class="fp-lines">{{ t('filePreview.lineCount', { count: file.lineCount }) }}</span>
           <span class="fp-size">{{ formatSize(file.size) }}</span>
         </span>
+        <Button
+          variant="secondary"
+          size="sm"
+          class="fp-refresh"
+          :style="{ visibility: stale ? 'visible' : 'hidden' }"
+          :aria-label="t('filePreview.refresh')"
+          :disabled="!stale || refreshing"
+          @click="emit('refresh')"
+        >
+          <Icon name="refresh" size="sm" />
+          {{ t('filePreview.refresh') }}
+        </Button>
         <SegmentedControl
           v-if="contentKind === 'html'"
           :model-value="htmlMode"

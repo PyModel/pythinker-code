@@ -1,3 +1,4 @@
+import { joinApiUrl } from '../httpUrl';
 /**
  * REST client for the v2 session list endpoint: `GET {baseUrl}/api/v2/sessions`.
  *
@@ -175,7 +176,7 @@ async function requestData(
   const doFetch = opts.fetchImpl ?? fetch;
   const query = params.toString();
   const res = await doFetch(
-    `${opts.baseUrl}/api/v2/sessions${query === '' ? '' : `?${query}`}`,
+    joinApiUrl(opts.baseUrl, `/api/v2/sessions${query === '' ? '' : `?${query}`}`),
     { headers },
   );
   const body: unknown = await res.json();
