@@ -311,6 +311,7 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
     deleteFile: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
     track: vi.fn(),
+    trackWithContext: vi.fn(),
     setTelemetryContext: vi.fn(),
     get interactiveAgentId() {
       return interactiveAgentScope.getStore() ?? 'main';
@@ -8950,38 +8951,44 @@ describe('PythinkerTUI session rating survey', () => {
       const docked = stripSgr(driver.state.surveyContainer.render(120).join('\n'));
       expect(docked).toContain('How is Pythinker doing this session? (optional)');
       expect(docked).toContain('1: Bad  2: Fine  3: Good  0: Dismiss');
-      expect(harness.track).toHaveBeenCalledTimes(1);
-      expect(harness.track).toHaveBeenCalledWith('feedback_survey', {
-        event_type: 'appeared',
-        appearance_id: expect.any(String),
-        appearance_index: 1,
-        response: undefined,
-        current_model: 'k2',
-        user_turn_count: 5,
-        cumulative_tokens: 160,
-        virtual_context_tokens: 4321,
-        tool_call_count: 1,
-        compaction_count: 0,
-        permission_mode: 'manual',
-        thinking_effort: 'off',
-        config_probability: 0.005,
-        config_on_for_models: '*',
-        config_min_time_before_feedback_ms: 600_000,
-        config_min_user_turns_before_feedback: 5,
-        config_min_time_between_feedback_ms: 3_600_000,
-        config_min_user_turns_between_feedback: 10,
-        config_min_time_between_global_feedback_ms: 100_000_000,
-        config_long_context_survey_threshold: 200_000,
-        config_long_context_probability: 0.2,
-        config_long_context_trigger_mode: 'cumulative',
-      });
+      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
+      expect(harness.trackWithContext).toHaveBeenCalledWith(
+        'feedback_survey',
+        {
+          event_type: 'appeared',
+          appearance_id: expect.any(String),
+          appearance_index: 1,
+          response: undefined,
+          current_model: 'k2',
+          user_turn_count: 5,
+          cumulative_tokens: 160,
+          virtual_context_tokens: 4321,
+          tool_call_count: 1,
+          compaction_count: 0,
+          permission_mode: 'manual',
+          thinking_effort: 'off',
+          subagent_count: 0,
+          dynamic_workflow_run_count: 0,
+          config_probability: 0.005,
+          config_on_for_models: '*',
+          config_min_time_before_feedback_ms: 600_000,
+          config_min_user_turns_before_feedback: 5,
+          config_min_time_between_feedback_ms: 3_600_000,
+          config_min_user_turns_between_feedback: 10,
+          config_min_time_between_global_feedback_ms: 100_000_000,
+          config_long_context_survey_threshold: 200_000,
+          config_long_context_probability: 0.2,
+          config_long_context_trigger_mode: 'virtual_context',
+        },
+        { sessionId: 'ses-1' },
+      );
       const appearanceId = (
-        harness.track.mock.calls[0]![1] as { appearance_id: string }
+        harness.trackWithContext.mock.calls[0]![1] as { appearance_id: string }
       ).appearance_id;
 
       driver.state.editor.handleInput('1');
       vi.advanceTimersByTime(400);
-      expect(harness.track).toHaveBeenCalledTimes(1);
+      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
 
       vi.advanceTimersByTime(600);
       driver.state.editor.setText('');
@@ -8991,11 +8998,11 @@ describe('PythinkerTUI session rating survey', () => {
       expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
         'Feedback: Bad · [escape: undo]',
       );
-      expect(harness.track).toHaveBeenCalledTimes(1);
+      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
 
       driver.state.editor.handleInput('\u001B');
       vi.advanceTimersByTime(3_000);
-      expect(harness.track).toHaveBeenCalledTimes(1);
+      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
       expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
         'How is Pythinker doing this session? (optional)',
       );
@@ -9004,7 +9011,7 @@ describe('PythinkerTUI session rating survey', () => {
       driver.state.editor.handleInput('3');
       vi.advanceTimersByTime(400);
       vi.advanceTimersByTime(3_000);
-      const responded = harness.track.mock.calls
+      const responded = harness.trackWithContext.mock.calls
         .filter(
           (call) =>
             call[0] === 'feedback_survey' &&
@@ -9037,7 +9044,7 @@ describe('PythinkerTUI session rating survey', () => {
     }
   });
 
-  it('shows the long-context survey once cumulative tokens cross the threshold', async () => {
+  it('shows the long-context survey once the context window crosses the threshold', async () => {
     vi.useFakeTimers();
     const homeDir = await makeTempHome();
     process.env['PYTHINKER_CODE_HOME'] = homeDir;
@@ -9057,13 +9064,13 @@ describe('PythinkerTUI session rating survey', () => {
             type: 'agent.status.updated',
             agentId: 'main',
             sessionId: 'ses-1',
-            contextTokens: 1500,
+            contextTokens: 205_000,
             usage: {
               total: {
-                inputOther: 150_000,
-                output: 20_000,
-                inputCacheRead: 25_000,
-                inputCacheCreation: 10_000,
+                inputOther: 1_000,
+                output: 500,
+                inputCacheRead: 0,
+                inputCacheCreation: 0,
               },
             },
           } as Event,
@@ -9075,19 +9082,20 @@ describe('PythinkerTUI session rating survey', () => {
       expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
         'How is Pythinker doing this session? (optional)',
       );
-      expect(harness.track).toHaveBeenCalledTimes(1);
-      expect(harness.track).toHaveBeenCalledWith(
+      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
+      expect(harness.trackWithContext).toHaveBeenCalledWith(
         'long_context_survey',
         expect.objectContaining({
           event_type: 'appeared',
           appearance_index: 1,
           user_turn_count: 1,
-          cumulative_tokens: 205_000,
-          virtual_context_tokens: 1500,
+          cumulative_tokens: 1500,
+          virtual_context_tokens: 205_000,
           config_long_context_survey_threshold: 200_000,
           config_long_context_probability: 0.2,
-          config_long_context_trigger_mode: 'cumulative',
+          config_long_context_trigger_mode: 'virtual_context',
         }),
+        { sessionId: 'ses-1' },
       );
 
       vi.useRealTimers();

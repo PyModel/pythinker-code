@@ -37,6 +37,8 @@ export interface AgentMeta {
   readonly type: AgentType;
   readonly parentAgentId?: string | null;
   readonly dynamicWorkflowItem?: string;
+  readonly profileName?: string;
+  readonly sessionInit?: string;
 }
 
 export interface SessionMeta {

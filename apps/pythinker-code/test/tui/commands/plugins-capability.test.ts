@@ -225,7 +225,7 @@ describe('plugins command capability surface', () => {
     expect(statuses.some((s) => s.includes('is installed'))).toBe(true);
   });
 
-  it('renders visible clickable store URLs after WebBridge installs in a hyperlink-capable terminal', async () => {
+  it('renders visible clickable store URLs after Pythinker Browser Extension installs in a hyperlink-capable terminal', async () => {
     setCapabilities({ images: null, trueColor: true, hyperlinks: true });
     const { host, statuses, notices, transcriptEntries } = fakeHost({});
 
@@ -234,12 +234,12 @@ describe('plugins command capability surface', () => {
       fakePanel().panel,
       {
         id: 'pythinker-webbridge',
-        displayName: 'Pythinker WebBridge',
+        displayName: 'Pythinker Pythinker Browser Extension',
         source: 'capability:pythinker-webbridge',
       } as never,
     );
 
-    expect(notices).toContainEqual({ title: 'Pythinker WebBridge is installed.', detail: undefined });
+    expect(notices).toContainEqual({ title: 'Pythinker Pythinker Browser Extension is installed.', detail: undefined });
     expect(statuses).not.toContain('Run /new or /reload to apply plugin changes.');
     const rendered = transcriptEntries.flatMap((entry) => entry.render(100)).join('\n');
     expect(rendered).toContain(
@@ -252,7 +252,7 @@ describe('plugins command capability surface', () => {
     expect(rendered).toContain('/new');
   });
 
-  it('renders full store URLs after WebBridge installs in a terminal without hyperlinks', async () => {
+  it('renders full store URLs after Pythinker Browser Extension installs in a terminal without hyperlinks', async () => {
     setCapabilities({ images: null, trueColor: true, hyperlinks: false });
     const { host, transcriptEntries } = fakeHost({});
 
@@ -261,7 +261,7 @@ describe('plugins command capability surface', () => {
       fakePanel().panel,
       {
         id: 'pythinker-webbridge',
-        displayName: 'Pythinker WebBridge',
+        displayName: 'Pythinker Pythinker Browser Extension',
         source: 'capability:pythinker-webbridge',
       } as never,
     );
@@ -273,7 +273,7 @@ describe('plugins command capability surface', () => {
     );
   });
 
-  it('separates the WebBridge install result from its setup steps with one blank line', async () => {
+  it('separates the Pythinker Browser Extension install result from its setup steps with one blank line', async () => {
     setCapabilities({ images: null, trueColor: true, hyperlinks: true });
     const { host, transcriptEntries } = fakeHost({});
 
@@ -282,15 +282,15 @@ describe('plugins command capability surface', () => {
       fakePanel().panel,
       {
         id: 'pythinker-webbridge',
-        displayName: 'Pythinker WebBridge',
+        displayName: 'Pythinker Pythinker Browser Extension',
         source: 'capability:pythinker-webbridge',
       } as never,
     );
 
     const lines = visibleLines(transcriptEntries, 180);
-    const installed = lines.findIndex((line) => line.includes('Pythinker WebBridge is installed.'));
+    const installed = lines.findIndex((line) => line.includes('Pythinker Pythinker Browser Extension is installed.'));
     const intro = lines.findIndex((line) =>
-      line.includes('Two steps left to use Pythinker WebBridge:'),
+      line.includes('Two steps left to use Pythinker Pythinker Browser Extension:'),
     );
     const firstStep = lines.findIndex((line) =>
       line.includes('Install the browser extension'),

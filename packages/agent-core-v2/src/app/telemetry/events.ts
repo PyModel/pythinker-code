@@ -199,6 +199,31 @@ export interface PlanEnterResolvedEvent {
   outcome: 'auto_approved';
 }
 
+export interface TowerModeEnterEvent {
+  outcome: 'entered' | 'rejected';
+  reason?: 'not-main-agent' | 'experiment-off' | 'feature-not-assembled' | 'owned-by-live-session';
+}
+
+export interface TowerModeExitEvent {
+  reason: 'user' | 'takeover' | 'foreign-reconcile';
+}
+
+export interface DynamicWorkflowModeTransitionEvent {
+  trigger: 'manual' | 'task' | 'tool';
+}
+
+export interface ExternalHookResolvedEvent {
+  event: string;
+  action: 'allow' | 'block';
+  matched_count: number;
+  failed_count: number;
+}
+
+export interface RemoteControlToggleEvent {
+  enabled: boolean;
+  outcome: 'ok' | 'already_running' | 'rejected' | 'error';
+}
+
 export interface CompactionFinishedEvent {
   turn_id?: number;
   source: 'manual' | 'auto';
@@ -762,6 +787,54 @@ export const telemetryEventDefinitions = {
     comment: 'A request to enter plan mode is resolved.',
     properties: {
       outcome: 'How the request was resolved',
+    },
+  }),
+  tower_mode_enter: defineAgentTelemetryEvent<TowerModeEnterEvent>({
+    owner: 'pythinker-code',
+    comment: 'A request to enter tower mode resolves.',
+    properties: {
+      outcome: 'Whether tower mode was entered or the request was rejected',
+      reason: 'Why the request was rejected; omitted when tower mode was entered',
+    },
+  }),
+  tower_mode_exit: defineAgentTelemetryEvent<TowerModeExitEvent>({
+    owner: 'pythinker-code',
+    comment: 'Tower mode is exited.',
+    properties: {
+      reason:
+        'Why tower mode was exited: the user turned it off, another session took the tower over, or a foreign tower was reconciled away',
+    },
+  }),
+  dynamic_workflow_mode_entered: defineAgentTelemetryEvent<DynamicWorkflowModeTransitionEvent>({
+    owner: 'pythinker-code',
+    comment: 'DynamicWorkflow mode is entered.',
+    properties: {
+      trigger: 'What triggered dynamic_workflow mode',
+    },
+  }),
+  dynamic_workflow_mode_exited: defineAgentTelemetryEvent<DynamicWorkflowModeTransitionEvent>({
+    owner: 'pythinker-code',
+    comment: 'DynamicWorkflow mode is exited.',
+    properties: {
+      trigger: 'What originally triggered the dynamic_workflow mode being exited',
+    },
+  }),
+  external_hook_resolved: defineTelemetryEvent<ExternalHookResolvedEvent>({
+    owner: 'pythinker-code',
+    comment: 'An external hook trigger finishes running its matched hooks.',
+    properties: {
+      event: 'Hook event type (e.g. PreToolUse, UserPromptSubmit, Stop)',
+      action: 'Whether the trigger resolved to allow or block',
+      matched_count: 'Number of hooks that ran for the trigger',
+      failed_count: 'Number of hooks that failed (timeout, spawn error, or a non-zero exit code other than 2)',
+    },
+  }),
+  remote_control_toggle: defineTelemetryEvent<RemoteControlToggleEvent>({
+    owner: 'pythinker-code',
+    comment: 'A request to toggle the Remote Control tunnel resolves.',
+    properties: {
+      enabled: 'Whether the request was to enable or disable the tunnel',
+      outcome: 'How the request resolved',
     },
   }),
   compaction_finished: defineAgentTelemetryEvent<CompactionFinishedEvent>({

@@ -252,7 +252,7 @@ This page documents the changes in each Pythinker Code CLI release.
 - web: Subagent tasks show their model and thinking level.
 - web: Show a failure card with one-click resume when a model request fails.
 - web: Show retry progress (attempt N of M) in the working status during automatic retries.
-- Show browser extension links and activation steps after installing Pythinker WebBridge.
+- Show browser extension links and activation steps after installing Pythinker Pythinker Browser Extension.
 
 ### Bug Fixes
 
@@ -276,7 +276,7 @@ This page documents the changes in each Pythinker Code CLI release.
 
 ### Features
 
-- Add Pythinker Computer Use and Pythinker WebBridge as built-in official marketplace entries in the v2 CLI. Installing from `/plugins` sets up the latest managed runtime and plugin together, reports incomplete manual steps, and supports retrying interrupted setup.
+- Add Pythinker Computer Use and Pythinker Pythinker Browser Extension as built-in official marketplace entries in the v2 CLI. Installing from `/plugins` sets up the latest managed runtime and plugin together, reports incomplete manual steps, and supports retrying interrupted setup.
 - web: Add and manage custom providers in settings.
 - web: Pin sessions to the top of the sidebar.
 - web: Set an emoji for the session title.
@@ -297,7 +297,7 @@ This page documents the changes in each Pythinker Code CLI release.
 - Fix MCP OAuth re-authorization always failing with "Invalid redirect URI"; the stale client registration is now dropped and re-created with the current callback URI.
 - Ensure the first request waits for MCP startup to finish while the interface still opens immediately.
 - MCP tool results now surface the spec-defined `structuredContent` field and `_meta` server metadata to the model instead of silently dropping them, so servers that return their machine-readable contract in these fields work the same as on other MCP hosts.
-- Fix built-in capability availability and installed status in `/plugins`, preserve legacy WebBridge skills as backups during updates, and prevent Computer Use updates from duplicating or disconnecting MCP servers.
+- Fix built-in capability availability and installed status in `/plugins`, preserve legacy Pythinker Browser Extension skills as backups during updates, and prevent Computer Use updates from duplicating or disconnecting MCP servers.
 
 ### Refactors
 
@@ -632,7 +632,7 @@ This page documents the changes in each Pythinker Code CLI release.
 - web: Add workspaces by typing an absolute path directly in the workspace picker's search box, with live validation and completion suggestions.
 - web: Auto-enable the default thinking effort when switching to a model that supports effort levels in the web UI.
 - Recognize the `support_efforts` and `default_effort` fields when importing a custom registry, so thinking effort levels are available for those models.
-- Update the WebBridge install page link opened from the `/plugins` panel.
+- Update the Pythinker Browser Extension install page link opened from the `/plugins` panel.
 - Add a `subagent.timeout_ms` config option (or the `PYTHINKER_SUBAGENT_TIMEOUT_MS` env var) to control how long a single subagent may run before timing out; the default is raised from 30 minutes to 2 hours.
 - Add a print-mode background policy: set `[background].print_background_mode = "steer"` to keep `pythinker -p` alive across background-task completions, so the main agent can be steered into follow-up turns.
 
@@ -674,7 +674,7 @@ This page documents the changes in each Pythinker Code CLI release.
 - web: Polish the chat UI with Inter typography, localized labels, and tighter composer and menu styling.
 - web: Polish the session sidebar layout, colors, icons, and typography.
 - Display the Extra Usage (fuel pack) balance in the `/usage` and `/status` commands.
-- Add a Pythinker WebBridge entry to the Official tab of the `/plugins` panel that opens the WebBridge install page in your browser.
+- Add a Pythinker Pythinker Browser Extension entry to the Official tab of the `/plugins` panel that opens the Pythinker Browser Extension install page in your browser.
 
 ### Bug Fixes
 

@@ -62,6 +62,7 @@ import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
@@ -279,6 +280,7 @@ describe('AgentDynamicWorkflowService', () => {
   let executorEvents: ToolExecutorEventStubs;
   let permissionGateRan: boolean;
   let formatDenyMessage: Mock<(message: string) => string>;
+  let telemetryTrack2: Mock<(event: string, properties?: unknown) => void>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -349,6 +351,8 @@ describe('AgentDynamicWorkflowService', () => {
     ix.stub(IAgentToolExecutorService, executorEvents.executor);
     formatDenyMessage = vi.fn((message: string) => message);
     ix.stub(IAgentToolApprovalService, { formatDenyMessage });
+    telemetryTrack2 = vi.fn();
+    ix.stub(ITelemetryService, { track2: telemetryTrack2 });
     registerTestAgentWire(ix, testWireScope('wire', 'dynamic-workflow-test'), {
       log: ix.get(IAppendLogStore),
       eventBus: ix.get(IEventBus),
@@ -389,6 +393,20 @@ describe('AgentDynamicWorkflowService', () => {
     expect(events).toEqual([
       { type: 'agent.status.updated', dynamicWorkflowMode: true },
       { type: 'agent.status.updated', dynamicWorkflowMode: false },
+    ]);
+  });
+
+  it('tracks dynamic_workflow_mode_entered / dynamic_workflow_mode_exited on transitions only', () => {
+    const dynamic_workflow = ix.get(IAgentDynamicWorkflowService);
+
+    dynamic_workflow.enter('manual');
+    dynamic_workflow.enter('manual');
+    dynamic_workflow.exit();
+    dynamic_workflow.exit();
+
+    expect(telemetryTrack2.mock.calls).toEqual([
+      ['dynamic_workflow_mode_entered', { trigger: 'manual' }],
+      ['dynamic_workflow_mode_exited', { trigger: 'manual' }],
     ]);
   });
 

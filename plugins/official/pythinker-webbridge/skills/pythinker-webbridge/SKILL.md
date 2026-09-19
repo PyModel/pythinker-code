@@ -1,12 +1,12 @@
 ---
 name: pythinker-webbridge
 description: |
-  Pythinker WebBridge lets AI control the user's real browser — navigate, click, type, read, screenshot, and interact with any website using the user's actual login sessions. Use this skill whenever the user wants to interact with websites, automate browser tasks, scrape web content, or perform any action requiring a real browser. Also use when the user mentions "browser", "webpage", "open URL", "screenshot", or asks to read/interact with any website. Use even for simple-sounding browser requests — the daemon handles all complexity.
+  Pythinker Pythinker Browser Extension lets AI control the user's real browser — navigate, click, type, read, screenshot, and interact with any website using the user's actual login sessions. Use this skill whenever the user wants to interact with websites, automate browser tasks, scrape web content, or perform any action requiring a real browser. Also use when the user mentions "browser", "webpage", "open URL", "screenshot", or asks to read/interact with any website. Use even for simple-sounding browser requests — the daemon handles all complexity.
 metadata:
   version: "1.11.3"
 ---
 
-# Pythinker WebBridge
+# Pythinker Pythinker Browser Extension
 
 Control the user's real browser (with their login sessions) via a local daemon at `http://127.0.0.1:10086`.
 
@@ -148,11 +148,11 @@ Decoded PDF cap is 100 MB. Above that the daemon refuses; reduce `scale` or spli
 
 ## If a tool call fails (daemon or extension not ready)
 
-Read [operations.md](references/operations.md) when the daemon or extension is unavailable, or when the user asks to install, start, or troubleshoot WebBridge. Follow its recovery order and never stop, restart, or uninstall the daemon automatically.
+Read [operations.md](references/operations.md) when the daemon or extension is unavailable, or when the user asks to install, start, or troubleshoot Pythinker Browser Extension. Follow its recovery order and never stop, restart, or uninstall the daemon automatically.
 
 ## Version mismatches
 
-If a tool returns an error containing **"Please update the Pythinker WebBridge extension"**, the user's browser extension is older than this skill. Don't try to reconcile versions yourself — just tell the user, in their language, to update the extension and retry:
+If a tool returns an error containing **"Please update the Pythinker Pythinker Browser Extension extension"**, the user's browser extension is older than this skill. Don't try to reconcile versions yourself — just tell the user, in their language, to update the extension and retry:
 
 - English: https://github.com/PyModel/pythinker-code
 - **Chinese docs**: https://github.com/PyModel/pythinker-code

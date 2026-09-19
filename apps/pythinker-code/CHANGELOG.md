@@ -758,7 +758,7 @@
 
 - [#2677](https://github.com/PyModel/pythinker-code/pull/2677) [`713bf1a`](https://github.com/PyModel/pythinker-code/commit/713bf1a5a2b388e4c5f9d3f471a728b8edbf5811) Thanks [@liruifengv](https://github.com/liruifengv)! - Fix resumed sessions rendering background task completion notifications as raw protocol text instead of a task status card.
 
-- [#2692](https://github.com/PyModel/pythinker-code/pull/2692) [`03aa66c`](https://github.com/PyModel/pythinker-code/commit/03aa66ca0cca5880dc3a4a89e4f46d09acbe47ae) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Show browser extension links and activation steps after installing Pythinker WebBridge.
+- [#2692](https://github.com/PyModel/pythinker-code/pull/2692) [`03aa66c`](https://github.com/PyModel/pythinker-code/commit/03aa66ca0cca5880dc3a4a89e4f46d09acbe47ae) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Show browser extension links and activation steps after installing Pythinker Pythinker Browser Extension.
 
 - [#2645](https://github.com/PyModel/pythinker-code/pull/2645) [`2b89373`](https://github.com/PyModel/pythinker-code/commit/2b893733f9853dc0aaeb775d9670d277db8e0381) Thanks [@sailist](https://github.com/sailist)! - Fix the web UI opening the Documents folder instead of the requested file on Windows when the file path contains spaces.
 
@@ -768,7 +768,7 @@
 
 ### Minor Changes
 
-- [#2407](https://github.com/PyModel/pythinker-code/pull/2407) [`0abcd00`](https://github.com/PyModel/pythinker-code/commit/0abcd00f7fd3e3cbf087509ffef1c54a6f8d396d) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Add Pythinker Computer Use and Pythinker WebBridge as built-in official marketplace entries in the v2 CLI. Installing from `/plugins` sets up the latest managed runtime and plugin together, reports incomplete manual steps, and supports retrying interrupted setup.
+- [#2407](https://github.com/PyModel/pythinker-code/pull/2407) [`0abcd00`](https://github.com/PyModel/pythinker-code/commit/0abcd00f7fd3e3cbf087509ffef1c54a6f8d396d) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Add Pythinker Computer Use and Pythinker Pythinker Browser Extension as built-in official marketplace entries in the v2 CLI. Installing from `/plugins` sets up the latest managed runtime and plugin together, reports incomplete manual steps, and supports retrying interrupted setup.
 
 - [#2627](https://github.com/PyModel/pythinker-code/pull/2627) [`f881cdd`](https://github.com/PyModel/pythinker-code/commit/f881cdd97073475c43272ec5734bbc39290dd399) Thanks [@sailist](https://github.com/sailist)! - Run the CLI surfaces (interactive TUI, `pythinker -p`, `pythinker acp`, `pythinker export`, `pythinker provider`) on the agent-core-v2 engine by default. Set `PYTHINKER_CODE_LEGACY_FLAG=1` to fall back to the legacy engine.
 
@@ -782,7 +782,7 @@
 
 ### Patch Changes
 
-- [#2601](https://github.com/PyModel/pythinker-code/pull/2601) [`75fe068`](https://github.com/PyModel/pythinker-code/commit/75fe068a01261ff6b34f176530b338ec6a24918e) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Fix built-in capability availability and installed status in `/plugins`, preserve legacy WebBridge skills as backups during updates, and prevent Computer Use updates from duplicating or disconnecting MCP servers.
+- [#2601](https://github.com/PyModel/pythinker-code/pull/2601) [`75fe068`](https://github.com/PyModel/pythinker-code/commit/75fe068a01261ff6b34f176530b338ec6a24918e) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Fix built-in capability availability and installed status in `/plugins`, preserve legacy Pythinker Browser Extension skills as backups during updates, and prevent Computer Use updates from duplicating or disconnecting MCP servers.
 
 - [#2635](https://github.com/PyModel/pythinker-code/pull/2635) [`2b3e9a9`](https://github.com/PyModel/pythinker-code/commit/2b3e9a9f7910b0bb8050380068fa122c2c2cee91) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Rename the partner plugin marketplace tab to Curated and clarify that it contains third-party plugins from Pythinker partners.
 
@@ -1382,7 +1382,7 @@
 
 - [#1556](https://github.com/PyModel/pythinker-code/pull/1556) [`d2c2c33`](https://github.com/PyModel/pythinker-code/commit/d2c2c33f3e89c7c9ed06aa7c2376b88b6107e41d) Thanks [@wbxl2000](https://github.com/wbxl2000)! - web: Add workspaces by typing an absolute path directly in the workspace picker's search box, with live validation and completion suggestions.
 
-- [#1547](https://github.com/PyModel/pythinker-code/pull/1547) [`19c5aa6`](https://github.com/PyModel/pythinker-code/commit/19c5aa64ebef86925ad58074ebcac6a5a7a8ff8d) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Update the WebBridge install page link opened from the /plugins panel.
+- [#1547](https://github.com/PyModel/pythinker-code/pull/1547) [`19c5aa6`](https://github.com/PyModel/pythinker-code/commit/19c5aa64ebef86925ad58074ebcac6a5a7a8ff8d) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Update the Pythinker Browser Extension install page link opened from the /plugins panel.
 
 ## 0.23.5
 
@@ -1412,7 +1412,7 @@
 
 - [#1521](https://github.com/PyModel/pythinker-code/pull/1521) [`046b6c4`](https://github.com/PyModel/pythinker-code/commit/046b6c417581792933732c7ffe154e120c96171d) Thanks [@RealKai42](https://github.com/RealKai42)! - The `[image]` limits in config.toml now also apply to pasted images (CLI paste and ACP prompts), and each core now uses its own settings, so reloading one client's config no longer changes another client's image compression.
 
-- [#1494](https://github.com/PyModel/pythinker-code/pull/1494) [`a354803`](https://github.com/PyModel/pythinker-code/commit/a3548035a8b6d25df9a11daab37a21daee1ef73f) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Add a Pythinker WebBridge entry to the Official tab of the /plugins panel that opens the WebBridge install page in your browser.
+- [#1494](https://github.com/PyModel/pythinker-code/pull/1494) [`a354803`](https://github.com/PyModel/pythinker-code/commit/a3548035a8b6d25df9a11daab37a21daee1ef73f) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Add a Pythinker Pythinker Browser Extension entry to the Official tab of the /plugins panel that opens the Pythinker Browser Extension install page in your browser.
 
 - [#1479](https://github.com/PyModel/pythinker-code/pull/1479) [`735922c`](https://github.com/PyModel/pythinker-code/commit/735922c291ec3d32d60da6af053f75e1c6179f92) Thanks [@liruifengv](https://github.com/liruifengv)! - web: Add notifications when a tool needs approval, and improve notification reliability.
 

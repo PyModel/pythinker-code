@@ -157,6 +157,67 @@ describe('agent-gateway /api/v1/remote-control', () => {
   });
 });
 
+describe('remote-control route telemetry', () => {
+  const HOLDER = {
+    pid: 1,
+    nonce: 'n',
+    localOrigin: 'http://127.0.0.1:1',
+    deviceId: 'd',
+    url: 'https://example.com/devices/d/',
+    startedAt: 0,
+  };
+
+  function fakeService(behavior: 'ok' | 'already' | 'error'): RemoteControlManager {
+    return {
+      enable: async () => {
+        if (behavior === 'already') throw new RemoteControlAlreadyRunningError(HOLDER);
+        if (behavior === 'error') throw new Error('boom');
+        return { enabled: true, state: 'on' };
+      },
+      disable: async () => ({ enabled: false, state: 'off' }),
+    } as unknown as RemoteControlManager;
+  }
+
+  function postHandler(opts: RemoteControlRouteOptions): (enabled: boolean) => Promise<void> {
+    let handler: ((req: unknown, reply: unknown) => unknown) | undefined;
+    const app = {
+      get: () => {},
+      post: (_path: string, _options: unknown, h: unknown) => {
+        handler = h as typeof handler;
+      },
+    };
+    registerRemoteControlRoutes(app as never, opts);
+    return async (enabled) => {
+      await handler!({ id: 'req-1', body: { enabled } }, { send: () => {} });
+    };
+  }
+
+  it('tracks remote_control_toggle outcomes', async () => {
+    const tracked: [string, unknown][] = [];
+    const telemetry = {
+      track2: (event: string, properties: unknown) => tracked.push([event, properties]),
+    } as unknown as ITelemetryService;
+
+    await postHandler({ service: fakeService('ok'), telemetry })(true);
+    await postHandler({ service: fakeService('ok'), telemetry })(false);
+    await postHandler({ service: fakeService('already'), telemetry })(true);
+    await postHandler({
+      service: fakeService('ok'),
+      staticEnableError: 'disabled by config',
+      telemetry,
+    })(true);
+    await postHandler({ service: fakeService('error'), telemetry })(true);
+
+    expect(tracked).toEqual([
+      ['remote_control_toggle', { enabled: true, outcome: 'ok' }],
+      ['remote_control_toggle', { enabled: false, outcome: 'ok' }],
+      ['remote_control_toggle', { enabled: true, outcome: 'already_running' }],
+      ['remote_control_toggle', { enabled: true, outcome: 'rejected' }],
+      ['remote_control_toggle', { enabled: true, outcome: 'error' }],
+    ]);
+  });
+});
+
 function rawDataText(data: RawData): string {
   if (Array.isArray(data)) return Buffer.concat(data).toString('utf8');
   return Buffer.from(data as ArrayBuffer).toString('utf8');

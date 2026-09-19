@@ -2054,6 +2054,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         durationMs,
         interruptReason,
         stopReason: result.type === 'completed' ? result.stopReason : undefined,
+        traceId,
       }),
     );
     if (error !== undefined) {

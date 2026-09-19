@@ -68,7 +68,7 @@ export function pythinkerRegionProfile(region: PythinkerRegion): PythinkerRegion
 }
 
 /**
- * Content-CDN URL builder (tips banner, WebBridge / Computer-Use binaries).
+ * Content-CDN URL builder (tips banner, Pythinker Browser Extension / Computer-Use binaries).
  * International mirror coverage of the content CDN for these payloads is still
  * being confirmed, so both regions currently share the .com host — funnel
  * every content URL through here so flipping later touches one function.

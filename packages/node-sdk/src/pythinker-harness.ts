@@ -125,6 +125,14 @@ export class PythinkerHarness {
     this.telemetry.track(event, properties);
   }
 
+  trackWithContext(
+    event: string,
+    properties: TelemetryProperties | undefined,
+    context: TelemetryContextPatch,
+  ): void {
+    withTelemetryContext(this.telemetry, context).track(event, properties);
+  }
+
   setTelemetryContext(patch: TelemetryContextPatch): void {
     this.telemetry.setContext?.(patch);
   }

@@ -267,18 +267,18 @@ describe('plugins selector dialogs', () => {
     expect(out).toContain('0 installed · 1 available');
   });
 
-  it('does not inject a WebBridge promo while the Official catalog loads', () => {
+  it('does not inject a Pythinker Browser Extension promo while the Official catalog loads', () => {
     const { panel } = makePanel({ initialTab: 'official' });
     const out = strip(renderRaw(panel));
-    expect(out).not.toContain('Pythinker WebBridge');
+    expect(out).not.toContain('Pythinker Pythinker Browser Extension');
     expect(out).toContain('Loading marketplace');
   });
 
-  it('does not inject a WebBridge promo when the Official catalog errors', () => {
+  it('does not inject a Pythinker Browser Extension promo when the Official catalog errors', () => {
     const { panel } = makePanel({ initialTab: 'official' });
     panel.setMarketplaceError('fetch failed');
     const out = strip(renderRaw(panel));
-    expect(out).not.toContain('Pythinker WebBridge');
+    expect(out).not.toContain('Pythinker Pythinker Browser Extension');
     expect(out).toContain('Marketplace unavailable: fetch failed');
   });
 
@@ -286,12 +286,12 @@ describe('plugins selector dialogs', () => {
     // A custom marketplace may legitimately list an entry reusing the
     // pythinker-webbridge id: without the capability: marker it must render and
     // install as a plain plugin, not borrow capability status.
-    const capabilities = [makeCapability({ id: 'pythinker-webbridge', displayName: 'Pythinker WebBridge' })];
+    const capabilities = [makeCapability({ id: 'pythinker-webbridge', displayName: 'Pythinker Pythinker Browser Extension' })];
     const entries = [
       {
         id: 'pythinker-webbridge',
         tier: 'official' as const,
-        displayName: 'Pythinker WebBridge (fork)',
+        displayName: 'Pythinker Pythinker Browser Extension (fork)',
         source: 'https://x/fork.zip',
       },
     ];
@@ -299,7 +299,7 @@ describe('plugins selector dialogs', () => {
     panel.setMarketplace(entries, '/tmp/marketplace.json');
 
     const out = strip(renderRaw(panel));
-    expect(out).toContain('Pythinker WebBridge (fork)  install');
+    expect(out).toContain('Pythinker Pythinker Browser Extension (fork)  install');
 
     panel.handleInput('\r');
     expect(onSelect).toHaveBeenCalledWith({
@@ -313,7 +313,7 @@ describe('plugins selector dialogs', () => {
       makeCapability(),
       makeCapability({
         id: 'pythinker-webbridge',
-        displayName: 'Pythinker WebBridge',
+        displayName: 'Pythinker Pythinker Browser Extension',
         state: 'not_installed',
         steps: [],
       }),
@@ -324,7 +324,7 @@ describe('plugins selector dialogs', () => {
     // the remote catalog.
     const out = strip(renderRaw(panel));
     expect(out).toContain('Pythinker Computer Use  install');
-    expect(out).toContain('Pythinker WebBridge  install');
+    expect(out).toContain('Pythinker Pythinker Browser Extension  install');
     expect(out).toContain('Background GUI automation');
     expect(out).not.toContain('id pythinker-cu');
     expect(out).not.toContain('Official plugin');
@@ -352,7 +352,7 @@ describe('plugins selector dialogs', () => {
 
     const out = strip(renderRaw(panel));
     expect(out).not.toContain('Pythinker Computer Use');
-    expect(out).not.toContain('Pythinker WebBridge');
+    expect(out).not.toContain('Pythinker Pythinker Browser Extension');
     expect(out).toContain('Loading marketplace');
   });
 
@@ -366,12 +366,12 @@ describe('plugins selector dialogs', () => {
     });
   });
 
-  it('shows only the real WebBridge catalog entry', () => {
+  it('shows only the real Pythinker Browser Extension catalog entry', () => {
     const entries = [
       {
         id: 'pythinker-webbridge',
         tier: 'official' as const,
-        displayName: 'Pythinker WebBridge',
+        displayName: 'Pythinker Pythinker Browser Extension',
         source: 'capability:pythinker-webbridge',
       },
       ...officialEntries,
@@ -379,7 +379,7 @@ describe('plugins selector dialogs', () => {
     const { panel, onSelect } = makePanel({ initialTab: 'official' });
     panel.setMarketplace(entries, '/tmp/marketplace.json');
     const out = strip(renderRaw(panel));
-    expect(out.split('Pythinker WebBridge').length - 1).toBe(1);
+    expect(out.split('Pythinker Pythinker Browser Extension').length - 1).toBe(1);
     expect(out).not.toContain('open in browser');
     panel.handleInput('\r'); // index 0 → the real entry installs
     expect(onSelect).toHaveBeenCalledWith({
@@ -388,12 +388,12 @@ describe('plugins selector dialogs', () => {
     });
   });
 
-  it('installs a Curated WebBridge catalog entry', () => {
+  it('installs a Curated Pythinker Browser Extension catalog entry', () => {
     const entries = [
       {
         id: 'pythinker-webbridge',
         tier: 'curated' as const,
-        displayName: 'Pythinker WebBridge',
+        displayName: 'Pythinker Pythinker Browser Extension',
         source: 'capability:pythinker-webbridge',
       },
     ];
@@ -402,7 +402,7 @@ describe('plugins selector dialogs', () => {
     const out = strip(renderRaw(panel));
     expect(out).toContain('Curated');
     expect(out).toContain('Third-party plugins from our partners.');
-    expect(out).toContain('Pythinker WebBridge  install');
+    expect(out).toContain('Pythinker Pythinker Browser Extension  install');
     panel.handleInput('\r');
     expect(onSelect).toHaveBeenCalledWith({
       kind: 'install',
@@ -603,7 +603,7 @@ describe('plugins selector dialogs', () => {
     const capabilities = [
       makeCapability({
         id: 'pythinker-webbridge',
-        displayName: 'Pythinker WebBridge',
+        displayName: 'Pythinker Pythinker Browser Extension',
         state: 'ready',
         version: 'v1.11.5',
         steps: [
@@ -615,16 +615,16 @@ describe('plugins selector dialogs', () => {
       }),
     ];
     const installed = [
-      { ...superpowers, id: 'pythinker-webbridge', displayName: 'Pythinker WebBridge', version: '1.11.3' },
+      { ...superpowers, id: 'pythinker-webbridge', displayName: 'Pythinker Pythinker Browser Extension', version: '1.11.3' },
     ];
     const { panel } = makePanel({ installed, capabilities, initialTab: 'official' });
     panel.setMarketplace(
-      [{ id: 'pythinker-webbridge', displayName: 'Pythinker WebBridge', source: 'capability:pythinker-webbridge', tier: 'official', builtIn: true }],
+      [{ id: 'pythinker-webbridge', displayName: 'Pythinker Pythinker Browser Extension', source: 'capability:pythinker-webbridge', tier: 'official', builtIn: true }],
       '/tmp/marketplace.json',
     );
 
     const out = strip(renderRaw(panel));
-    expect(out).toContain('Pythinker WebBridge  installed');
+    expect(out).toContain('Pythinker Pythinker Browser Extension  installed');
     expect(out).not.toContain('ready');
     expect(out).not.toContain('v1.11.5');
     expect(out).not.toContain('browser extension');
@@ -634,7 +634,7 @@ describe('plugins selector dialogs', () => {
     const capabilities = [
       makeCapability({
         id: 'pythinker-webbridge',
-        displayName: 'Pythinker WebBridge',
+        displayName: 'Pythinker Pythinker Browser Extension',
         state: 'partial',
         steps: [
           { id: 'daemon-binary', state: 'ok' },
@@ -646,12 +646,12 @@ describe('plugins selector dialogs', () => {
     ];
     const { panel } = makePanel({ capabilities, initialTab: 'official' });
     panel.setMarketplace(
-      [{ id: 'pythinker-webbridge', displayName: 'Pythinker WebBridge', source: 'capability:pythinker-webbridge', tier: 'official', builtIn: true }],
+      [{ id: 'pythinker-webbridge', displayName: 'Pythinker Pythinker Browser Extension', source: 'capability:pythinker-webbridge', tier: 'official', builtIn: true }],
       '/tmp/marketplace.json',
     );
 
     const out = strip(renderRaw(panel));
-    expect(out).toContain('Pythinker WebBridge  install');
+    expect(out).toContain('Pythinker Pythinker Browser Extension  install');
     expect(out).not.toContain('agent skill');
     expect(out).not.toContain('skill shadows');
   });

@@ -5,6 +5,7 @@ import {
   type SessionSummary,
   type ThinkingEffort,
 } from "@pymodel/pythinker-code-sdk";
+import { setTelemetryContext, track, withTelemetryContext } from "@pymodel/pythinker-telemetry";
 
 import type { RuntimeBroadcast } from "./session-runtime";
 import {
@@ -66,6 +67,11 @@ export class PythinkerRuntime {
           platform: "pythinker_code_vscode",
         },
         uiMode: "vscode",
+        telemetry: {
+          track,
+          withContext: withTelemetryContext,
+          setContext: setTelemetryContext,
+        },
       });
   }
 

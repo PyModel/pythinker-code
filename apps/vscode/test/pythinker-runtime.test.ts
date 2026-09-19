@@ -20,6 +20,7 @@ import type {
   SessionSummary,
   ThinkingEffort,
 } from "@pymodel/pythinker-code-sdk";
+import { setTelemetryContext, track, withTelemetryContext } from "@pymodel/pythinker-telemetry";
 import { describe, expect, it, vi } from "vitest";
 
 import { Events } from "../shared/bridge";
@@ -278,6 +279,11 @@ describe("Pythinker runtime (owns shared SDK sessions for Webviews)", () => {
         platform: "pythinker_code_vscode",
       },
       uiMode: "vscode",
+      telemetry: {
+        track,
+        withContext: withTelemetryContext,
+        setContext: setTelemetryContext,
+      },
     });
     expect(runtime.harness).toBe(sdkFactories.harness as unknown as PythinkerHarness);
     await runtime.dispose();

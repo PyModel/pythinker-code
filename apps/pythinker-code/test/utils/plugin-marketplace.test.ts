@@ -141,7 +141,7 @@ describe('loadPluginMarketplace', () => {
     },
     {
       id: 'pythinker-webbridge',
-      displayName: 'Pythinker WebBridge',
+      displayName: 'Pythinker Pythinker Browser Extension',
       description: 'fake wb',
       tier: 'official' as const,
       source: 'capability:pythinker-webbridge',
@@ -175,7 +175,7 @@ describe('loadPluginMarketplace', () => {
           {
             id: 'pythinker-webbridge',
             tier: 'official',
-            displayName: 'Pythinker WebBridge',
+            displayName: 'Pythinker Pythinker Browser Extension',
             version: '1.12.0',
             source: './pythinker-webbridge',
           },
@@ -484,7 +484,7 @@ describe('loadPluginMarketplace', () => {
           {
             id: 'pythinker-webbridge',
             type: 'guide',
-            displayName: 'Pythinker WebBridge',
+            displayName: 'Pythinker Pythinker Browser Extension',
             source: './pythinker-webbridge',
             installSkill: 'install',
             removeSkill: 'remove',

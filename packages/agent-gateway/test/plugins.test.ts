@@ -60,7 +60,7 @@ const CATALOG = {
     },
     {
       id: 'pythinker-webbridge',
-      displayName: 'Pythinker WebBridge',
+      displayName: 'Pythinker Pythinker Browser Extension',
       source: 'https://cdn.example.test/pythinker-webbridge.zip',
     },
     {
