@@ -1,5 +1,17 @@
 # @pymodel/pythinker-code-sdk
 
+## 0.22.0
+
+### Minor Changes
+
+- [#326](https://github.com/PyModel/pythinker-code/pull/326) [`68f861f`](https://github.com/PyModel/pythinker-code/commit/68f861fec73b635e4b566b5ada5440825ce7b21f) Thanks [@elkaix](https://github.com/elkaix)! - Serve workspace @ file suggestions through the engine fs suggest API so the editor extension matches gateway search scoring.
+
+### Patch Changes
+
+- [#326](https://github.com/PyModel/pythinker-code/pull/326) [`68f861f`](https://github.com/PyModel/pythinker-code/commit/68f861fec73b635e4b566b5ada5440825ce7b21f) Thanks [@elkaix](https://github.com/elkaix)! - Rebuild telemetry as a scope-bound layered context registry so session, agent, and turn fields flow into every event without a separate agent telemetry context service.
+
+- [#326](https://github.com/PyModel/pythinker-code/pull/326) [`68f861f`](https://github.com/PyModel/pythinker-code/commit/68f861fec73b635e4b566b5ada5440825ce7b21f) Thanks [@elkaix](https://github.com/elkaix)! - Persist the human runtime mirror in the agent wire journal and spawn agent DI scopes from the session layer.
+
 ## 0.21.0
 
 ### Minor Changes

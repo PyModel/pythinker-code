@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.8
+
+### Patch Changes
+
+- Updated dependencies [[`68f861f`](https://github.com/PyModel/pythinker-code/commit/68f861fec73b635e4b566b5ada5440825ce7b21f), [`68f861f`](https://github.com/PyModel/pythinker-code/commit/68f861fec73b635e4b566b5ada5440825ce7b21f), [`68f861f`](https://github.com/PyModel/pythinker-code/commit/68f861fec73b635e4b566b5ada5440825ce7b21f)]:
+  - @pymodel/pythinker-code-sdk@0.22.0
+  - @pymodel/migration-legacy@0.1.18
+
 ## 0.9.7
 
 ### Patch Changes
