@@ -1,8 +1,8 @@
 {
   "name": "@pymodel/agent-gateway",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
-  "description": "Pythinker Code server backed by the DI \u00d7 Scope agent engine (agent-core-v2)",
+  "description": "Pythinker Code server backed by the DI × Scope agent engine (agent-core-v2)",
   "type": "module",
   "exports": {
     ".": {

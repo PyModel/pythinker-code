@@ -1,8 +1,8 @@
 {
   "name": "@pymodel/agent-core-v2",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "private": true,
-  "description": "The unified agent engine for Pythinker (v2 \u2014 DI Scope architecture)",
+  "description": "The unified agent engine for Pythinker (v2 — DI Scope architecture)",
   "license": "MIT",
   "author": "PyModel",
   "homepage": "https://github.com/PyModel/pythinker-code/tree/main/packages/agent-core-v2#readme",
