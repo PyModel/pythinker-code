@@ -89,9 +89,18 @@ function npmLatest(name) {
 for (const pkg of unpublished) {
   if (pkg.name !== '@pymodel/pythinker-code') continue;
   const latest = npmLatest(pkg.name);
-  if (latest === undefined) continue;
+  if (latest === undefined) {
+    console.error(`Identity freeze: cannot read npm latest for ${pkg.name}; refusing to publish.`);
+    process.exit(1);
+  }
   const order = compareSemverCore(pkg.version, latest);
-  if (order !== null && order < 0) {
+  if (order === null) {
+    console.error(
+      `Identity freeze: cannot compare ${pkg.name}@${pkg.version} to npm latest ${latest}; refusing to publish.`,
+    );
+    process.exit(1);
+  }
+  if (order < 0) {
     console.error(
       `Identity freeze: refusing to publish ${pkg.name}@${pkg.version} below npm latest ${latest}.`,
     );

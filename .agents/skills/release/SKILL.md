@@ -73,12 +73,12 @@ otherwise errors.
 - **`pnpm install` fails in CI or locally.** `engine-strict=true` + Node `>=24.15.0` — check
   `.nvmrc` before debugging anything else.
 - **Identity freeze / version rewind.** Copying another product's `CHANGELOG.md`, `package.json`
-  `version`, or VS Code `publisher` onto `main` makes Release red while required CI stays green:
-  npm `latest` does not move backwards, brew 404s the tarball, native `gh release view` misses the
-  tag, vsce says the extension name already exists, and `verify-release-consistency.mjs` compares
-  local version to npm `latest`. `scripts/check-identity-freeze.mjs` (lint) plus Release `--npm`
-  fail closed. Do not merge `ci: release packages` while freeze fields disagree with npm or the
-  Marketplace. Restore identity from the last published tag; do not hand-bump a lower version.
+  `version`, or VS Code `publisher` onto `main` fails required CI (`lint` runs
+  `scripts/check-identity-freeze.mjs`) and Release (`--npm`). npm `latest` does not move backwards,
+  brew 404s the tarball, native `gh release view` misses the tag, vsce says the extension name
+  already exists, and `verify-release-consistency.mjs` compares local version to npm `latest`.
+  Do not merge `ci: release packages` while freeze fields disagree with npm or the Marketplace.
+  Restore identity from the last published tag; do not hand-bump a lower version.
 - **Pre-push hook** (`scripts/pre-push.sh` via simple-git-hooks) gates local pushes; a hook failure
   is a real gate failure — fix the cause, never `--no-verify`.
 

@@ -34,26 +34,53 @@ export const MOONSHOT_AI_ALLOW_FILES = new Set([
   'packages/oauth/test/open-platform.test.ts',
 ]);
 
-const CORE = /^(\d+)\.(\d+)\.(\d+)/u;
-const HEADING = /^## (\d+\.\d+\.\d+)\b/mu;
-const PROVIDER_HOST = /api\.moonshot\.(?:ai|cn)/u;
+const SEMVER =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/u;
+const HEADING = /^## (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\b/mu;
+const PROVIDER_HOST = /api\.moonshot\.(?:ai|cn)/gu;
 
-export function parseSemverCore(version) {
+export function parseSemver(version) {
   if (typeof version !== 'string') return null;
-  const match = CORE.exec(version);
+  const match = SEMVER.exec(version);
   if (match === null) return null;
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
+  return {
+    core: [Number(match[1]), Number(match[2]), Number(match[3])],
+    pre: match[4] === undefined ? null : match[4].split('.'),
+  };
 }
 
-export function compareSemverCore(left, right) {
-  const a = parseSemverCore(left);
-  const b = parseSemverCore(right);
+export function compareSemver(left, right) {
+  const a = parseSemver(left);
+  const b = parseSemver(right);
   if (a === null || b === null) return null;
   for (let index = 0; index < 3; index += 1) {
-    if (a[index] !== b[index]) return a[index] - b[index];
+    if (a.core[index] !== b.core[index]) return a.core[index] - b.core[index];
+  }
+  if (a.pre === null && b.pre === null) return 0;
+  if (a.pre === null) return 1;
+  if (b.pre === null) return -1;
+  const length = Math.max(a.pre.length, b.pre.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftId = a.pre[index];
+    const rightId = b.pre[index];
+    if (leftId === undefined) return -1;
+    if (rightId === undefined) return 1;
+    const leftNumeric = /^\d+$/u.test(leftId);
+    const rightNumeric = /^\d+$/u.test(rightId);
+    if (leftNumeric && rightNumeric) {
+      const delta = Number(leftId) - Number(rightId);
+      if (delta !== 0) return delta;
+      continue;
+    }
+    if (leftNumeric) return -1;
+    if (rightNumeric) return 1;
+    if (leftId < rightId) return -1;
+    if (leftId > rightId) return 1;
   }
   return 0;
 }
+
+export const compareSemverCore = compareSemver;
 
 export function firstChangelogHeading(source) {
   if (typeof source !== 'string') return null;
@@ -103,7 +130,7 @@ export function evaluate(input) {
 
   for (const [lane, base] of Object.entries(input.baseVersions ?? {})) {
     const head = input.versions?.[lane];
-    const order = compareSemverCore(asText(head), asText(base));
+    const order = compareSemver(asText(head), asText(base));
     if (order !== null && order < 0) {
       failures.push(`${lane} version rewound ${asText(base)} -> ${asText(head)}`);
     }
@@ -111,7 +138,7 @@ export function evaluate(input) {
 
   if (typeof input.npmLatest === 'string') {
     const cliVersion = asText(input.versions?.cli);
-    const order = compareSemverCore(cliVersion, input.npmLatest);
+    const order = compareSemver(cliVersion, input.npmLatest);
     if (order !== null && order < 0) {
       failures.push(`CLI version ${cliVersion} is below npm latest ${input.npmLatest}`);
     }
@@ -122,7 +149,7 @@ export function evaluate(input) {
 
 export function moonshotHitAllowed(file, line) {
   if (MOONSHOT_AI_ALLOW_FILES.has(file)) return true;
-  return PROVIDER_HOST.test(line);
+  return !line.replaceAll(PROVIDER_HOST, '').includes('moonshot-ai');
 }
 
 function readJson(relative) {

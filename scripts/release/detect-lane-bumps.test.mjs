@@ -85,6 +85,22 @@ void test('fails closed when a lane version rewinds', async (t) => {
   );
 });
 
+void test('fails closed when a lane rewinds a prerelease', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'release-lanes-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, ['init', '-b', 'main']);
+
+  await Promise.all(Object.values(packagePaths).map((path) => writePackage(root, path, '2.1.0-beta.2')));
+  const before = commit(root, 'beta');
+  await writePackage(root, packagePaths.cli, '2.1.0-beta.1');
+  const after = commit(root, 'rewound beta');
+
+  assert.throws(
+    () => detectLaneBumps({ before, after, cwd: root }),
+    /rewound 2\.1\.0-beta\.2 -> 2\.1\.0-beta\.1/,
+  );
+});
+
 void test('rejects a version that could inject a GitHub output line', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'release-lanes-'));
   t.after(() => rm(root, { recursive: true, force: true }));
