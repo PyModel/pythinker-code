@@ -1,5 +1,15 @@
 # @pymodel/agent-gateway
 
+## 0.2.5
+
+### Patch Changes
+
+- [#326](https://github.com/PyModel/pythinker-code/pull/326) [`68f861f`](https://github.com/PyModel/pythinker-code/commit/68f861fec73b635e4b566b5ada5440825ce7b21f) Thanks [@elkaix](https://github.com/elkaix)! - Persist the human runtime mirror in the agent wire journal and spawn agent DI scopes from the session layer.
+
+- Updated dependencies [[`68f861f`](https://github.com/PyModel/pythinker-code/commit/68f861fec73b635e4b566b5ada5440825ce7b21f), [`68f861f`](https://github.com/PyModel/pythinker-code/commit/68f861fec73b635e4b566b5ada5440825ce7b21f), [`68f861f`](https://github.com/PyModel/pythinker-code/commit/68f861fec73b635e4b566b5ada5440825ce7b21f), [`68f861f`](https://github.com/PyModel/pythinker-code/commit/68f861fec73b635e4b566b5ada5440825ce7b21f), [`68f861f`](https://github.com/PyModel/pythinker-code/commit/68f861fec73b635e4b566b5ada5440825ce7b21f), [`68f861f`](https://github.com/PyModel/pythinker-code/commit/68f861fec73b635e4b566b5ada5440825ce7b21f)]:
+  - @pymodel/agent-core-v2@0.6.0
+  - @pymodel/remote-control@0.0.2
+
 ## 0.2.4
 
 ### Patch Changes
