@@ -110,6 +110,9 @@ jobs:
       - name: Upgrade npm for Trusted Publishing
         run: npm install -g npm@11
 
+      - name: Identity freeze
+        run: node scripts/check-identity-freeze.mjs --npm
+
       # `github.event.before` is the exact start of this push. HEAD^ only sees
       # the final commit and misses version bumps in a multi-commit push.
       - name: Detect release lane version bumps
@@ -621,7 +624,11 @@ jobs:
           RELEASE_TAG: ${{ needs.release.outputs.pythinker_release_tag }}
         run: |
           set -euo pipefail
-          existing="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
+          if ! existing="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"; then
+            echo "::error::GitHub release ${RELEASE_TAG} does not exist. npm never published this version, or changesets did not create the tag."
+            echo "::error::Identity freeze: do not upload native zips onto a missing or orphan version."
+            exit 1
+          fi
           present=()
           absent=()
           for path in dist-native-release/*; do

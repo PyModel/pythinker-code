@@ -69,6 +69,22 @@ void test('fails closed when the push boundary cannot be read', async (t) => {
   );
 });
 
+void test('fails closed when a lane version rewinds', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'release-lanes-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, ['init', '-b', 'main']);
+
+  await Promise.all(Object.values(packagePaths).map((path) => writePackage(root, path, '2.1.0')));
+  const before = commit(root, 'published');
+  await writePackage(root, packagePaths.cli, '0.43.0');
+  const after = commit(root, 'rewound');
+
+  assert.throws(
+    () => detectLaneBumps({ before, after, cwd: root }),
+    /rewound 2\.1\.0 -> 0\.43\.0/,
+  );
+});
+
 void test('rejects a version that could inject a GitHub output line', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'release-lanes-'));
   t.after(() => rm(root, { recursive: true, force: true }));

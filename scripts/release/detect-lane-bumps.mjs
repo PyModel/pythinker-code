@@ -3,6 +3,8 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 
+import { compareSemverCore } from '../check-identity-freeze.mjs';
+
 const semver = /\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/u;
 
 const lanes = {
@@ -34,6 +36,12 @@ export function detectLaneBumps({ before, after, cwd = process.cwd() }) {
   return Object.fromEntries(Object.entries(lanes).map(([name, path]) => {
     const beforeVersion = readVersion(before, path, cwd);
     const afterVersion = readVersion(after, path, cwd);
+    const order = compareSemverCore(afterVersion, beforeVersion);
+    if (order !== null && order < 0) {
+      throw new Error(
+        `Release lane ${name} rewound ${beforeVersion} -> ${afterVersion}. Identity freeze: never copy a lower version onto a published line.`,
+      );
+    }
     return [name, {
       before: beforeVersion,
       after: afterVersion,
