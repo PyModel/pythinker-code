@@ -1,5 +1,11 @@
 # @pymodel/pi-tui
 
+## 0.85.0
+
+### Minor Changes
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Rebaseline the terminal UI library native platform modules and mouse/search behavior.
+
 ## 0.84.4
 
 ### Patch Changes

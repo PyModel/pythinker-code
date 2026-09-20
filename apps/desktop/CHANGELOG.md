@@ -1,5 +1,67 @@
 # @pymodel/pythinker-desktop
 
+## 1.2.0
+
+### Minor Changes
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Delete sessions from the session picker: press Ctrl+X on a session, then y to confirm.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Drop the experimental flat entity message protocol and history API; session inspect returns to the transcript surface.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Add per-server deferred MCP tool disclosure so large tool lists stay hidden until selected.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Delete sessions with serialized cleanup so journal and live listeners finish before the session is removed, and broadcast a workspace-scoped deletion event.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Rebuild telemetry as a scope-bound layered context registry so session, agent, and turn fields flow into every event without a separate agent telemetry context service.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Serve workspace @ file suggestions through the engine fs suggest API so the editor extension matches gateway search scoring.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Turn filesystem watch off by default. Set `[watch] enabled = true` or `PYTHINKER_CODE_WATCH=1` to attach watchers.
+
+### Patch Changes
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Make the compaction attempt limit configurable with loop_control.compaction_max_attempts (default 5).
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Stop telling the model that the current working directory is always the project root.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Honor dynamically_loaded_tools from official model catalogs when building tool lists.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Preserve original MCP attachments that are omitted from model output, and let Read open those session attachment references.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Exclude time spent with the session closed from goal time budgets.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Rebaseline the terminal UI library native platform modules and mouse/search behavior.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Include the server token in the Remote Control Local UI link so it opens already signed in.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Remove the 24-hour limit on goal time budgets.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Skip the confirmation prompt for rm -rf commands that target only /tmp or /temp paths.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Track session-index freshness with a dirty journal so restarts reconcile only changed sessions instead of rescanning every mtime.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Deliver session approval and question events past agent filters, and stamp the requesting agent on the wire shape.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Session title generation no longer requires the experimental auto_session_title flag.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Allow steering messages to interrupt waits for background tasks.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Do not record a steer event when an unconsumed steer seeds the next turn after cancel.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Suppress background-task terminal notifications as soon as an agent starts closing, so teardown no longer wakes the model with late task settlements.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Tower mode (experimental, `PYTHINKER_CODE_EXPERIMENTAL_TOWER=1`): fix tower mode never starting when enabled through `[experimental] tower = true` in `config.toml` instead of the environment variable. When tower mode cannot be enabled, the error now names the actual blocker — the disabled experiment, a required restart, or the owning session. When another live session owns the workspace tower, the message also names the owning session's title alongside its id. /tower now also works in a directory that is not a git repository — it runs git init and commits what is there (an empty initial commit for empty directories).
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Tower mode reliability fixes across messaging, worktrees, and the review-to-merge gate.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Compress Remote Control tunnel responses with gzip.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Keep live turn ids above the wire-wide maximum and fold cold transcript rebuilds over the active branch chain.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Add `-y, --yes` to `pythinker upgrade` (alias `pythinker update`) to skip the confirmation prompt and install the update directly.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Warn at startup when a [models] entry in config.toml is missing the model field and cannot be used.
+
 ## 1.1.0
 
 ### Minor Changes

@@ -1,5 +1,19 @@
 # @pymodel/agent-core-v2
 
+## 0.5.0
+
+### Minor Changes
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Persist the human runtime mirror in the agent wire journal and spawn agent DI scopes from the session layer.
+
+### Patch Changes
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Discard streamed attempt state when the LLM requester retries below the turn so interrupted tool-call ids cannot leak into the next attempt.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Compose LLM recovery strategies outside the turn machine with self-describing proposals and opaque prepare effects.
+
+- [#323](https://github.com/PyModel/pythinker-code/pull/323) [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e) Thanks [@elkaix](https://github.com/elkaix)! - Add `PYTHINKER_CODE_PERMISSION_MODE_REMINDER`: set it to `0` to stop injecting auto permission-mode reminders into the model context.
+
 ## 0.4.3
 
 ### Patch Changes
