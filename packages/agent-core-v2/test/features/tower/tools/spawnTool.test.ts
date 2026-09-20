@@ -240,7 +240,7 @@ describe('TowerSpawnTool', () => {
     taskInfoLookup = () => ({
       taskId: 'task-1',
       kind: 'agent',
-      description: 'tower worker agent-build: Build gemm',
+      description: 'M1 agent-build: Build gemm',
       status: 'failed',
       stopReason: 'provider blew up',
       startedAt: 1,
@@ -345,6 +345,14 @@ describe('TowerSpawnTool', () => {
     });
   });
 
+  it('describes the worker task with the mission id, name, and title', async () => {
+    const result = await execute(WORKER_ARGS);
+
+    expect(result.isError).toBeUndefined();
+    const task = registerTask.mock.calls[0]?.[0];
+    expect(task?.description).toBe('M1 agent-build: Build gemm');
+  });
+
   it('honors the configured [subagent].timeout_ms for the registered task', async () => {
     subagentTimeoutMs = 30 * 60 * 1000;
 
@@ -382,10 +390,11 @@ describe('TowerSpawnTool', () => {
     const result = await execute(WORKER_ARGS);
 
     expect(result.isError).toBeUndefined();
-    const task = registerTask.mock.calls[0]?.[0] as SubagentTask;
-    const info = task.toInfo({
+    const task = registerTask.mock.calls[0]?.[0];
+    expect(task).toBeDefined();
+    const info = task!.toInfo({
       taskId: 'task-1',
-      description: task.description,
+      description: task!.description,
       status: 'running',
       startedAt: 1,
       endedAt: null,
@@ -405,8 +414,9 @@ describe('TowerSpawnTool', () => {
     const result = await execute(WORKER_ARGS);
 
     expect(result.isError).toBeUndefined();
-    const task = registerTask.mock.calls[0]?.[0] as SubagentTask;
-    expect(task.model).toBe('cheap/fast');
+    const task = registerTask.mock.calls[0]?.[0];
+    expect(task).toBeInstanceOf(SubagentTask);
+    expect((task as SubagentTask).model).toBe('cheap/fast');
   });
 
   it('binds the configured secondary model and reports it in the output and activity log', async () => {
@@ -532,6 +542,30 @@ describe('TowerSpawnTool', () => {
       reviewMissionId: 'M1',
     });
     expect(entry?.worktree).toBeUndefined();
+  });
+
+  it('describes the reviewer task with the review mission id when the branch resolves to a mission', async () => {
+    const result = await execute({
+      name: 'reviewer-a',
+      kind: 'reviewer',
+      review_target: 'feat/build-gemm',
+    });
+
+    expect(result.isError).toBeUndefined();
+    const task = registerTask.mock.calls[0]?.[0];
+    expect(task?.description).toBe('M1 review: feat/build-gemm');
+  });
+
+  it('describes the reviewer task with the reviewer name when the branch owns no mission', async () => {
+    const result = await execute({
+      name: 'reviewer-b',
+      kind: 'reviewer',
+      review_target: 'feat/orphan-branch',
+    });
+
+    expect(result.isError).toBeUndefined();
+    const task = registerTask.mock.calls[0]?.[0];
+    expect(task?.description).toBe('review reviewer-b: feat/orphan-branch');
   });
 
   it('refuses a duplicate name and points at a background resume', async () => {
