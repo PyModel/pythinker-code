@@ -7,7 +7,7 @@ export interface ModelCapability {
   readonly dynamically_loaded_tools?: boolean;
 }
 
-const UNKNOWN_CAPABILITY_MARKER = Symbol.for('moonshot-ai.kosong.UNKNOWN_CAPABILITY');
+const UNKNOWN_CAPABILITY_MARKER = Symbol.for('pymodel.kosong.UNKNOWN_CAPABILITY');
 
 export const UNKNOWN_CAPABILITY: ModelCapability = Object.freeze(
   Object.defineProperty(

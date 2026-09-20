@@ -22,7 +22,7 @@ is not a release checklist or a transcript of the implementation process.
 
 ## Goals
 
-- Keep the extension ID `moonshot-ai.pythinker-code` so `0.6.0` upgrades existing
+- Keep the extension ID `pymodel.pythinker` so `0.6.0` upgrades existing
   installations.
 - Preserve the existing VS Code commands, shortcuts, Webview workflows, editor
   integration, session management, MCP management, and file changes panel.
