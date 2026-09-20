@@ -75,7 +75,7 @@ describe('server-v2 /api/v1/workspaces', () => {
     }
     if (home !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, 25));
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
     home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-workspaces-'));
     process.env['PYTHINKER_CODE_WATCH'] = '1';
