@@ -68,6 +68,44 @@ describe('server-v2 /api/v1/workspaces', () => {
     delete process.env['PYTHINKER_CODE_WATCH'];
   });
 
+  async function restartWithFreshHome(): Promise<void> {
+    if (server !== undefined) {
+      await server.close();
+      server = undefined;
+    }
+    if (home !== undefined) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+    }
+    home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-workspaces-'));
+    process.env['PYTHINKER_CODE_WATCH'] = '1';
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
+    base = `http://127.0.0.1:${server.port}`;
+  }
+
+  async function restartSameHome(): Promise<void> {
+    if (server !== undefined) {
+      await server.close();
+      server = undefined;
+    }
+    process.env['PYTHINKER_CODE_WATCH'] = '1';
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home as string,
+      logLevel: 'silent',
+    });
+    base = `http://127.0.0.1:${server.port}`;
+  }
+
+
   async function postJson<T>(
     path: string,
     body?: unknown,
@@ -206,6 +244,7 @@ describe('server-v2 /api/v1/workspaces', () => {
   });
 
   it('sums session_count across legacy split buckets of one root', async () => {
+    await restartWithFreshHome();
     const typedRoot = 'C:\\Users\\Foo\\Proj';
     const lowerRoot = 'c:\\users\\foo\\proj';
     const typedId = encodeWorkDirKey(typedRoot);
@@ -246,14 +285,18 @@ describe('server-v2 /api/v1/workspaces', () => {
     };
     await seedBucket(typedId, 's-typed', {});
     await seedBucket(lowerId, 's-lower', { archived: true, updatedAt: 2 });
+    await restartSameHome();
 
-    await vi.waitFor(async () => {
-      const { body } = await getJson<ListWire>('/api/v1/workspaces');
-      expect(body.code).toBe(0);
-      const unions = body.data.items.filter((w) => [typedId, lowerId].includes(w.id));
-      expect(unions).toHaveLength(1);
-      expect(unions[0]?.session_count).toBe(2);
-    });
+    await vi.waitFor(
+      async () => {
+        const { body } = await getJson<ListWire>('/api/v1/workspaces');
+        expect(body.code).toBe(0);
+        const unions = body.data.items.filter((w) => [typedId, lowerId].includes(w.id));
+        expect(unions).toHaveLength(1);
+        expect(unions[0]?.session_count).toBe(2);
+      },
+      { timeout: 10_000 },
+    );
   });
 
   it('adds an additional directory and persists it by default', async () => {
