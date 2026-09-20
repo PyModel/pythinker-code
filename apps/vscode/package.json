@@ -1,9 +1,9 @@
 {
   "name": "pythinker",
-  "publisher": "moonshot-ai",
-  "displayName": "Pythinker Code",
+  "publisher": "pymodel",
+  "displayName": "Pythinker",
   "description": "Official Pythinker Code plugin for VS Code",
-  "version": "0.7.6",
+  "version": "0.9.7",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -39,9 +39,8 @@
     "skills",
     "json",
     "autocomplete",
-    "pymodel",
     "pythinker",
-    "moonshot-ai"
+    "pymodel"
   ],
   "pricing": "Free",
   "activationEvents": [],
@@ -237,7 +236,7 @@
       "editor/context": [
         {
           "command": "pythinker.insertMention",
-          "group": "moonshot-ai",
+          "group": "pythinker@1",
           "when": "editorTextFocus"
         }
       ]

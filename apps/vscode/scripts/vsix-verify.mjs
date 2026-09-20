@@ -141,6 +141,16 @@ async function verifyTargetManifest(extractionRoot, target) {
 }
 
 function verifyPackageManifest(packaged, source) {
+  if (source.publisher !== 'pymodel' || packaged.publisher !== 'pymodel') {
+    throw new Error(
+      `Extension publisher must be pymodel, got source=${String(source.publisher)} packaged=${String(packaged.publisher)}.`,
+    );
+  }
+  if (source.name !== 'pythinker' || packaged.name !== 'pythinker') {
+    throw new Error(
+      `Extension name must be pythinker, got source=${String(source.name)} packaged=${String(packaged.name)}.`,
+    );
+  }
   if (typeof packaged.main !== 'string' || !packaged.main.endsWith('.js')) {
     throw new Error(`Packaged extension main must be a .js entry, got ${String(packaged.main)}.`);
   }

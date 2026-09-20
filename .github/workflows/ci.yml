@@ -121,6 +121,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v6
 
@@ -131,6 +134,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
       - run: pnpm run sherif
       - run: pnpm run test:release
 

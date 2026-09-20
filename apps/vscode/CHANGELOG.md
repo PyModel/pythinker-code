@@ -1,53 +1,105 @@
 # Changelog
 
-## 0.7.6
+## 0.9.7
 
 ### Patch Changes
 
-- Updated dependencies [[`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e), [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e), [`96d1a0c`](https://github.com/PyModel/pythinker-code/commit/96d1a0c7a0eccc7461b03bff14cf1ba4264db14e)]:
-  - @pymodel/pythinker-code-sdk@0.21.0
-  - @pymodel/migration-legacy@0.1.17
+- [#221](https://github.com/PyModel/pythinker-code/pull/221) [`e6778dc`](https://github.com/PyModel/pythinker-code/commit/e6778dcc402e71896186a8375b37035df5067bfa) Thanks [@elkaix](https://github.com/elkaix)! - Fix duplicated streaming output when a session is opened twice at the same time.
 
-## 0.7.5
+## 0.9.6
 
 ### Patch Changes
 
-- [#3453](https://github.com/PyModel/pythinker-code/pull/3453) [`411572e`](https://github.com/PyModel/pythinker-code/commit/411572e166edee8581ba9c5a7f1bbf6c8b405606) Thanks [@Grapedge](https://github.com/Grapedge)! - Highlight matched characters in @ file suggestions and allow folders to be inserted as mentions.
+- [#188](https://github.com/PyModel/pythinker-code/pull/188) [`0097afc`](https://github.com/PyModel/pythinker-code/commit/0097afc534c9019962efbe61f0e6e9e3dd1f908f) Thanks [@elkaix](https://github.com/elkaix)! - Persist a picked thinking effort as the default only up to the model's own default effort; a more expensive pick stays session-only.
 
-- [#3453](https://github.com/PyModel/pythinker-code/pull/3453) [`411572e`](https://github.com/PyModel/pythinker-code/commit/411572e166edee8581ba9c5a7f1bbf6c8b405606) Thanks [@Grapedge](https://github.com/Grapedge)! - Show the image/video picker entry in the @ menu only before a search query is typed, and remove the Browse folders mode.
-
-- [#3453](https://github.com/PyModel/pythinker-code/pull/3453) [`411572e`](https://github.com/PyModel/pythinker-code/commit/411572e166edee8581ba9c5a7f1bbf6c8b405606) Thanks [@Grapedge](https://github.com/Grapedge)! - Fix the @ and / suggestion lists jittering when the mouse rests at the scroll edge.
-
-- Updated dependencies [[`411572e`](https://github.com/PyModel/pythinker-code/commit/411572e166edee8581ba9c5a7f1bbf6c8b405606)]:
-  - @pymodel/pythinker-code-sdk@0.20.0
-
-## 0.7.4
+## 0.9.5
 
 ### Patch Changes
 
-- [#3371](https://github.com/PyModel/pythinker-code/pull/3371) [`9e88152`](https://github.com/PyModel/pythinker-code/commit/9e881528a89945a373002b0b229f91735e8f2c4f) Thanks [@tpoisonooo](https://github.com/tpoisonooo)! - Fix prompts remaining queued forever after reopening a session.
+- [#147](https://github.com/PyModel/pythinker-code/pull/147) [`dde6152`](https://github.com/PyModel/pythinker-code/commit/dde615293b1fc0ac4c41a383a8012c3ef93e9b21) Thanks [@elkaix](https://github.com/elkaix)! - Fix the VS Code extension asking you to sign in when a provider is already configured with an API key.
 
-- [#3366](https://github.com/PyModel/pythinker-code/pull/3366) [`9619277`](https://github.com/PyModel/pythinker-code/commit/961927739ef34819d67d76fa5870cbe4ba7a01ff) Thanks [@pythinker-agent-bot](https://github.com/pythinker-agent-bot)! - Use the Unicode ellipsis "…" in user-facing TUI and VS Code webview text.
+- [#147](https://github.com/PyModel/pythinker-code/pull/147) [`dde6152`](https://github.com/PyModel/pythinker-code/commit/dde615293b1fc0ac4c41a383a8012c3ef93e9b21) Thanks [@elkaix](https://github.com/elkaix)! - Keep a way back to the sign-in screen when the VS Code extension reports that no model is configured.
 
-## 0.7.3
-
-### Patch Changes
-
-- [#3098](https://github.com/PyModel/pythinker-code/pull/3098) [`75550c5`](https://github.com/PyModel/pythinker-code/commit/75550c5686cb867c0cb34bc515997d5e6305fc94) Thanks [@LCZcn96](https://github.com/LCZcn96)! - Restore live context-window usage updates after switching to the v2 engine.
-
-- [#3276](https://github.com/PyModel/pythinker-code/pull/3276) [`f34b2ec`](https://github.com/PyModel/pythinker-code/commit/f34b2ecfb01dc194aaa3f209a00772991caad3f3) Thanks [@Grapedge](https://github.com/Grapedge)! - Fix streamed replies occasionally showing every character twice and tool calls appearing in duplicate.
-
-- Updated dependencies [[`75550c5`](https://github.com/PyModel/pythinker-code/commit/75550c5686cb867c0cb34bc515997d5e6305fc94), [`d723cc4`](https://github.com/PyModel/pythinker-code/commit/d723cc47ee43e5ca3c3c4ec2473f205d44acede2)]:
-  - @pymodel/pythinker-code-sdk@0.19.2
-
-## 0.7.2
+## 0.9.4
 
 ### Patch Changes
 
-- [#3079](https://github.com/PyModel/pythinker-code/pull/3079) [`35befdc`](https://github.com/PyModel/pythinker-code/commit/35befdcef2be344d931ea20063cb64113350dc4b) Thanks [@gaoyuan1223m](https://github.com/gaoyuan1223m)! - Fix multi-select questions jumping to the next question after only one answer is selected.
+- [#143](https://github.com/PyModel/pythinker-code/pull/143) [`813724a`](https://github.com/PyModel/pythinker-code/commit/813724a2b0789dabcdd54e0dfcf47f1fda1c5688) Thanks [@elkaix](https://github.com/elkaix)! - Publish the extension with every release cycle.
 
-- Updated dependencies [[`3d77620`](https://github.com/PyModel/pythinker-code/commit/3d7762003a4a35cbeb8571d471c6898a006152e6)]:
-  - @pymodel/pythinker-code-sdk@0.19.1
+## 0.9.3
+
+### Patch Changes
+
+- [#140](https://github.com/PyModel/pythinker-code/pull/140) [`5092805`](https://github.com/PyModel/pythinker-code/commit/5092805d0500046e500c1f57e6460a664fe61c77) Thanks [@elkaix](https://github.com/elkaix)! - Fix the extension bundle to inline `immer`.
+
+## 0.9.2
+
+### Patch Changes
+
+- Updated dependencies [[`17818ea`](https://github.com/PyModel/pythinker-code/commit/17818ea6006cc3d4176ab7ede048163a457a99f9)]:
+  - @pymodel/pythinker-code-sdk@1.0.0
+
+## 0.9.1
+
+### Patch Changes
+
+- Updated dependencies [[`2b2f438`](https://github.com/PyModel/pythinker-code/commit/2b2f438acbdb1d5367b39c5e479fd72f6c46dec2)]:
+  - @pymodel/pythinker-code-sdk@0.16.0
+
+## 0.9.0
+
+### Minor Changes
+
+- [#48](https://github.com/PyModel/pythinker-code/pull/48) [`17967df`](https://github.com/PyModel/pythinker-code/commit/17967dffb7ca3ed6f23f9bc0346042fc8a1b2bf0) - Combine permission mode, plan mode, and thinking effort into one composer menu, and answer approval prompts with number keys.
+
+- [#48](https://github.com/PyModel/pythinker-code/pull/48) [`17967df`](https://github.com/PyModel/pythinker-code/commit/17967dffb7ca3ed6f23f9bc0346042fc8a1b2bf0) - Add a config hub page that shows models, providers, MCP servers, the local config file, and extension settings in one place.
+
+- [#48](https://github.com/PyModel/pythinker-code/pull/48) [`17967df`](https://github.com/PyModel/pythinker-code/commit/17967dffb7ca3ed6f23f9bc0346042fc8a1b2bf0) - The extension UI now follows the editor color theme, including light, dark, and high-contrast themes.
+
+- [#48](https://github.com/PyModel/pythinker-code/pull/48) [`17967df`](https://github.com/PyModel/pythinker-code/commit/17967dffb7ca3ed6f23f9bc0346042fc8a1b2bf0) - Add a status bar indicator, quick-fix code actions, terminal and editor context menu entries, a getting-started walkthrough, and a new-conversation keybinding.
+
+### Patch Changes
+
+- [#48](https://github.com/PyModel/pythinker-code/pull/48) [`17967df`](https://github.com/PyModel/pythinker-code/commit/17967dffb7ca3ed6f23f9bc0346042fc8a1b2bf0) - Render long conversations with a virtualized list, fix control overlap at narrow sidebar widths, and make sign-out work from the command palette.
+
+- Updated dependencies [[`c8cdcc7`](https://github.com/PyModel/pythinker-code/commit/c8cdcc78528f3fd8dedf9111ec0c91f3242e3012)]:
+  - @pymodel/pythinker-code-sdk@0.15.0
+
+## 0.8.8
+
+### Patch Changes
+
+- Updated dependencies [[`e534040`](https://github.com/PyModel/pythinker-code/commit/e534040c82d1e3b8c217e6e35ddcf248065ff950)]:
+  - @pymodel/pythinker-code-sdk@0.14.0
+
+## 0.8.7
+
+### Patch Changes
+
+- [#39](https://github.com/PyModel/pythinker-code/pull/39) [`acf57d1`](https://github.com/PyModel/pythinker-code/commit/acf57d197631ce90ef64cf0768bfc22009cda820) - Publish the VS Code extension to Open VSX by creating the publisher namespace first, so Cursor, VSCodium and Windsurf can install it, and report the registry's own error when a publish fails instead of only the CLI exit line.
+
+## 0.8.6
+
+### Patch Changes
+
+- Updated dependencies [[`2ce6b5e`](https://github.com/PyModel/pythinker-code/commit/2ce6b5e66935335567a6525413ad8e77b84d852f)]:
+  - @pymodel/pythinker-code-sdk@0.13.0
+
+## 0.8.5
+
+### Patch Changes
+
+- Updated dependencies [[`42da384`](https://github.com/PyModel/pythinker-code/commit/42da384cb36d29ecf0cc147f753790e022e13709)]:
+  - @pymodel/pythinker-code-sdk@0.12.0
+
+## 0.8.4
+
+### Patch Changes
+
+- [#22](https://github.com/PyModel/pythinker-code/pull/22) [`45be822`](https://github.com/PyModel/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32) - Show the assistant logo beside replies without breaking the step timeline, complete a picked slash command in the input instead of sending it on its own, ship a decodable Marketplace icon, and retry transient registry failures when publishing.
+
+- Updated dependencies [[`45be822`](https://github.com/PyModel/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32), [`45be822`](https://github.com/PyModel/pythinker-code/commit/45be8227077847f760fa7b6b09333cf5a8127f32)]:
+  - @pymodel/pythinker-code-sdk@0.11.0
 
 ## 0.7.1
 
@@ -57,31 +109,6 @@
 
 - Updated dependencies [[`d833a1a`](https://github.com/PyModel/pythinker-code/commit/d833a1a893c4d69d96af542f40557442992085e0), [`61591bc`](https://github.com/PyModel/pythinker-code/commit/61591bce09f4467aa1664cb8ecb6aa6904b7accd), [`d833a1a`](https://github.com/PyModel/pythinker-code/commit/d833a1a893c4d69d96af542f40557442992085e0), [`13857f3`](https://github.com/PyModel/pythinker-code/commit/13857f383200881aa77dc972a8963ba421eeb2b6)]:
   - @pymodel/pythinker-code-sdk@0.19.0
-
-## 0.7.0
-
-### Minor Changes
-
-- [#2916](https://github.com/PyModel/pythinker-code/pull/2916) [`7475c2e`](https://github.com/PyModel/pythinker-code/commit/7475c2e2e3dd86ac0b8a8d51d4f1d233ed7df797) Thanks [@Grapedge](https://github.com/Grapedge)! - Run the extension on the v2 agent engine by default; the interface, sessions, and workflows are unchanged. To roll back, enable the `pythinker.useAgentCoreV1` setting and reload the window.
-
-### Patch Changes
-
-- Updated dependencies [[`6be2697`](https://github.com/PyModel/pythinker-code/commit/6be26978b123bacf1c5ebce52bbeb6f7b7ff0629), [`7475c2e`](https://github.com/PyModel/pythinker-code/commit/7475c2e2e3dd86ac0b8a8d51d4f1d233ed7df797), [`7475c2e`](https://github.com/PyModel/pythinker-code/commit/7475c2e2e3dd86ac0b8a8d51d4f1d233ed7df797), [`7475c2e`](https://github.com/PyModel/pythinker-code/commit/7475c2e2e3dd86ac0b8a8d51d4f1d233ed7df797)]:
-  - @pymodel/pythinker-code-sdk@0.18.0
-
-## 0.6.9
-
-### Patch Changes
-
-- Updated dependencies [[`c9bfe8b`](https://github.com/PyModel/pythinker-code/commit/c9bfe8b2c8314ba4ef8806fb3b92ac654c1d1860), [`c212ae9`](https://github.com/PyModel/pythinker-code/commit/c212ae9715371c0d7939c15e664acbe0d7cf7fc3)]:
-  - @pymodel/pythinker-code-sdk@0.17.0
-
-## 0.6.8
-
-### Patch Changes
-
-- Updated dependencies [[`437a1b8`](https://github.com/PyModel/pythinker-code/commit/437a1b8ba1b7e0f6662bdadc669564fdc58c3f5a), [`0b2e803`](https://github.com/PyModel/pythinker-code/commit/0b2e803d5e71afaab45212bb2ee6117ecbf8bbc9), [`3c9e3b2`](https://github.com/PyModel/pythinker-code/commit/3c9e3b297cf5286c761159c1b4d642c478fd394d)]:
-  - @pymodel/pythinker-code-sdk@0.16.0
 
 ## 0.6.7
 
@@ -174,7 +201,7 @@
   SDK. The extension no longer downloads or starts a separate Pythinker executable.
 - The in-process engine is the same one that powers the Pythinker Code CLI, so the
   agent gains CLI-parity capabilities beyond the legacy runtime, including
-  parallel subagent dynamicWorkflows, background tasks, and long-running goal runs.
+  parallel subagent swarms, background tasks, and long-running goal runs.
 - Added an opt-in legacy migration prompt on the first launch that detects data
   from version 0.5.x. The migration copies or merges supported data into the
   current Pythinker Code home and does not delete the legacy source. If migration is

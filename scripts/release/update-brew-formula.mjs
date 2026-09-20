@@ -55,9 +55,28 @@ export async function downloadNpmTarball(options) {
   }
 }
 
+export function assertPublishedNpmVersion({ name, version, execFile = execFileSync }) {
+  try {
+    const out = execFile(
+      'npm',
+      ['view', `${name}@${version}`, 'version', '--registry=https://registry.npmjs.org'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    ).trim();
+    if (out !== version) {
+      throw new Error(`npm view returned ${out}`);
+    }
+  } catch (error) {
+    throw new Error(
+      `${name}@${version} is not on npm. Identity freeze: refuse to poll a tarball that will never appear.`,
+      { cause: error },
+    );
+  }
+}
+
 async function main() {
   const packageJson = JSON.parse(readFileSync(new URL('../../apps/pythinker-code/package.json', import.meta.url), 'utf8'));
   const version = packageJson.version;
+  assertPublishedNpmVersion({ name: '@pymodel/pythinker-code', version });
   const tarballUrl = `https://registry.npmjs.org/@pymodel/pythinker-code/-/pythinker-code-${version}.tgz`;
   const { tarball } = await downloadNpmTarball({
     url: tarballUrl,

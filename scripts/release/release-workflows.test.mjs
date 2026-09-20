@@ -20,6 +20,7 @@ void test('release workflow uses full push-boundary lane signals and isolated jo
     workflow.indexOf('  cut-desktop-tag:'),
     workflow.indexOf('  publish-vscode-extension:'),
   );
+  assert.match(workflow, /scripts\/check-identity-freeze\.mjs --npm/u);
   assert.match(workflow, /github\.event\.before/u);
   assert.match(workflow, /pythinker_native_release:.*cli_version_bumped/u);
   assert.match(workflow, /^  cut-desktop-tag:/mu);
@@ -37,6 +38,7 @@ void test('VS Code release supports isolated recovery and attests verified VSIX 
   const workflow = read('.github/workflows/vscode-release.yml');
   assert.match(workflow, /^  workflow_call:/mu);
   assert.match(workflow, /^  workflow_dispatch:/mu);
+  assert.match(workflow, /pymodel\.pythinker/u);
   assert.match(workflow, /actions\/attest@[0-9a-f]{40}/u);
   assert.match(workflow, /artifact-metadata: write/u);
   assert.doesNotMatch(workflow, /continue-on-error: true/u);

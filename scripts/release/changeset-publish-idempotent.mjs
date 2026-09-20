@@ -18,6 +18,8 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { compareSemverCore } from '../check-identity-freeze.mjs';
+
 const changesetConfig = JSON.parse(readFileSync('.changeset/config.json', 'utf-8'));
 const ignored = new Set(changesetConfig.ignore ?? []);
 
@@ -71,6 +73,40 @@ function isPublished({ name, version }) {
 }
 
 const unpublished = publishable.filter((pkg) => !isPublished(pkg));
+
+function npmLatest(name) {
+  try {
+    return execFileSync(
+      'npm',
+      ['view', name, 'version', '--registry=https://registry.npmjs.org'],
+      { env: cleanEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    ).trim();
+  } catch {
+    return undefined;
+  }
+}
+
+for (const pkg of unpublished) {
+  if (pkg.name !== '@pymodel/pythinker-code') continue;
+  const latest = npmLatest(pkg.name);
+  if (latest === undefined) {
+    console.error(`Identity freeze: cannot read npm latest for ${pkg.name}; refusing to publish.`);
+    process.exit(1);
+  }
+  const order = compareSemverCore(pkg.version, latest);
+  if (order === null) {
+    console.error(
+      `Identity freeze: cannot compare ${pkg.name}@${pkg.version} to npm latest ${latest}; refusing to publish.`,
+    );
+    process.exit(1);
+  }
+  if (order < 0) {
+    console.error(
+      `Identity freeze: refusing to publish ${pkg.name}@${pkg.version} below npm latest ${latest}.`,
+    );
+    process.exit(1);
+  }
+}
 
 if (publishable.length > 0 && unpublished.length === 0) {
   console.log(

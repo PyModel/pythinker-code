@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { downloadNpmTarball } from './update-brew-formula.mjs';
+import { assertPublishedNpmVersion, downloadNpmTarball } from './update-brew-formula.mjs';
 
 const TARBALL_URL = 'https://registry.npmjs.org/@pymodel/pythinker-code/-/pythinker-code-2.0.0.tgz';
 const BODY = Buffer.from('pythinker-tarball');
@@ -35,6 +35,31 @@ function pollOptions(clock, fetchImpl) {
     intervalMs: 15_000,
   };
 }
+
+void test('assertPublishedNpmVersion fails closed when npm does not have the version', () => {
+  assert.throws(
+    () =>
+      assertPublishedNpmVersion({
+        name: '@pymodel/pythinker-code',
+        version: '0.43.0',
+        execFile: () => {
+          throw new Error('404 Not Found');
+        },
+      }),
+    /is not on npm/,
+  );
+});
+
+void test('assertPublishedNpmVersion accepts a matching npm view', () => {
+  assert.equal(
+    assertPublishedNpmVersion({
+      name: '@pymodel/pythinker-code',
+      version: '2.1.0',
+      execFile: () => '2.1.0\n',
+    }),
+    undefined,
+  );
+});
 
 void test('returns the tarball when the first fetch is HTTP 200', async () => {
   const clock = pollClock();

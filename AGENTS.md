@@ -94,6 +94,7 @@ The web bundle: `apps/pythinker-code/dist-web` is the committed, prebuilt bundle
 - Prefer adding tests to existing files. Fix failing tests first (unless there's a real impl bug); when a test fails because of a user modification, default to fixing the test first, not the implementation.
 - Do not sacrifice code quality for external compatibility unless the user explicitly asks for it.
 - Breaking changes require changesets with `major` bump (user confirmation required).
+- Identity freeze: never rewind published `package.json` versions, never change the VS Code publisher or extension id (`pymodel.pythinker`), never replace `CHANGELOG.md` with another history. `scripts/check-identity-freeze.mjs` (via `pnpm lint`) and Release `--npm` enforce this.
 
 ## Experimental Features
 

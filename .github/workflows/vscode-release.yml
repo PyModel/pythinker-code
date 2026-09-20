@@ -45,8 +45,14 @@ jobs:
         run: |
           set -euo pipefail
           actual="$(node -p 'require("./apps/vscode/package.json").version')"
+          publisher="$(node -p 'require("./apps/vscode/package.json").publisher')"
+          name="$(node -p 'require("./apps/vscode/package.json").name')"
           if [ "$actual" != "$EXPECTED_VERSION" ]; then
             echo "::error::Requested VS Code version ${EXPECTED_VERSION}, but this ref contains ${actual}."
+            exit 1
+          fi
+          if [ "$publisher" != "pymodel" ] || [ "$name" != "pythinker" ]; then
+            echo "::error::VS Code identity must be pymodel.pythinker, got ${publisher}.${name}."
             exit 1
           fi
           if [ -z "$VSCE_PAT" ] || [ -z "$OVSX_PAT" ]; then
