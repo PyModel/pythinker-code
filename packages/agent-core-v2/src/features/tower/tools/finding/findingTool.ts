@@ -4,7 +4,7 @@ import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
 
-import { callerName, callerTokens, newTowerStore, runTowerTool } from '../support';
+import { callerName, callerTokenCount, newTowerStore, runTowerTool } from '../support';
 import DESCRIPTION from './finding.md?raw';
 import {
   ITowerFindingTool,
@@ -41,7 +41,7 @@ export class TowerFindingTool implements ITowerFindingTool {
             location: args.location,
             details: args.details,
             suggestedFix: args.suggested_fix,
-            tokens: callerTokens(this.usage, agentContextOfScope(this.scopeContext)),
+            token_count: callerTokenCount(this.usage, agentContextOfScope(this.scopeContext)),
           });
           return {
             output: `finding filed: ${rel}\nThe tower will route it — do not fix out-of-scope issues yourself.`,

@@ -349,8 +349,8 @@ describe('TowerSpawnTool', () => {
     const result = await execute(WORKER_ARGS);
 
     expect(result.isError).toBeUndefined();
-    const task = registerTask.mock.calls[0]?.[0] as SubagentTask;
-    expect(task.description).toBe('M1 agent-build: Build gemm');
+    const task = registerTask.mock.calls[0]?.[0];
+    expect(task?.description).toBe('M1 agent-build: Build gemm');
   });
 
   it('honors the configured [subagent].timeout_ms for the registered task', async () => {
@@ -390,10 +390,11 @@ describe('TowerSpawnTool', () => {
     const result = await execute(WORKER_ARGS);
 
     expect(result.isError).toBeUndefined();
-    const task = registerTask.mock.calls[0]?.[0] as SubagentTask;
-    const info = task.toInfo({
+    const task = registerTask.mock.calls[0]?.[0];
+    expect(task).toBeDefined();
+    const info = task!.toInfo({
       taskId: 'task-1',
-      description: task.description,
+      description: task!.description,
       status: 'running',
       startedAt: 1,
       endedAt: null,
@@ -413,8 +414,9 @@ describe('TowerSpawnTool', () => {
     const result = await execute(WORKER_ARGS);
 
     expect(result.isError).toBeUndefined();
-    const task = registerTask.mock.calls[0]?.[0] as SubagentTask;
-    expect(task.model).toBe('cheap/fast');
+    const task = registerTask.mock.calls[0]?.[0];
+    expect(task).toBeInstanceOf(SubagentTask);
+    expect((task as SubagentTask).model).toBe('cheap/fast');
   });
 
   it('binds the configured secondary model and reports it in the output and activity log', async () => {
@@ -550,8 +552,8 @@ describe('TowerSpawnTool', () => {
     });
 
     expect(result.isError).toBeUndefined();
-    const task = registerTask.mock.calls[0]?.[0] as SubagentTask;
-    expect(task.description).toBe('M1 review: feat/build-gemm');
+    const task = registerTask.mock.calls[0]?.[0];
+    expect(task?.description).toBe('M1 review: feat/build-gemm');
   });
 
   it('describes the reviewer task with the reviewer name when the branch owns no mission', async () => {
@@ -562,8 +564,8 @@ describe('TowerSpawnTool', () => {
     });
 
     expect(result.isError).toBeUndefined();
-    const task = registerTask.mock.calls[0]?.[0] as SubagentTask;
-    expect(task.description).toBe('review reviewer-b: feat/orphan-branch');
+    const task = registerTask.mock.calls[0]?.[0];
+    expect(task?.description).toBe('review reviewer-b: feat/orphan-branch');
   });
 
   it('refuses a duplicate name and points at a background resume', async () => {

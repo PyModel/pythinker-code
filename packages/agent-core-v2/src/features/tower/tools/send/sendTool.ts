@@ -8,7 +8,7 @@ import type { ToolExecution } from '#/tool/toolContract';
 
 import { BROADCAST_NAME, TOWER_NAME } from '#/features/tower/protocol/index';
 import { TowerInboxSent } from '#/features/tower/towerOps';
-import { callerName, callerTokens, newTowerStore, runTowerTool } from '../support';
+import { callerName, callerTokenCount, newTowerStore, runTowerTool } from '../support';
 import DESCRIPTION from './send.md?raw';
 import { ITowerSendTool, TowerSendToolInputSchema, type TowerSendToolInput } from './send';
 
@@ -43,7 +43,7 @@ export class TowerSendTool implements ITowerSendTool {
             scope: args.scope,
             action: args.action,
             consentRef: args.consent_ref,
-            tokens: callerTokens(this.usage, agentContextOfScope(this.scopeContext)),
+            token_count: callerTokenCount(this.usage, agentContextOfScope(this.scopeContext)),
           });
           if (
             this.sessionBus !== undefined &&

@@ -679,23 +679,23 @@ describe('inbox send', () => {
     expect((await stat(join(repo, ref!))).isFile()).toBe(true);
   });
 
-  it('stamps the sender token count into the frontmatter and the activity log', async () => {
+  it('stamps the sender token_count into the frontmatter and the activity log', async () => {
     const rel = await store.send('tower', {
       to: 'w1',
       subject: 'get started',
       body: 'please start on M1',
-      tokens: 12345,
+      token_count: 12345,
     });
 
     const { fields } = parseFrontmatter(await readFile(join(repo, rel), 'utf8'));
-    expect(fields['tokens']).toBe('12345');
+    expect(fields['token_count']).toBe('12345');
 
     const log = await readFile(join(repo, '.tower/comms/log/activity.log'), 'utf8');
     const sendLine = log.split('\n').find((line) => line.includes('inbox.send'));
-    expect(sendLine).toContain('tokens=12345');
+    expect(sendLine).toContain('token_count=12345');
   });
 
-  it('records tokens as -1 when the sender usage is unavailable', async () => {
+  it('records token_count as -1 when the sender usage is unavailable', async () => {
     const rel = await store.send('tower', {
       to: 'w1',
       subject: 'get started',
@@ -703,7 +703,7 @@ describe('inbox send', () => {
     });
 
     const { fields } = parseFrontmatter(await readFile(join(repo, rel), 'utf8'));
-    expect(fields['tokens']).toBe('-1');
+    expect(fields['token_count']).toBe('-1');
   });
 });
 
@@ -779,10 +779,10 @@ describe('findings', () => {
       summary: 'the cache never invalidates',
       details: 'no eviction path exists',
       suggestedFix: 'add a ttl',
-      tokens: 4321,
+      token_count: 4321,
     });
     const withTokens = await readFile(join(repo, rel), 'utf8');
-    expect(withTokens).toContain('**Tokens**: 4321');
+    expect(withTokens).toContain('**Token count**: 4321');
 
     const relDefault = await store.fileFinding('w1', {
       type: 'improve',
@@ -792,7 +792,7 @@ describe('findings', () => {
       suggestedFix: 'f',
     });
     const withoutTokens = await readFile(join(repo, relDefault), 'utf8');
-    expect(withoutTokens).toContain('**Tokens**: -1');
+    expect(withoutTokens).toContain('**Token count**: -1');
   });
 });
 
@@ -938,11 +938,11 @@ describe('merge gate', () => {
       merge: 'merge',
       findings: 'none',
       decision: 'ok',
-      tokens: 777,
+      token_count: 777,
     });
     const withTokens = await store.latestReview(mission.branch);
     expect(
-      parseFrontmatter(await readFile(join(repo, withTokens!.file), 'utf8')).fields['tokens'],
+      parseFrontmatter(await readFile(join(repo, withTokens!.file), 'utf8')).fields['token_count'],
     ).toBe('777');
 
     await store.submitReview('rev', {
@@ -954,7 +954,7 @@ describe('merge gate', () => {
     });
     const withoutTokens = await store.latestReview(mission.branch);
     expect(
-      parseFrontmatter(await readFile(join(repo, withoutTokens!.file), 'utf8')).fields['tokens'],
+      parseFrontmatter(await readFile(join(repo, withoutTokens!.file), 'utf8')).fields['token_count'],
     ).toBe('-1');
   });
 

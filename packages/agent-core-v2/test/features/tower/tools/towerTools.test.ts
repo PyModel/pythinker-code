@@ -564,7 +564,7 @@ describe('TowerSendTool + TowerInboxTool', () => {
     expect(busy.output).not.toContain('has no running task');
   });
 
-  it('stamps the sender token count from the usage service into the message frontmatter', async () => {
+  it('stamps the sender token_count from the usage service into the message frontmatter', async () => {
     usageTotal = { inputOther: 100, output: 50, inputCacheRead: 10, inputCacheCreation: 5 };
 
     await run(ix.get(ITowerSendTool), { to: 'w1', subject: 'metered', body: 'x' });
@@ -572,16 +572,16 @@ describe('TowerSendTool + TowerInboxTool', () => {
     const dir = join(repo, '.tower/comms/inbox');
     const file = (await readdir(dir)).find((name) => name.includes('metered'));
     const { fields } = parseFrontmatter(await readFile(join(dir, file!), 'utf8'));
-    expect(fields['tokens']).toBe('165');
+    expect(fields['token_count']).toBe('165');
   });
 
-  it('records tokens as -1 when the usage service reports nothing', async () => {
+  it('records token_count as -1 when the usage service reports nothing', async () => {
     await run(ix.get(ITowerSendTool), { to: 'w1', subject: 'unmetered', body: 'x' });
 
     const dir = join(repo, '.tower/comms/inbox');
     const file = (await readdir(dir)).find((name) => name.includes('unmetered'));
     const { fields } = parseFrontmatter(await readFile(join(dir, file!), 'utf8'));
-    expect(fields['tokens']).toBe('-1');
+    expect(fields['token_count']).toBe('-1');
   });
 
   it('skips the delivery note for broadcasts and for sends from workers', async () => {

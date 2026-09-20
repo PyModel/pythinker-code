@@ -92,7 +92,7 @@ export interface TowerSendInput {
   readonly scope?: string;
   readonly action?: string;
   readonly consentRef?: string;
-  readonly tokens?: number;
+  readonly token_count?: number;
 }
 
 export interface TowerFindingInput {
@@ -103,7 +103,7 @@ export interface TowerFindingInput {
   readonly location?: string;
   readonly details: string;
   readonly suggestedFix: string;
-  readonly tokens?: number;
+  readonly token_count?: number;
 }
 
 export interface TowerReviewInput {
@@ -113,7 +113,7 @@ export interface TowerReviewInput {
   readonly findings: string;
   readonly checks?: readonly string[];
   readonly decision: string;
-  readonly tokens?: number;
+  readonly token_count?: number;
 }
 
 export interface TowerMissionPatch {
@@ -745,7 +745,7 @@ export class TowerStore {
       scope: input.scope,
       action: input.action,
       consent_ref: input.consentRef,
-      tokens: String(input.tokens ?? -1),
+      token_count: String(input.token_count ?? -1),
     });
     const content = `${frontmatter}\n\n${input.body.trim()}\n`;
     const baseName = inboxFileName({ from: callerName, to, subject: input.subject });
@@ -753,7 +753,7 @@ export class TowerStore {
     await this.appendLog(
       callerName,
       'inbox.send',
-      { to, subject: slugify(input.subject), tokens: input.tokens ?? -1 },
+      { to, subject: slugify(input.subject), token_count: input.token_count ?? -1 },
       rel,
     );
     return rel;
@@ -816,7 +816,7 @@ export class TowerStore {
       `**Type**: ${input.type}`,
       `**Severity**: ${input.severity ?? 'medium'}`,
       `**Mission**: ${mission === undefined ? '(none)' : `${mission.id} — ${mission.title}`}`,
-      `**Tokens**: ${String(input.tokens ?? -1)}`,
+      `**Token count**: ${String(input.token_count ?? -1)}`,
       '',
       '---',
       '',
@@ -851,7 +851,7 @@ export class TowerStore {
     await this.appendLog(
       callerName,
       'finding.file',
-      { type: input.type, slug: slugify(input.title), tokens: input.tokens ?? -1 },
+      { type: input.type, slug: slugify(input.title), token_count: input.token_count ?? -1 },
       rel,
     );
     return rel;
@@ -899,7 +899,7 @@ export class TowerStore {
       merge: input.merge,
       reviewed_commit: reviewedCommit,
       mission: reviewMissionId,
-      tokens: String(input.tokens ?? -1),
+      token_count: String(input.token_count ?? -1),
     });
     const checks = (input.checks ?? []).map((c) => `- [x] ${c}`).join('\n');
     const content = [
@@ -929,7 +929,7 @@ export class TowerStore {
         round,
         verdict: input.status,
         reviewed: reviewedCommit.slice(0, 7),
-        tokens: input.tokens ?? -1,
+        token_count: input.token_count ?? -1,
       },
       rel,
     );

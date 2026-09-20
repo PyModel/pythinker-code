@@ -26,7 +26,7 @@ export function callerName(agentId: string, store: TowerStore, state: TowerState
   return store.resolveCallerName(state, agentId);
 }
 
-export function callerTokens(
+export function callerTokenCount(
   usage: ISessionUsageService | undefined,
   agent: AgentContext,
 ): number {

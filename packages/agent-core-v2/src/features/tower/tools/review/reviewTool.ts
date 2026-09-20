@@ -4,7 +4,7 @@ import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
 
-import { callerName, callerTokens, newTowerStore, runTowerTool } from '../support';
+import { callerName, callerTokenCount, newTowerStore, runTowerTool } from '../support';
 import DESCRIPTION from './review.md?raw';
 import {
   ITowerReviewTool,
@@ -40,7 +40,7 @@ export class TowerReviewTool implements ITowerReviewTool {
             findings: args.findings,
             checks: args.checks,
             decision: args.decision,
-            tokens: callerTokens(this.usage, agentContextOfScope(this.scopeContext)),
+            token_count: callerTokenCount(this.usage, agentContextOfScope(this.scopeContext)),
           });
           return {
             output: `review submitted: ${rel}\nAlso notify the branch author (or the tower) with TowerSend so the verdict is seen.`,
