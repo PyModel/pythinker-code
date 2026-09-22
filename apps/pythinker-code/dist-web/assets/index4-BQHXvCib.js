@@ -1,1 +1,0 @@
-import e from"./Tooltip-BVRELZ4M.js";e.install=t=>{t.component(e.__name,e)};export{e as default};

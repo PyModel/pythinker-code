@@ -892,9 +892,11 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     return data;
   }
 
+  // POST /sessions/{id}:delete — the daemon exposes delete as an action, not HTTP DELETE.
   async deleteSession(sessionId: string): Promise<{ deleted: true }> {
-    const data = await this.http.delete<{ deleted: true }>(
-      `/sessions/${encodeURIComponent(sessionId)}`,
+    const data = await this.http.post<{ deleted: true }>(
+      `/sessions/${encodeURIComponent(sessionId)}:delete`,
+      {},
     );
     return data;
   }
