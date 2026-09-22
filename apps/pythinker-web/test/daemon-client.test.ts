@@ -646,13 +646,18 @@ describe('DaemonPythinkerWebApi.deleteSession', () => {
     vi.unstubAllGlobals();
   });
 
-  it('issues DELETE /sessions/:session_id to delete a session', async () => {
+  it('posts /sessions/:session_id:delete to delete a session', async () => {
     vi.mocked(fetch).mockResolvedValue(envelope({ deleted: true }));
 
     const res = await createApi().deleteSession('sess_1');
 
     expect(res).toEqual({ deleted: true });
-    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe('http://daemon.test/api/v1/sessions/sess_1');
-    expect(vi.mocked(fetch).mock.calls[0]?.[1]).toMatchObject({ method: 'DELETE' });
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(
+      'http://daemon.test/api/v1/sessions/sess_1:delete',
+    );
+    expect(vi.mocked(fetch).mock.calls[0]?.[1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
   });
 });
