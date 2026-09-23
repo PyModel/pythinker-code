@@ -201,9 +201,10 @@ function isLegacyStepHeader(header: StepHeader): header is LegacyStepHeader {
 }
 
 function withLegacyStepTiming(header: StepHeader): StepHeader {
-  if (header.llmTiming !== undefined || !isLegacyStepHeader(header)) return header;
-  if (header.timing === undefined) return header;
-  return { ...header, llmTiming: header.timing };
+  if (!isLegacyStepHeader(header)) return header;
+  const { timing, ...rest } = header;
+  if (rest.llmTiming !== undefined || timing === undefined) return rest;
+  return { ...rest, llmTiming: timing };
 }
 
 function applyStepUpsert(state: AgentState, turnId: TurnId, header: StepHeader): ApplyResult {
