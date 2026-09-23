@@ -37,7 +37,7 @@ import {
 export interface TUIState {
   ui: TUI;
   terminal: ProcessTerminal;
-  transcriptContainer: Container;
+  transcriptContainer: GutterContainer;
   activityContainer: Container;
   todoPanelContainer: Container;
   todoPanel: TodoPanelComponent;
@@ -97,12 +97,9 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
   const terminal = new ProcessTerminal();
   setMarkdownRenderLatex(initialAppState.renderLatex ?? DEFAULT_TUI_CONFIG.renderLatex ?? true);
   setMarkdownMermaidMode(initialAppState.markdown?.mermaid ?? DEFAULT_MARKDOWN_CONFIG.mermaid);
-  // Fullscreen is experimental and env-gated for now: PYTHINKER_CODE_TUI_FULL_SCREEN=1.
-  const fullscreen = process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'] === '1';
   const ui =
-    fullscreen
+    initialAppState.tuiMode === 'fullscreen'
       ? new TuiAltScreen(terminal, undefined, undefined, {
-          scrollToEndIndicator: () => 'Jump to bottom (click) ↓',
           // Mouse capture takes over the terminal's native link activation, so
           // route OSC 8 clicks through our own opener.
           openUrl: (url) => {
@@ -123,6 +120,9 @@ export function createTUIState(options: PythinkerTUIOptions): TUIState {
               })
               .catch(() => {});
           },
+          // Clickable pill centered on the transcript's last row while it is
+          // scrolled away from the end.
+          scrollToEndIndicator: () => currentTheme.fg('primary', ' ↓ Jump to bottom '),
         })
       : new TuiMainScreen(terminal);
 

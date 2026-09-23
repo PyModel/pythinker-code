@@ -876,6 +876,35 @@ describe('AgentTowerService', () => {
     expect(formatDenyMessage).not.toHaveBeenCalled();
   });
 
+  it('vetoes AgentDynamicWorkflow while tower mode is active', async () => {
+    const tower = ix.get(IAgentTowerService);
+    await tower.enter();
+
+    const decision = await fire(hookContext([toolCall('AgentDynamicWorkflow', 'call_dynamic_workflow')]));
+
+    expect(decision).toEqual({
+      veto: {
+        output: expect.stringContaining('AgentDynamicWorkflow is not available while tower mode is active'),
+        isError: true,
+      },
+    });
+    expect(decision?.veto?.output).toContain('TowerSpawn');
+    expect(decision?.veto?.output).toContain('mutually exclusive');
+    expect(decision?.veto?.output).toContain('exit tower mode first');
+    expect(permissionGateRan).toBe(false);
+    expect(formatDenyMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('abstains on AgentDynamicWorkflow while tower mode is inactive', async () => {
+    ix.get(IAgentTowerService);
+
+    const decision = await fire(hookContext([toolCall('AgentDynamicWorkflow', 'call_dynamic_workflow')]));
+
+    expect(decision).toBeUndefined();
+    expect(permissionGateRan).toBe(true);
+    expect(formatDenyMessage).not.toHaveBeenCalled();
+  });
+
   it('abstains on other tools while tower mode is active', async () => {
     const tower = ix.get(IAgentTowerService);
     await tower.enter();
@@ -1430,6 +1459,20 @@ describe('AgentTowerService', () => {
     towerFlagOn = false;
 
     const decision = await fire(hookContext([toolCall('TodoList', 'call_todo')]));
+
+    expect(decision).toBeUndefined();
+    expect(permissionGateRan).toBe(true);
+    expect(formatDenyMessage).not.toHaveBeenCalled();
+    expect(tower.isActive).toBe(false);
+  });
+
+  it('does not veto AgentDynamicWorkflow while the tower flag is off, even with tower mode persisted active', async () => {
+    const tower = ix.get(IAgentTowerService);
+    await tower.enter();
+    expect(tower.isActive).toBe(true);
+    towerFlagOn = false;
+
+    const decision = await fire(hookContext([toolCall('AgentDynamicWorkflow', 'call_dynamic_workflow')]));
 
     expect(decision).toBeUndefined();
     expect(permissionGateRan).toBe(true);

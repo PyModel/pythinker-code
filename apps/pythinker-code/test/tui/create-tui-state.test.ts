@@ -1,5 +1,5 @@
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { TuiAltScreen, TuiMainScreen } from '@pymodel/pi-tui';
 
@@ -135,9 +135,8 @@ describe('createTUIState', () => {
   });
 
   it('builds an alternate-screen renderer with a docked layout in fullscreen mode', () => {
-    vi.stubEnv('PYTHINKER_CODE_TUI_FULL_SCREEN', '1');
     const state = createTUIState({
-      initialAppState: fakeInitialAppState(),
+      initialAppState: { ...fakeInitialAppState(), tuiMode: 'fullscreen' },
       startup: {
         continueLast: false,
         yolo: false,
@@ -145,7 +144,6 @@ describe('createTUIState', () => {
         plan: false,
       },
     });
-    vi.unstubAllEnvs();
 
     expect(state.ui).toBeInstanceOf(TuiAltScreen);
     expect(state.ui.mode).toBe('fullscreen');

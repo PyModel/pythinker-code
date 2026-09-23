@@ -596,6 +596,42 @@ describe('AgentPermissionPolicyService git cwd write approval', () => {
     });
   });
 
+  it('asks for .pythinker-code/local.toml writes inside the git cwd', async () => {
+    await expect(evaluate({
+      toolName: 'Write',
+      args: { path: '.pythinker-code/local.toml', content: 'x' },
+      accesses: ToolAccesses.writeFile(join(workspaceDir, '.pythinker-code/local.toml')),
+    })).resolves.toMatchObject({
+      policyName: 'fallback-ask',
+      result: { kind: 'ask' },
+    });
+  });
+
+  it('asks for .pythinker-code/local.toml edits inside the git cwd', async () => {
+    await expect(evaluate({
+      toolName: 'Edit',
+      args: { path: '.pythinker-code/local.toml', old_string: 'a', new_string: 'b' },
+      accesses: ToolAccesses.readWriteFile(join(workspaceDir, '.pythinker-code/local.toml')),
+    })).resolves.toMatchObject({
+      policyName: 'fallback-ask',
+      result: { kind: 'ask' },
+    });
+  });
+
+  it.each(['local.toml', '.pythinker-code/local.toml.bak', '.pythinker-code/other.toml'])(
+    'still approves %s inside the git cwd',
+    async (relativePath) => {
+      await expect(evaluate({
+        toolName: 'Write',
+        args: { path: relativePath, content: 'x' },
+        accesses: ToolAccesses.writeFile(join(workspaceDir, relativePath)),
+      })).resolves.toMatchObject({
+        policyName: 'git-cwd-write-approve',
+        result: { kind: 'approve' },
+      });
+    },
+  );
+
   it('asks for git control files before git-cwd approval', async () => {
     await expect(evaluate({
       toolName: 'Write',
