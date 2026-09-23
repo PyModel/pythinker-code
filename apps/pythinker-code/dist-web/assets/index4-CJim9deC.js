@@ -1,0 +1,1 @@
+import e from"./Tooltip-9DHAGCpF.js";e.install=t=>{t.component(e.__name,e)};export{e as default};

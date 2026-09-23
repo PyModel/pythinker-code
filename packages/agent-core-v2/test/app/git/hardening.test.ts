@@ -1,7 +1,12 @@
+import { mkdtemp, mkdir, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import {
   buildDriverOverrides,
+  hardenedGitConfigArgs,
   INCLUDE_SECTION_RE,
   isCoreWorktreeSafe,
   parseGitDirPointer,
@@ -81,6 +86,20 @@ describe('isCoreWorktreeSafe', () => {
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform });
     }
+  });
+});
+
+describe('hardenedGitConfigArgs', () => {
+  it('rejects a work tree that matches the symlink target of .git, not the workspace', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pythinker-git-link-'));
+    const workspace = join(root, 'workspace');
+    const outside = join(root, 'outside', 'project');
+    await mkdir(join(outside, '.git'), { recursive: true });
+    await mkdir(workspace, { recursive: true });
+    await symlink(join(outside, '.git'), join(workspace, '.git'));
+
+    const probe = async () => ({ exitCode: 0, stdout: `${outside}\n` });
+    await expect(hardenedGitConfigArgs(workspace, probe)).resolves.toBeNull();
   });
 });
 

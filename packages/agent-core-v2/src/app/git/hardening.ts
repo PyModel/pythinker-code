@@ -131,7 +131,7 @@ async function coreWorktreeSafe(
   let workTreeRoot: string;
   try {
     const realGitPath = await realpath(gitDir);
-    workTreeRoot = dirname(realGitPath);
+    workTreeRoot = await realpath(dirname(gitDir));
     const opened = await readGitPath(realGitPath);
     if (opened.directory) {
       resolvedGitDir = realGitPath;

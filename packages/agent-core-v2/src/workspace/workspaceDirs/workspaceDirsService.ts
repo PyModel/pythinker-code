@@ -164,7 +164,8 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
 
   private async reloadFromDisk(): Promise<void> {
     await this.trust.ready;
-    const onDisk: ProjectAdditionalDirsLoadResult = this.trust.isTrusted()
+    const trustedAtStart = this.trust.isTrusted();
+    const onDisk: ProjectAdditionalDirsLoadResult = trustedAtStart
       ? await this.localConfig.readAdditionalDirs(this.workspace.cwd)
       : {
           ...(await this.localConfig.locateAdditionalDirsConfig(this.workspace.cwd)),
@@ -172,7 +173,8 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
         };
     this.projectRoot = onDisk.projectRoot;
     this.configPath = onDisk.configPath;
-    if (this.setFileDirs(onDisk.additionalDirs)) {
+    const dirs = this.trust.isTrusted() ? onDisk.additionalDirs : [];
+    if (this.setFileDirs(dirs)) {
       this.onDidChangeEmitter.fire();
     }
   }

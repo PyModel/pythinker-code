@@ -192,11 +192,18 @@ function turnEquals(turn: TranscriptTurn, header: TurnHeader): boolean {
   );
 }
 
+interface LegacyStepHeader extends StepHeader {
+  readonly timing?: StepHeader['llmTiming'];
+}
+
+function isLegacyStepHeader(header: StepHeader): header is LegacyStepHeader {
+  return 'timing' in header;
+}
+
 function withLegacyStepTiming(header: StepHeader): StepHeader {
-  if (header.llmTiming !== undefined) return header;
-  const legacy = (header as StepHeader & { readonly timing?: StepHeader['llmTiming'] }).timing;
-  if (legacy === undefined) return header;
-  return { ...header, llmTiming: legacy };
+  if (header.llmTiming !== undefined || !isLegacyStepHeader(header)) return header;
+  if (header.timing === undefined) return header;
+  return { ...header, llmTiming: header.timing };
 }
 
 function applyStepUpsert(state: AgentState, turnId: TurnId, header: StepHeader): ApplyResult {

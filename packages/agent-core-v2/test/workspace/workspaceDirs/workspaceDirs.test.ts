@@ -116,6 +116,31 @@ describe('WorkspaceDirsService trust gating', () => {
     expect(service.additionalDirs).toEqual([extraDir]);
   });
 
+  it('does not restore configured dirs when trust is lost during a reload', async () => {
+    await writeLocalToml([extraDir]);
+    const service = createService();
+    await service.ready;
+    expect(service.additionalDirs).toEqual([extraDir]);
+
+    const original = FileProjectLocalConfigService.prototype.readAdditionalDirs;
+    const read = vi
+      .spyOn(FileProjectLocalConfigService.prototype, 'readAdditionalDirs')
+      .mockImplementation(async function (this: FileProjectLocalConfigService, workDir: string) {
+        const result = await original.call(this, workDir);
+        trusted = false;
+        return result;
+      });
+    try {
+      const file = join(cwd, '.pythinker-code', 'local.toml');
+      watchFires.get(cwd)?.fire({ path: file, action: 'modified', kind: 'file' });
+      await vi.waitFor(() => {
+        expect(service.additionalDirs).toEqual([]);
+      });
+    } finally {
+      read.mockRestore();
+    }
+  });
+
   it('ignores local.toml additional dirs while the workspace is untrusted', async () => {
     await writeLocalToml([extraDir]);
     trusted = false;
