@@ -1,0 +1,1 @@
+import e from"./CodeBlockNode-B2D3d-1R.js";e.install=t=>{t.component(e.__name,e)};export{e as default};

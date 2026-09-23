@@ -1,1 +1,0 @@
-import e from"./Tooltip-MDnOi4U6.js";e.install=t=>{t.component(e.__name,e)};export{e as default};
