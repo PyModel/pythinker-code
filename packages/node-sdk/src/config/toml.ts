@@ -437,6 +437,7 @@ export function configToTomlData(config: PythinkerConfig): Record<string, unknow
     'yolo',
     'defaultPermissionMode',
     'defaultPlanMode',
+    'autoSessionTitle',
     'mergeAllAvailableSkills',
     'extraSkillDirs',
     'extraAgentDirs',

@@ -1,4 +1,8 @@
-import { auth, type OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import {
+  auth,
+  discoverOAuthServerInfo,
+  type OAuthClientProvider,
+} from '@modelcontextprotocol/sdk/client/auth.js';
 import type { OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 
 import type { ILogger as Logger } from '#/_base/log/log';
@@ -93,6 +97,7 @@ const REFRESH_AHEAD_MS = 120_000;
 const MAX_TIMER_DELAY_MS = 0x7fffffff;
 const DEFAULT_AUTH_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_MS = 30_000;
+const OFFLINE_ACCESS_SCOPE = 'offline_access';
 
 const defaultScheduler: McpOAuthScheduler = {
   now: () => Date.now(),
@@ -290,6 +295,44 @@ export class McpOAuthService {
     }) as typeof fetch;
   }
 
+  private async resolveRequestScope(
+    provider: McpOAuthClientProvider,
+    serverUrl: string | URL,
+    signal: AbortSignal,
+  ): Promise<string | undefined> {
+    let discovery = await provider.discoveryState();
+    if (discovery?.authorizationServerMetadata === undefined) {
+      try {
+        const info = await discoverOAuthServerInfo(serverUrl, {
+          fetchFn: this.authFetch(provider, [signal]),
+        });
+        const cachedServer = discovery?.authorizationServerUrl;
+        const keepCachedServer = info.resourceMetadata === undefined && cachedServer !== undefined;
+        discovery = {
+          ...discovery,
+          authorizationServerUrl: keepCachedServer ? cachedServer : info.authorizationServerUrl,
+          resourceMetadata: info.resourceMetadata ?? discovery?.resourceMetadata,
+          authorizationServerMetadata: info.authorizationServerMetadata,
+        };
+        await provider.saveDiscoveryState(discovery);
+      } catch {
+        return undefined;
+      }
+    }
+    const advertised = discovery.authorizationServerMetadata?.scopes_supported;
+    if (advertised === undefined || !advertised.includes(OFFLINE_ACCESS_SCOPE)) return undefined;
+    const resourceScopes = discovery.resourceMetadata?.scopes_supported;
+    const configuredScopes = provider.clientMetadata.scope
+      ?.split(/\s+/)
+      .filter((scope) => scope.length > 0);
+    const base =
+      resourceScopes !== undefined && resourceScopes.length > 0
+        ? resourceScopes
+        : (configuredScopes ?? []);
+    if (base.includes(OFFLINE_ACCESS_SCOPE)) return undefined;
+    return [...base, OFFLINE_ACCESS_SCOPE].join(' ');
+  }
+
   async beginAuthorization(
     serverName: string,
     serverUrl: string | URL,
@@ -360,6 +403,7 @@ export class McpOAuthService {
       provider.setRedirectUrl(new URL(callbackServer.redirectUri));
       await provider.ready;
       await provider.invalidateStaleRegistration(callbackServer.redirectUri);
+      const requestScope = await this.resolveRequestScope(provider, serverUrl, signal);
       let tokensSaved = false;
       const unsubscribeTokensSaved = this.onEvent((event) => {
         if (
@@ -373,6 +417,7 @@ export class McpOAuthService {
       try {
         const result = await auth(provider as OAuthClientProvider, {
           serverUrl,
+          scope: requestScope,
           fetchFn: this.authFetch(provider, [signal]),
         });
         if (result !== 'REDIRECT') {

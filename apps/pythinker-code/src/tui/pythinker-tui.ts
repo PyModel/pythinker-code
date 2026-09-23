@@ -32,6 +32,7 @@ import {
   Spacer,
   TuiAltScreen,
   TuiMainScreen,
+  type TuiMouseEventResult,
 } from '@pymodel/pi-tui';
 import { resolve } from 'pathe';
 
@@ -159,6 +160,7 @@ import {
   type TUIStartupState,
 } from './types';
 import {
+  countedByExpandHint,
   hasDispose,
   hasHiddenContent,
   isExpandable,
@@ -235,11 +237,11 @@ export interface PythinkerTUIStartupInput {
 }
 
 type EffectiveActivityPaneMode = ActivityPaneMode | 'idle' | 'session';
-type LoadingTipKind = 'activity' | 'composing';
+type LoadingTipKind = 'activity' | 'braille';
 
 function loadingTipKind(mode: EffectiveActivityPaneMode): LoadingTipKind | undefined {
   if (mode === 'waiting' || mode === 'tool') return 'activity';
-  if (mode === 'composing') return 'composing';
+  if (mode === 'composing' || mode === 'thinking') return 'braille';
   return undefined;
 }
 
@@ -282,6 +284,7 @@ function createInitialAppState(input: PythinkerTUIStartupInput): AppState {
     streamingStartTime: 0,
     stepRetry: null,
     theme: input.tuiConfig.theme,
+    tuiMode: input.tuiConfig.tuiMode,
     version: input.version,
     editorCommand: input.tuiConfig.editorCommand,
     disablePasteBurst: input.tuiConfig.disablePasteBurst,
@@ -471,6 +474,9 @@ export class PythinkerTUI {
     this.startupNotice = startupInput.startupNotice;
     this.state = createTUIState(tuiOptions);
     this.state.footer.setExpandHintProvider(() => this.toolOutputExpandHint());
+    this.state.transcriptContainer.setUnhandledClick((index) =>
+      this.toggleClickedFoldBlock(index),
+    );
     this.uninstallRainbowDance = installRainbowDance(() => {
       this.state.ui.requestRender();
     });
@@ -3318,10 +3324,10 @@ export class PythinkerTUI {
   updateActivityPane(): void {
     const effectiveMode = this.resolveActivityPaneMode();
     const tipKind = loadingTipKind(effectiveMode);
-    // Pick a fresh loading tip when the loading kind changes. The same kind
-    // covers waiting/tool (both activity spinners) and any intermediate thinking
-    // phase, so a continuous burst of tool calls does not flip tips. Clear the
-    // cache only when there is no loading UI at all.
+    // Pick a fresh loading tip when the loading kind changes: waiting/tool
+    // share the activity kind and thinking/composing share the braille kind, so a
+    // burst of tool calls or thinking/composing alternation does not flip
+    // tips. Clear the cache only when there is no loading UI at all.
     if (effectiveMode === 'idle' || effectiveMode === 'session' || effectiveMode === 'hidden') {
       this.currentLoadingTip = undefined;
     } else if (
@@ -3379,12 +3385,21 @@ export class PythinkerTUI {
         break;
       }
       case 'thinking': {
-        this.stopActivitySpinner();
+        const spinner = this.ensureActivitySpinner('Thinking…', (s) =>
+          currentTheme.fg('primary', s),
+        );
         this.syncAgentDynamicWorkflowActivitySpinner(undefined);
+        this.state.activityContainer.addChild(
+          new ActivityPaneComponent({
+            mode: 'thinking',
+            spinner,
+            tip: this.currentLoadingTip?.tip,
+          }),
+        );
         break;
       }
       case 'composing': {
-        const spinner = this.ensureActivitySpinner('working…', (s) =>
+        const spinner = this.ensureActivitySpinner('Working…', (s) =>
           currentTheme.fg('primary', s),
         );
         this.syncAgentDynamicWorkflowActivitySpinner(undefined);
@@ -3414,9 +3429,9 @@ export class PythinkerTUI {
       case 'session': {
         this.stopActivitySpinner();
         this.syncAgentDynamicWorkflowActivitySpinner(undefined);
-        // Keep a placeholder row so the activity area does not fully shrink
-        // when the spinner is removed at the end of streaming; combined with
-        // pi-tui's clamp, this avoids a destructive full redraw (viewport jump).
+        // Working modes occupy two rows (a spacer above the loader); idle
+        // keeps a one-row placeholder so the dock only shifts once at turn
+        // boundaries instead of on every intra-turn mode flip.
         this.state.activityContainer.addChild(new Spacer(1));
         break;
       }
@@ -3488,15 +3503,30 @@ export class PythinkerTUI {
       // card with hidden content keeps the collapse hint on.
       for (let i = children.length - 1; i >= 0; i--) {
         const child = children[i];
-        if (isExpandedComponent(child) && hasHiddenContent(child)) return 'collapse';
+        if (isExpandedComponent(child) && countedByExpandHint(child)) return 'collapse';
       }
       return null;
     }
     const cutoff = this.expandCutoff(children);
     for (let i = children.length - 1; i >= cutoff; i--) {
-      if (hasHiddenContent(children[i])) return 'expand';
+      if (countedByExpandHint(children[i])) return 'expand';
     }
     return null;
+  }
+
+  private toggleClickedFoldBlock(index: number): TuiMouseEventResult | undefined {
+    const children = this.state.transcriptContainer.children;
+    const hit = children[index];
+    if (hit === undefined || !isExpandable(hit) || !hasHiddenContent(hit)) return undefined;
+    if (isExpandedComponent(hit)) {
+      hit.setExpanded(false);
+    } else if (index >= this.expandCutoff(children)) {
+      hit.setExpanded(true);
+    } else {
+      return undefined;
+    }
+    this.state.ui.requestRender();
+    return { handled: true };
   }
 
   toggleToolOutputExpansion(): void {
@@ -3836,12 +3866,11 @@ export class PythinkerTUI {
   /**
    * agent-core-v2 startup gate: before any session is created, ask whether to
    * trust this folder when the workspace is not trusted yet (project-level MCP
-   * servers stay disabled while untrusted). Best-effort throughout — a failed
-   * check or trust write never blocks startup. Choosing "don't trust" (or Esc)
-   * exits the program before any session is created; the prompt reappears on
-   * the next launch: the engine's untrusted state is indistinguishable from
-   * never-trusted. Returns true when the prompt started the event loop (the
-   * caller must not start it again).
+   * servers stay disabled while untrusted). A failed trust-info read is treated
+   * as untrusted and still prompts. Choosing "don't trust" (or Esc) exits the
+   * program before any session is created. A failed trust write still enters
+   * the TUI for this process and re-asks on the next launch. Returns true when
+   * the prompt started the event loop (the caller must not start it again).
    */
   private async maybeRunWorkspaceTrustPrompt(): Promise<boolean> {
     const workDir = this.state.appState.workDir;
@@ -3849,9 +3878,11 @@ export class PythinkerTUI {
     try {
       info = await this.harness.getWorkspaceTrustInfo(workDir);
     } catch {
+      info = { trusted: false, gatedMcpServers: [] };
+    }
+    if (info.trusted) {
       return false;
     }
-    if (info.trusted) return false;
     this.startEventLoop();
     const choice = await new Promise<TrustPromptChoice>((resolve) => {
       this.state.activeDialog = 'trust-prompt';
@@ -3878,7 +3909,6 @@ export class PythinkerTUI {
     try {
       await this.harness.trustWorkspace(workDir);
     } catch {
-      // A failed write leaves the workspace untrusted (re-asked next launch).
     }
     return true;
   }

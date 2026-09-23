@@ -67,6 +67,8 @@ export class TowerProtocolError extends Error {
   }
 }
 
+export const MAX_REVIEW_ROUNDS = 5;
+
 export interface TowerInitResult {
   readonly base: string;
   readonly created: boolean;
@@ -122,6 +124,7 @@ export interface TowerMissionPatch {
   readonly blocker?: string;
   readonly clearBlockers?: boolean;
   readonly taskDone?: string;
+  readonly taskDrop?: { readonly text: string; readonly reason?: string };
   readonly owner?: string;
   readonly scope?: readonly string[];
   readonly spawnBase?: string;
@@ -179,7 +182,18 @@ export async function assertLocalBaseBranch(repoRoot: string, base: string): Pro
 }
 
 export class TowerStore {
+  private mutation: Promise<void> = Promise.resolve();
+
   constructor(readonly repoRoot: string) {}
+
+  private exclusive<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.mutation.then(work, work);
+    this.mutation = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
 
   async isInitialized(): Promise<boolean> {
     try {
@@ -211,6 +225,7 @@ export class TowerStore {
   }
 
   async init(sessionId?: string, base?: string): Promise<TowerInitResult> {
+    return this.exclusive(async () => {
     await this.ensureRepository(base);
     if (!(await hasAnyCommit(this.repoRoot))) {
       throw new TowerProtocolError(
@@ -263,9 +278,11 @@ export class TowerStore {
     await this.renderMissionsIndex(state);
     await this.appendLog(TOWER_NAME, 'init', { mode: state.mode, base: resolvedBase }, MISSIONS_INDEX);
     return { base: resolvedBase, created: true, retiredAgents: [], checkout, openMissions: [] };
+    });
   }
 
   async rebase(base: string): Promise<void> {
+    return this.exclusive(async () => {
     const state = await this.load();
     if (state.base === base) return;
     const open = state.missions.filter(isOpenMission);
@@ -278,6 +295,7 @@ export class TowerStore {
     const from = state.base;
     await this.save({ ...state, base });
     await this.appendLog(TOWER_NAME, 'rebase', { from, to: base });
+    });
   }
 
   private async checkedOutBranch(): Promise<string> {
@@ -307,6 +325,7 @@ export class TowerStore {
   }
 
   async adopt(sessionId: string): Promise<readonly string[]> {
+    return this.exclusive(async () => {
     try {
       await readFile(this.abs(STATE_FILE), 'utf8');
     } catch (error) {
@@ -315,15 +334,18 @@ export class TowerStore {
     }
     const state = await this.load();
     return this.adoptForeignRoster(state, sessionId);
+    });
   }
 
   async release(sessionId: string): Promise<void> {
+    return this.exclusive(async () => {
     if (!(await this.isInitialized())) return;
     const state = await this.load();
     if (state.sessionId !== sessionId) return;
     state.sessionId = undefined;
     await this.save(state);
     await this.appendLog(TOWER_NAME, 'release', { session: sessionId });
+    });
   }
 
   private async ensureGitExclude(): Promise<void> {
@@ -417,6 +439,7 @@ export class TowerStore {
   }
 
   async registerAgent(entry: TowerRosterEntry): Promise<void> {
+    return this.exclusive(async () => {
     const state = await this.load();
     if (entry.name.trim().length === 0 || entry.name.trim() !== entry.name) {
       throw new TowerProtocolError(
@@ -438,6 +461,7 @@ export class TowerStore {
     }
     state.roster.agents.push(entry);
     await this.save(state);
+    });
   }
 
   async markAgentDied(
@@ -445,6 +469,7 @@ export class TowerStore {
     status: string,
     reason?: string,
   ): Promise<TowerRosterEntry | undefined> {
+    return this.exclusive(async () => {
     const state = await this.load();
     const index = state.roster.agents.findLastIndex((agent) => agent.agentId === agentId);
     const existing = state.roster.agents[index];
@@ -474,9 +499,11 @@ export class TowerStore {
       mission !== undefined ? join(MISSIONS_DIR, missionFileName(mission.id, mission.slug)) : undefined,
     );
     return entry;
+    });
   }
 
   async clearAgentDied(agentId: string): Promise<boolean> {
+    return this.exclusive(async () => {
     const state = await this.load();
     const index = state.roster.agents.findLastIndex((agent) => agent.agentId === agentId);
     const existing = state.roster.agents[index];
@@ -495,9 +522,11 @@ export class TowerStore {
       kind: entry.kind,
     });
     return true;
+    });
   }
 
   async plan(input: readonly TowerPlanInput[]): Promise<readonly TowerMission[]> {
+    return this.exclusive(async () => {
     if (input.length === 0) {
       throw new TowerProtocolError('TowerPlan needs at least one mission');
     }
@@ -578,6 +607,7 @@ export class TowerStore {
       MISSIONS_INDEX,
     );
     return missions;
+    });
   }
 
   private assertScopesDisjoint(missions: readonly TowerMission[]): void {
@@ -614,6 +644,7 @@ export class TowerStore {
     patch: TowerMissionPatch,
     options: { readonly silent?: boolean } = {},
   ): Promise<TowerMission> {
+    return this.exclusive(async () => {
     const state = await this.load();
     const mission = state.missions.find((m) => m.id === id);
     if (mission === undefined) {
@@ -634,6 +665,7 @@ export class TowerStore {
       patch.blocker === undefined &&
       patch.clearBlockers === undefined &&
       patch.taskDone === undefined &&
+      patch.taskDrop === undefined &&
       patch.owner === undefined &&
       patch.scope === undefined &&
       patch.spawnBase === undefined;
@@ -683,13 +715,38 @@ export class TowerStore {
     }
     if (patch.clearBlockers === true) mission.blockers = [];
     if (patch.taskDone !== undefined) {
-      const task = mission.tasks.find((t) => !t.done && t.text.includes(patch.taskDone!));
+      const task = mission.tasks.find(
+        (t) => !t.done && t.dropped !== true && t.text.includes(patch.taskDone!),
+      );
       if (task === undefined) {
         throw new TowerProtocolError(
           `mission ${id} has no open task matching "${patch.taskDone}"`,
         );
       }
       task.done = true;
+    }
+    let taskDropLog: string | undefined;
+    if (patch.taskDrop !== undefined) {
+      const reason = patch.taskDrop.reason?.trim() ?? '';
+      if (reason.length === 0) {
+        throw new TowerProtocolError(
+          `dropping a task from mission ${id} requires a reason — the drop is the escape hatch for legitimately descoped work, and the reason is recorded in the mission notes and the activity log for audit`,
+        );
+      }
+      const task = mission.tasks.find(
+        (t) => !t.done && t.dropped !== true && t.text.includes(patch.taskDrop!.text),
+      );
+      if (task === undefined) {
+        throw new TowerProtocolError(
+          `mission ${id} has no open task matching "${patch.taskDrop.text}"`,
+        );
+      }
+      task.dropped = true;
+      taskDropLog = `dropped task "${task.text}": ${reason}`;
+      mission.notes.push(taskDropLog);
+    }
+    if (patch.status === 'completed' && patch.blocker === undefined) {
+      await this.assertCompletable(state, mission);
     }
 
     await this.save(state);
@@ -701,6 +758,7 @@ export class TowerStore {
       patch.note === undefined &&
       patch.blocker === undefined &&
       patch.clearBlockers === undefined &&
+      patch.taskDrop === undefined &&
       patch.owner === undefined &&
       patch.scope === undefined &&
       patch.spawnBase === undefined;
@@ -710,12 +768,36 @@ export class TowerStore {
         status: patch.status,
         note: patch.note !== undefined ? 'added' : undefined,
         blocker: patch.blocker !== undefined ? 'added' : undefined,
+        task_drop: taskDropLog,
         owner: patch.owner,
         scope: patch.scope?.join(','),
         spawn_base: patch.spawnBase,
       });
     }
     return mission;
+    });
+  }
+
+  private async assertCompletable(state: TowerState, mission: TowerMission): Promise<void> {
+    const open = mission.tasks.filter((t) => !t.done && t.dropped !== true);
+    if (open.length > 0) {
+      throw new TowerProtocolError(
+        `mission ${mission.id} cannot transition to completed — ${String(open.length)} open task(s): ${open.map((t) => `"${t.text}"`).join(', ')}; tick finished tasks with task_done, or drop legitimately descoped ones with task_drop (a reason is mandatory and lands in the mission notes and the activity log)`,
+      );
+    }
+    if (mission.kind === 'survey') return;
+    if (!(await branchExists(this.repoRoot, mission.branch))) {
+      throw new TowerProtocolError(
+        `mission ${mission.id} cannot transition to completed — its branch "${mission.branch}" does not exist, so no work has landed; a build mission must produce a diff on its branch: spawn a worker to do the work, or have the tower abandon the mission (status=abandoned) if it is no longer needed`,
+      );
+    }
+    const base = await this.diffBase(state, mission);
+    const changed = await diffNameOnly(this.repoRoot, base, mission.branch);
+    if (changed.length === 0) {
+      throw new TowerProtocolError(
+        `mission ${mission.id} cannot transition to completed — branch "${mission.branch}" has no changes vs "${base}"; a build mission must produce a diff on its branch: commit the work there first, or if the work turned out unnecessary, have the tower abandon the mission (status=abandoned) instead`,
+      );
+    }
   }
 
   async send(callerName: string, input: TowerSendInput): Promise<string> {
@@ -858,6 +940,7 @@ export class TowerStore {
   }
 
   async submitReview(callerName: string, input: TowerReviewInput): Promise<string> {
+    return this.exclusive(async () => {
     const state = await this.load();
     let callerEntry: TowerRosterEntry | undefined;
     if (callerName !== TOWER_NAME) {
@@ -881,6 +964,11 @@ export class TowerStore {
 
     const existing = await this.reviewsFor(input.target);
     const myRounds = existing.filter((r) => r.reviewer === callerName).length;
+    if (myRounds >= MAX_REVIEW_ROUNDS) {
+      throw new TowerProtocolError(
+        `branch "${input.target}" has already been through ${String(MAX_REVIEW_ROUNDS)} review rounds by "${callerName}" — the rework loop is not converging, so another round from the same reviewer is refused; redirect instead: reassign the work (spawn a different worker or a fresh reviewer), split the mission into smaller pieces, or descope it (TowerMission status=abandoned)`,
+      );
+    }
     const round = myRounds + 1;
     const seq = await this.nextReviewSeq();
     const reviewedCommit = await branchTip(this.repoRoot, input.target);
@@ -933,7 +1021,26 @@ export class TowerStore {
       },
       rel,
     );
+    if (input.status !== 'clean') {
+      const reworkMission =
+        reviewMissionId !== undefined
+          ? state.missions.find((m) => m.id === reviewMissionId)
+          : resolveMissionByBranch(state, input.target);
+      if (reworkMission !== undefined && reworkMission.status === 'completed') {
+        reworkMission.status = 'active';
+        await this.save(state);
+        await this.renderMissionsIndex(state);
+        await this.renderMissionFile(reworkMission);
+        await this.appendLog(
+          callerName,
+          'mission.rework',
+          { id: reworkMission.id, verdict: input.status },
+          join(MISSIONS_DIR, missionFileName(reworkMission.id, reworkMission.slug)),
+        );
+      }
+    }
     return rel;
+    });
   }
 
   async reviewsFor(target: string): Promise<readonly TowerReviewInfo[]> {
@@ -1013,6 +1120,7 @@ export class TowerStore {
     readonly conflictsWith: ReadonlyArray<{ readonly branch: string; readonly files: readonly string[] }>;
     readonly noop?: boolean;
   }> {
+    return this.exclusive(async () => {
     const state = await this.load();
     const block = async (reason: string, message: string): Promise<TowerProtocolError> => {
       await this.appendLog(TOWER_NAME, 'merge.blocked', { branch, reason });
@@ -1154,6 +1262,7 @@ export class TowerStore {
     await this.renderMissionFile(mission);
     await this.appendLog(TOWER_NAME, 'merge', { branch, base: state.base, merge_commit: mergeCommit.slice(0, 7) });
     return { mergeCommit, conflictsWith };
+    });
   }
 
   async diffBase(state: TowerState, mission: TowerMission): Promise<string> {
@@ -1313,7 +1422,10 @@ export class TowerStore {
         : []),
       '## Tasks',
       ...(mission.tasks.length > 0
-        ? mission.tasks.map((t) => `- [${t.done ? 'x' : ' '}] ${t.text}`)
+        ? mission.tasks.map(
+            (t) =>
+              `- [${t.done ? 'x' : t.dropped === true ? '-' : ' '}] ${t.text}${t.dropped === true ? ' (dropped)' : ''}`,
+          )
         : ['- [ ] (no tasks recorded)']),
       '',
       '## Dependencies',

@@ -4,6 +4,8 @@ import { Service } from '#/_base/di/service';
 import { AsyncEmitter, Emitter, type Event } from '#/_base/event';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { LifecycleScope } from '#/app/scopes';
+import type { PluginToggleEvent } from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
 import type { SkillRoot } from '#/features/skill/catalog/types';
 import { BugIndicatingError, Error2, PluginErrors } from '#/errors';
@@ -20,6 +22,7 @@ import {
   type SetPluginEnabledInput,
   type SetPluginMcpServerEnabledInput,
 } from './plugin';
+import { normalizePluginId } from './types';
 import type {
   EnabledPluginSessionStart,
   EnabledPluginSystemPrompt,
@@ -66,6 +69,7 @@ export class PluginService extends Service implements IPluginService {
     @IBootstrapService bootstrap: IBootstrapService,
     @ISkillDiscovery discovery: ISkillDiscovery,
     @IProviderService private readonly providers: IProviderService,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {
     super();
     this.homeDir = bootstrap.homeDir;
@@ -94,10 +98,17 @@ export class PluginService extends Service implements IPluginService {
 
   setPluginEnabled(input: SetPluginEnabledInput): Promise<void> {
     return this.runNotifiedMutation(async () => {
-      await this.manager.setEnabled(input.id, input.enabled);
+      const id = normalizePluginId(input.id);
+      await this.manager.setEnabled(id, input.enabled);
       const notification = await this.reloadAndNotify({
-        mutation: { kind: input.enabled ? 'enable' : 'disable', id: input.id },
+        mutation: { kind: input.enabled ? 'enable' : 'disable', id },
       });
+      const event: PluginToggleEvent = {
+        plugin_id: id,
+        enabled: input.enabled,
+        enabled_plugins: this.enabledPluginIds()?.join(','),
+      };
+      this.telemetry.track2('plugin_toggle', event);
       return { result: undefined, notification };
     });
   }
@@ -219,6 +230,15 @@ export class PluginService extends Service implements IPluginService {
 
   hasLoadedSnapshot(): boolean {
     return this.snapshotLoaded;
+  }
+
+  enabledPluginIds(): readonly string[] | undefined {
+    if (!this.snapshotLoaded) return undefined;
+    return this.manager
+      .summaries()
+      .filter((plugin) => plugin.enabled && plugin.state === 'ok')
+      .map((plugin) => plugin.id)
+      .toSorted();
   }
 
   private runSerializedOperation<T>(operation: () => Promise<T>): Promise<T> {

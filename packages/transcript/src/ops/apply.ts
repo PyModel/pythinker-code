@@ -192,7 +192,23 @@ function turnEquals(turn: TranscriptTurn, header: TurnHeader): boolean {
   );
 }
 
+interface LegacyStepHeader extends StepHeader {
+  readonly timing?: StepHeader['llmTiming'];
+}
+
+function isLegacyStepHeader(header: StepHeader): header is LegacyStepHeader {
+  return 'timing' in header;
+}
+
+function withLegacyStepTiming(header: StepHeader): StepHeader {
+  if (!isLegacyStepHeader(header)) return header;
+  const { timing, ...rest } = header;
+  if (rest.llmTiming !== undefined || timing === undefined) return rest;
+  return { ...rest, llmTiming: timing };
+}
+
 function applyStepUpsert(state: AgentState, turnId: TurnId, header: StepHeader): ApplyResult {
+  header = withLegacyStepTiming(header);
   const turn = getTurn(state, turnId) ?? skeletonTurn(turnId);
   const stepIndex = turn.steps.findIndex((step) => step.stepId === header.stepId);
   let steps: readonly TranscriptStep[];
@@ -228,7 +244,7 @@ function stepEquals(step: TranscriptStep, header: StepHeader): boolean {
     step.endedAt === header.endedAt &&
     step.usage === header.usage &&
     step.finishReason === header.finishReason &&
-    step.timing === header.timing &&
+    step.llmTiming === header.llmTiming &&
     step.retry === header.retry &&
     step.endReason === header.endReason &&
     step.endMessage === header.endMessage

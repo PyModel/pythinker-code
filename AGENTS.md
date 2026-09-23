@@ -115,7 +115,7 @@ Gate behind flags. Env: `PYTHINKER_CODE_EXPERIMENTAL_<NAME>` toggles one; `PYTHI
 - Prefer `rg` / `rg --files` for code reading.
 - Follow existing boundaries and local patterns.
 - Replace internal identifiers with neutral placeholders in public text/test data (e.g. `example.com`, `example.test`, `YOUR_API_KEY`). Before opening a PR, ask a read-only agent to audit the diff for context-specific internal identifiers.
-- PR titles: Conventional Commit style (e.g. `chore: remove legacy format commands`).
+- When creating a PR, use the `write-pr` skill (`.agents/skills/write-pr/SKILL.md`) to write the PR description. PR titles: Conventional Commit style (e.g. `chore: remove legacy format commands`).
 - Fill in `.github/pull_request_template.md` — link the issue, describe changes. No placeholder text or vague AI-generated PR summaries; the human author must understand the change well enough to explain the code, edge cases, and why the approach fits.
 - Run `gen-changesets` skill before submitting PRs. Changesets must strictly follow its rules: one short user-facing sentence stating only what changed; skip any change users cannot perceive. Never decide `major` on your own — stop, explain, and get explicit user confirmation first; default to `minor`, fall back to `patch`.
 - Changeset text is shipped text: the desktop release body is generated from `apps/desktop/CHANGELOG.md`, and the in-app updater shows it to users verbatim. A release body must state what changed for users — never a build stamp, a commit hash, or placeholder text. `desktop-release.yml` fails a stable release whose version has no changelog entry.

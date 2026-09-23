@@ -5,6 +5,7 @@ import { TranscriptStore } from '#/store/transcriptStore';
 import { appendAtOffset } from '#/ops/apply';
 import type {
   FrameUpsertOp,
+  StepHeader,
   TurnUpsertOp,
   TranscriptOperation,
 } from '#/ops/operation';
@@ -251,15 +252,70 @@ describe('AgentTranscript', () => {
           kind: 'step', stepId: 't1.1', turnId: 't1', ordinal: 1, state: 'completed',
           usage: { inputOther: 10, output: 5, inputCacheRead: 3, inputCacheCreation: 2 },
           finishReason: 'stop',
-          timing: { llmFirstTokenLatencyMs: 120 },
+          llmTiming: { llmFirstTokenLatencyMs: 120 },
         },
       },
     ]);
     expect(completed.accepted).toHaveLength(1);
     const step = tx.getTurn('t1')?.steps[0];
     expect(step?.usage?.output).toBe(5);
-    expect(step?.timing?.llmFirstTokenLatencyMs).toBe(120);
+    expect(step?.llmTiming?.llmFirstTokenLatencyMs).toBe(120);
     expect(step?.retry).toBeUndefined();
+  });
+
+  it('maps a legacy step timing field onto llmTiming', () => {
+    const tx = new AgentTranscript('main');
+    tx.apply([turn1]);
+    const header: StepHeader & { readonly timing?: { readonly llmFirstTokenLatencyMs: number } } = {
+      kind: 'step',
+      stepId: 't1.1',
+      turnId: 't1',
+      ordinal: 1,
+      state: 'completed',
+      timing: { llmFirstTokenLatencyMs: 40 },
+    };
+    const completed = tx.apply([{ op: 'step.upsert', turnId: 't1', step: header }]);
+    expect(completed.accepted).toHaveLength(1);
+    const stored = tx.getTurn('t1')?.steps[0];
+    expect(stored?.llmTiming).toEqual({ llmFirstTokenLatencyMs: 40 });
+    expect(stored).not.toHaveProperty('timing');
+  });
+
+  it('keeps llmTiming when a legacy timing field is also present', () => {
+    const tx = new AgentTranscript('main');
+    tx.apply([turn1]);
+    const header: StepHeader & {
+      readonly timing?: { readonly llmFirstTokenLatencyMs: number };
+    } = {
+      kind: 'step',
+      stepId: 't1.1',
+      turnId: 't1',
+      ordinal: 1,
+      state: 'completed',
+      llmTiming: { llmFirstTokenLatencyMs: 90 },
+      timing: { llmFirstTokenLatencyMs: 40 },
+    };
+    tx.apply([{ op: 'step.upsert', turnId: 't1', step: header }]);
+    const stored = tx.getTurn('t1')?.steps[0];
+    expect(stored?.llmTiming).toEqual({ llmFirstTokenLatencyMs: 90 });
+    expect(stored).not.toHaveProperty('timing');
+  });
+
+  it('treats a repeated legacy timing upsert as unchanged after normalization', () => {
+    const tx = new AgentTranscript('main');
+    tx.apply([turn1]);
+    const header: StepHeader & {
+      readonly timing?: { readonly llmFirstTokenLatencyMs: number };
+    } = {
+      kind: 'step',
+      stepId: 't1.1',
+      turnId: 't1',
+      ordinal: 1,
+      state: 'completed',
+      timing: { llmFirstTokenLatencyMs: 40 },
+    };
+    expect(tx.apply([{ op: 'step.upsert', turnId: 't1', step: header }]).accepted).toHaveLength(1);
+    expect(tx.apply([{ op: 'step.upsert', turnId: 't1', step: header }]).accepted).toHaveLength(0);
   });
 
   it('turn upserts carry durationMs and the terminal error', () => {

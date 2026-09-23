@@ -66,12 +66,14 @@ async function readyProvider(fixture: Fixture): Promise<McpOAuthClientProvider> 
 interface FakeAuthServer {
   readonly url: string;
   readonly counts: { register: number; exchange: number; refresh: number };
+  readonly registerScopes: Array<string | undefined>;
 }
 
 async function startFakeAuthServer(
   options: { readonly rejectRefreshToken?: boolean; readonly refreshExpiresIn?: number } = {},
 ): Promise<FakeAuthServer> {
   const counts = { register: 0, exchange: 0, refresh: 0 };
+  const registerScopes: Array<string | undefined> = [];
   const httpServer: HttpServer = createHttpServer((req, res) => {
     if (req.method !== 'POST' || (req.url !== '/token' && req.url !== '/register')) {
       res.writeHead(404).end();
@@ -85,6 +87,8 @@ async function startFakeAuthServer(
       if (req.url === '/register') {
         counts.register += 1;
         const metadata = JSON.parse(body) as Record<string, unknown>;
+        const scope = metadata['scope'];
+        registerScopes.push(typeof scope === 'string' ? scope : undefined);
         res.writeHead(201, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ ...metadata, client_id: `test-client-${counts.register}` }));
         return;
@@ -123,7 +127,7 @@ async function startFakeAuthServer(
       }),
   );
   const port = (httpServer.address() as HttpAddress).port;
-  return { url: `http://127.0.0.1:${port}`, counts };
+  return { url: `http://127.0.0.1:${port}`, counts, registerScopes };
 }
 
 async function startHangingServer(): Promise<{ readonly url: string; readonly counts: { requests: number } }> {
@@ -215,7 +219,13 @@ async function startGatedExchangeAuthServer(): Promise<GatedExchangeAuthServer> 
   return { url: `http://127.0.0.1:${port}`, counts, exchangeStarted, releaseExchange };
 }
 
-function authServerState(authServerUrl: string) {
+function authServerState(
+  authServerUrl: string,
+  options: {
+    readonly scopesSupported?: string[];
+    readonly resourceScopesSupported?: string[];
+  } = {},
+) {
   return {
     discovery: {
       authorizationServerUrl: authServerUrl,
@@ -227,7 +237,16 @@ function authServerState(authServerUrl: string) {
         response_types_supported: ['code'],
         grant_types_supported: ['authorization_code', 'refresh_token'],
         token_endpoint_auth_methods_supported: ['none'],
+        scopes_supported: options.scopesSupported,
       },
+      resourceMetadata:
+        options.resourceScopesSupported === undefined
+          ? undefined
+          : {
+              resource: SERVER_URL,
+              authorization_servers: [authServerUrl],
+              scopes_supported: options.resourceScopesSupported,
+            },
     },
     client: {
       client_id: 'cached-client',
@@ -722,13 +741,29 @@ describe('McpOAuthService interactive flow serialization', () => {
     cleanups.push(() => fixture.service.dispose());
     const authServer = await startFakeAuthServer();
     const provider = await readyProvider(fixture);
-    await provider.saveDiscoveryState(authServerState(authServer.url).discovery);
+    await provider.saveDiscoveryState(
+      authServerState(authServer.url, {
+        scopesSupported: ['openid', 'offline_access'],
+        resourceScopesSupported: ['openid'],
+      }).discovery,
+    );
+    await provider.saveClientInformation({
+      client_id: 'stale-client',
+      redirect_uris: ['http://127.0.0.1:45678/callback'],
+      token_endpoint_auth_method: 'none',
+      grant_types: ['authorization_code', 'refresh_token'],
+      response_types: ['code'],
+      scope: 'openid',
+    } satisfies OAuthClientInformationFull);
 
     const first = await fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL);
     const second = await fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL, {
       clientLabel: 'other-client',
     });
     expect(second.authorizationUrl.toString()).toBe(first.authorizationUrl.toString());
+    expect(first.authorizationUrl.searchParams.get('scope')).toBe('openid offline_access');
+    expect(authServer.counts.register).toBe(1);
+    expect(authServer.registerScopes).toEqual(['openid offline_access']);
 
     const firstComplete = first.complete({ timeoutMs: 10_000 });
     await deliverCallback(first);
@@ -843,6 +878,30 @@ describe('McpOAuthService interactive flow serialization', () => {
     expect(authServer.counts.exchange).toBe(0);
   }, 15000);
 
+  it('keeps the configured scope when resource scopes are empty', async () => {
+    const fixture = makeFixture();
+    cleanups.push(() => fixture.service.dispose());
+    const authServer = await startFakeAuthServer();
+    const provider = await readyProvider(fixture);
+    await provider.saveDiscoveryState(
+      authServerState(authServer.url, {
+        scopesSupported: ['read', 'offline_access'],
+        resourceScopesSupported: [],
+      }).discovery,
+    );
+    vi.spyOn(provider, 'clientMetadata', 'get').mockReturnValue({
+      redirect_uris: ['http://127.0.0.1:45678/callback'],
+      token_endpoint_auth_method: 'none',
+      grant_types: ['authorization_code', 'refresh_token'],
+      response_types: ['code'],
+      scope: 'read',
+    });
+
+    const flow = await fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL);
+    expect(flow.authorizationUrl.searchParams.get('scope')).toBe('read offline_access');
+    await flow.cancel();
+  }, 15000);
+
   it('keeps the shared flow active when a joined handle cancels, so the first handle completes', async () => {
     const fixture = makeFixture();
     cleanups.push(() => fixture.service.dispose());
@@ -894,6 +953,8 @@ describe('McpOAuthService interactive flow serialization', () => {
 
     const third = await fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL);
     expect(third.authorizationUrl.toString()).not.toBe(first.authorizationUrl.toString());
+    expect(third.authorizationUrl.searchParams.get('scope')).toBeNull();
+    expect(authServer.registerScopes).toEqual([undefined, undefined]);
     await third.cancel();
   }, 15000);
 

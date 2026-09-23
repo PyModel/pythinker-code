@@ -97,9 +97,12 @@ let protocolEvents: ProtocolEvent[];
 let telemetryEvents: TelemetryRecord[];
 let truncateForModel: IAgentToolResultTruncationService['truncateForModel'];
 
+let durations: number[];
+
 beforeEach(() => {
   disposables = new DisposableStore();
   events = [];
+  durations = [];
   protocolEvents = [];
   telemetryEvents = [];
   truncateForModel = async (input) => input.result;
@@ -150,6 +153,7 @@ describe('AgentToolExecutorService', () => {
         stopTurn: false,
       }),
     ]);
+    expect(durations).toEqual([expect.any(Number)]);
     expect(tool.calls).toEqual([
       expect.objectContaining({
         toolCallId: 'call_echo',
@@ -1727,6 +1731,7 @@ async function execute(
     trace,
   })) {
     results.push(item.result);
+    durations.push(item.durationMs);
     events.push({ type: 'tool.result', toolCallId: item.toolCallId, result: item.result });
   }
   return results;

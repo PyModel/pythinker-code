@@ -13,8 +13,8 @@
     {
       "id": "pythinker-webbridge",
       "tier": "official",
-      "displayName": "Pythinker Pythinker Browser Extension",
-      "version": "1.11.3",
+      "displayName": "Pythinker Browser Extension",
+      "version": "2.0.11",
       "description": "Control your real browser from Pythinker Code.",
       "keywords": ["browser", "automation", "webbridge"],
       "source": "./official/pythinker-webbridge"

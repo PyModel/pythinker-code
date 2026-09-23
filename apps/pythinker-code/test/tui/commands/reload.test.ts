@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   handleReloadCommand,
@@ -24,7 +24,12 @@ import {
 const tempDirs: string[] = [];
 const originalPythinkerCodeHome = process.env['PYTHINKER_CODE_HOME'];
 
+beforeEach(() => {
+  vi.stubEnv('PYTHINKER_CODE_TUI_FULL_SCREEN', '');
+});
+
 afterEach(async () => {
+  vi.unstubAllEnvs();
   setExperimentalFeatures([]);
   for (const dir of tempDirs.splice(0)) {
     await rm(dir, { recursive: true, force: true });
@@ -192,6 +197,29 @@ auto_install = false
       'success',
     );
   });
+
+  it('notices a required restart when tui_mode differs from the running UI mode', async () => {
+    await writeTuiConfig('tui_mode = "fullscreen"\n');
+    const host = makeHost();
+
+    await handleReloadTuiCommand(host);
+
+    expect(host.setAppState).toHaveBeenCalledWith(
+      expect.objectContaining({ tuiMode: 'fullscreen' }),
+    );
+    expect(host.showNotice).toHaveBeenCalledWith(
+      'TUI mode takes effect after restarting Pythinker Code.',
+    );
+  });
+
+  it('does not notice when tui_mode matches the running UI mode', async () => {
+    await writeTuiConfig('theme = "dark"\n');
+    const host = makeHost();
+
+    await handleReloadTuiCommand(host);
+
+    expect(host.showNotice).not.toHaveBeenCalled();
+  });
 });
 
 async function writeTuiConfig(text: string): Promise<void> {
@@ -217,6 +245,9 @@ function makeHost({
     },
     editor: {
       setDisablePasteBurst: vi.fn(),
+    },
+    ui: {
+      mode: 'regular' as const,
     },
     theme: {
       palette: {
@@ -249,6 +280,7 @@ function makeHost({
     refreshSlashCommandAutocomplete: vi.fn(),
     reloadCurrentSessionView: vi.fn(async () => {}),
     showStatus: vi.fn(),
+    showNotice: vi.fn(),
   } as unknown as SlashCommandHost & {
     readonly harness: {
       readonly reloadSession: ReturnType<typeof vi.fn>;
@@ -258,5 +290,6 @@ function makeHost({
     readonly refreshSlashCommandAutocomplete: ReturnType<typeof vi.fn>;
     readonly reloadCurrentSessionView: ReturnType<typeof vi.fn>;
     readonly showStatus: ReturnType<typeof vi.fn>;
+    readonly showNotice: ReturnType<typeof vi.fn>;
   };
 }

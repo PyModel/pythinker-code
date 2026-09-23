@@ -5,7 +5,7 @@
  * shrink distribution with no minSize, so a tall transcript crushed it and
  * the editor's bottom border row was clipped off screen.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { Spacer, type Terminal, TuiAltScreen } from '@pymodel/pi-tui';
 import { VirtualTerminal } from '../../../../packages/pi-tui/test/virtual-terminal';
@@ -70,12 +70,10 @@ async function mountFullscreen(): Promise<{
   vt: VirtualTerminal;
 }> {
   const opts: PythinkerTUIOptions = {
-    initialAppState: fakeInitialAppState(),
+    initialAppState: { ...fakeInitialAppState(), tuiMode: 'fullscreen' },
     startup: { continueLast: false, yolo: false, auto: false, plan: false },
   };
-  vi.stubEnv('PYTHINKER_CODE_TUI_FULL_SCREEN', '1');
   const state = createTUIState(opts);
-  vi.unstubAllEnvs();
   const vt = new VirtualTerminal(WIDTH, HEIGHT);
   (state.ui as { terminal: Terminal }).terminal = vt;
 
@@ -144,7 +142,7 @@ describe('fullscreen layout', () => {
 
     const labelRow = vt
       .getViewport()
-      .findIndex((line) => stripAnsi(line).includes('Jump to bottom (click) ↓'));
+      .findIndex((line) => stripAnsi(line).includes('↓ Jump to bottom'));
     expect(labelRow).toBeGreaterThanOrEqual(0);
     expect((state.ui as TuiAltScreen).isFollowingOutput).toBe(false);
 
