@@ -93,26 +93,19 @@ describe('createTUIState', () => {
   });
 
   it('uses the docked fullscreen renderer when fullscreen is enabled', () => {
-    const previous = process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'];
-    process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'] = '1';
-    try {
-      const state = createTUIState({
-        initialAppState: fakeInitialAppState(),
-        startup: {
-          continueLast: false,
-          yolo: false,
-          auto: false,
-          plan: false,
-        },
-      });
+    const state = createTUIState({
+      initialAppState: { ...fakeInitialAppState(), tuiMode: 'fullscreen' },
+      startup: {
+        continueLast: false,
+        yolo: false,
+        auto: false,
+        plan: false,
+      },
+    });
 
-      expect(state.ui).toBeInstanceOf(TuiAltScreen);
-      expect(state.ui.mode).toBe('fullscreen');
-      expect(state.dockContainer).toBeDefined();
-    } finally {
-      if (previous === undefined) delete process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'];
-      else process.env['PYTHINKER_CODE_TUI_FULL_SCREEN'] = previous;
-    }
+    expect(state.ui).toBeInstanceOf(TuiAltScreen);
+    expect(state.ui.mode).toBe('fullscreen');
+    expect(state.dockContainer).toBeDefined();
   });
 
   it('uses the main-screen renderer when fullscreen is disabled', () => {

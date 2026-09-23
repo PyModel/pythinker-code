@@ -142,7 +142,7 @@ describe('fullscreen layout', () => {
 
     const labelRow = vt
       .getViewport()
-      .findIndex((line) => stripAnsi(line).includes('Jump to bottom (click) ↓'));
+      .findIndex((line) => stripAnsi(line).includes('↓ Jump to bottom'));
     expect(labelRow).toBeGreaterThanOrEqual(0);
     expect((state.ui as TuiAltScreen).isFollowingOutput).toBe(false);
 

@@ -144,7 +144,7 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
       };
     }
 
-    const onDisk = await this.localConfig.readAdditionalDirs(this.workspace.cwd);
+    const onDisk = await this.localConfig.locateAdditionalDirsConfig(this.workspace.cwd);
     this.projectRoot = onDisk.projectRoot;
     this.configPath = onDisk.configPath;
     const resolved = await this.localConfig.resolveAdditionalDirs(this.workspace.cwd, [

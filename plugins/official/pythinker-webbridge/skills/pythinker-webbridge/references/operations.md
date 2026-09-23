@@ -31,7 +31,7 @@ Everything below lives under `~/.pythinker-webbridge/` (Windows: `%USERPROFILE%\
 
 Default `127.0.0.1:10086`. Precedence: `start --addr` (this run only) > `addr` in `config.json` > default. `start`, `stop`, `status`, and `restart` all locate the daemon through the same config, so a moved daemon keeps every subcommand working. A malformed `config.json` makes all of them fail with an error naming the file — they never fall back to 10086 silently, so "status says not running" and "the file points elsewhere" can't be confused.
 
-To move a **running** daemon: edit `addr` in `config.json`, then `pythinker-webbridge restart` — `stop` still finds the old daemon through its own record, `start` binds the new address. (`start` alone on an edited config just reports the daemon is already running on the old address and points at `restart`.)
+To move a **running** daemon: edit `addr` in `config.json`, then `~/.pythinker-webbridge/bin/pythinker-webbridge restart` — `stop` still finds the old daemon through its own record, `start` binds the new address. (`start` alone on an edited config just reports the daemon is already running on the old address and points at `restart`.)
 
 When another program holds the port, `start` fails with "did not come up … held by another program" and names the config file. Move the daemon:
 

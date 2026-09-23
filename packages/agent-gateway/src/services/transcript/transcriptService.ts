@@ -697,9 +697,9 @@ export class TranscriptService {
     sessionId: string,
     agentId: string,
   ): Promise<void> {
-    const wire = agents?.handleOf(agentId)?.accessor.get(IWireService);
-    if (wire === undefined) return;
     try {
+      const wire = agents?.handleOf(agentId)?.accessor.get(IWireService);
+      if (wire === undefined) return;
       await wire.flush();
     } catch (error) {
       this.deps.logger?.warn(

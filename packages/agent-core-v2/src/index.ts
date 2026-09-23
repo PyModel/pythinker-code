@@ -178,6 +178,8 @@ export * from '#/session/sessionActivity/sessionOutcomeMirrorService';
 export * from '#/session/sessionTitle/agentTitlePromptSource';
 import '#/session/sessionTitle/agentTitlePromptSourceService';
 export * from '#/session/sessionTitle/sessionTitle';
+import '#/session/sessionTitle/configSection';
+export * from '#/session/sessionTitle/configSection';
 export * from '#/session/sessionTitle/sessionTitleService';
 export * from '#/session/sessionToolPolicy/sessionToolPolicy';
 export * from '#/session/sessionToolPolicy/sessionToolPolicyService';

@@ -84,6 +84,7 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
           'background',
           'subagent',
           'secondaryModel',
+          'autoSessionTitle',
           'experimental',
           'telemetry',
         ]);

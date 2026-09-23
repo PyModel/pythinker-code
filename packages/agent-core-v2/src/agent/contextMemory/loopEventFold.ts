@@ -191,8 +191,8 @@ function createLoopEventFoldWithState(
           return;
         }
         case 'tool.result': {
-          if (!pending.has(event.toolCallId)) return;
-          const toolName = pending.get(event.toolCallId)!;
+          const toolName = pending.get(event.toolCallId);
+          if (toolName === undefined) return;
           pending.delete(event.toolCallId);
           const output = event.result.output;
           sink.pushToolMessage(

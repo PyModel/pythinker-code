@@ -182,7 +182,18 @@ export async function assertLocalBaseBranch(repoRoot: string, base: string): Pro
 }
 
 export class TowerStore {
+  private mutation: Promise<void> = Promise.resolve();
+
   constructor(readonly repoRoot: string) {}
+
+  private exclusive<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.mutation.then(work, work);
+    this.mutation = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
 
   async isInitialized(): Promise<boolean> {
     try {
@@ -214,6 +225,7 @@ export class TowerStore {
   }
 
   async init(sessionId?: string, base?: string): Promise<TowerInitResult> {
+    return this.exclusive(async () => {
     await this.ensureRepository(base);
     if (!(await hasAnyCommit(this.repoRoot))) {
       throw new TowerProtocolError(
@@ -266,9 +278,11 @@ export class TowerStore {
     await this.renderMissionsIndex(state);
     await this.appendLog(TOWER_NAME, 'init', { mode: state.mode, base: resolvedBase }, MISSIONS_INDEX);
     return { base: resolvedBase, created: true, retiredAgents: [], checkout, openMissions: [] };
+    });
   }
 
   async rebase(base: string): Promise<void> {
+    return this.exclusive(async () => {
     const state = await this.load();
     if (state.base === base) return;
     const open = state.missions.filter(isOpenMission);
@@ -281,6 +295,7 @@ export class TowerStore {
     const from = state.base;
     await this.save({ ...state, base });
     await this.appendLog(TOWER_NAME, 'rebase', { from, to: base });
+    });
   }
 
   private async checkedOutBranch(): Promise<string> {
@@ -310,6 +325,7 @@ export class TowerStore {
   }
 
   async adopt(sessionId: string): Promise<readonly string[]> {
+    return this.exclusive(async () => {
     try {
       await readFile(this.abs(STATE_FILE), 'utf8');
     } catch (error) {
@@ -318,15 +334,18 @@ export class TowerStore {
     }
     const state = await this.load();
     return this.adoptForeignRoster(state, sessionId);
+    });
   }
 
   async release(sessionId: string): Promise<void> {
+    return this.exclusive(async () => {
     if (!(await this.isInitialized())) return;
     const state = await this.load();
     if (state.sessionId !== sessionId) return;
     state.sessionId = undefined;
     await this.save(state);
     await this.appendLog(TOWER_NAME, 'release', { session: sessionId });
+    });
   }
 
   private async ensureGitExclude(): Promise<void> {
@@ -420,6 +439,7 @@ export class TowerStore {
   }
 
   async registerAgent(entry: TowerRosterEntry): Promise<void> {
+    return this.exclusive(async () => {
     const state = await this.load();
     if (entry.name.trim().length === 0 || entry.name.trim() !== entry.name) {
       throw new TowerProtocolError(
@@ -441,6 +461,7 @@ export class TowerStore {
     }
     state.roster.agents.push(entry);
     await this.save(state);
+    });
   }
 
   async markAgentDied(
@@ -448,6 +469,7 @@ export class TowerStore {
     status: string,
     reason?: string,
   ): Promise<TowerRosterEntry | undefined> {
+    return this.exclusive(async () => {
     const state = await this.load();
     const index = state.roster.agents.findLastIndex((agent) => agent.agentId === agentId);
     const existing = state.roster.agents[index];
@@ -477,9 +499,11 @@ export class TowerStore {
       mission !== undefined ? join(MISSIONS_DIR, missionFileName(mission.id, mission.slug)) : undefined,
     );
     return entry;
+    });
   }
 
   async clearAgentDied(agentId: string): Promise<boolean> {
+    return this.exclusive(async () => {
     const state = await this.load();
     const index = state.roster.agents.findLastIndex((agent) => agent.agentId === agentId);
     const existing = state.roster.agents[index];
@@ -498,9 +522,11 @@ export class TowerStore {
       kind: entry.kind,
     });
     return true;
+    });
   }
 
   async plan(input: readonly TowerPlanInput[]): Promise<readonly TowerMission[]> {
+    return this.exclusive(async () => {
     if (input.length === 0) {
       throw new TowerProtocolError('TowerPlan needs at least one mission');
     }
@@ -581,6 +607,7 @@ export class TowerStore {
       MISSIONS_INDEX,
     );
     return missions;
+    });
   }
 
   private assertScopesDisjoint(missions: readonly TowerMission[]): void {
@@ -617,6 +644,7 @@ export class TowerStore {
     patch: TowerMissionPatch,
     options: { readonly silent?: boolean } = {},
   ): Promise<TowerMission> {
+    return this.exclusive(async () => {
     const state = await this.load();
     const mission = state.missions.find((m) => m.id === id);
     if (mission === undefined) {
@@ -747,6 +775,7 @@ export class TowerStore {
       });
     }
     return mission;
+    });
   }
 
   private async assertCompletable(state: TowerState, mission: TowerMission): Promise<void> {
@@ -911,6 +940,7 @@ export class TowerStore {
   }
 
   async submitReview(callerName: string, input: TowerReviewInput): Promise<string> {
+    return this.exclusive(async () => {
     const state = await this.load();
     let callerEntry: TowerRosterEntry | undefined;
     if (callerName !== TOWER_NAME) {
@@ -1010,6 +1040,7 @@ export class TowerStore {
       }
     }
     return rel;
+    });
   }
 
   async reviewsFor(target: string): Promise<readonly TowerReviewInfo[]> {
@@ -1089,6 +1120,7 @@ export class TowerStore {
     readonly conflictsWith: ReadonlyArray<{ readonly branch: string; readonly files: readonly string[] }>;
     readonly noop?: boolean;
   }> {
+    return this.exclusive(async () => {
     const state = await this.load();
     const block = async (reason: string, message: string): Promise<TowerProtocolError> => {
       await this.appendLog(TOWER_NAME, 'merge.blocked', { branch, reason });
@@ -1230,6 +1262,7 @@ export class TowerStore {
     await this.renderMissionFile(mission);
     await this.appendLog(TOWER_NAME, 'merge', { branch, base: state.base, merge_commit: mergeCommit.slice(0, 7) });
     return { mergeCommit, conflictsWith };
+    });
   }
 
   async diffBase(state: TowerState, mission: TowerMission): Promise<string> {

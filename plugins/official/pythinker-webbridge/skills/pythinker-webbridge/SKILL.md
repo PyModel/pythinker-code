@@ -161,7 +161,7 @@ Decoded PDF cap is 100 MB. Above that the daemon refuses; reduce `scale` or spli
 
 **If a tool call can't reach the daemon (connection refused), or the reply isn't the `ok` envelope above (another program is answering on that port), run `start` yourself, don't ask the user. It is safe anytime: it no-ops if the daemon is already up.** The binary is not on PATH: `~/.pythinker-webbridge/bin/pythinker-webbridge` (Windows: `%USERPROFILE%\.pythinker-webbridge\bin\pythinker-webbridge.exe`).
 
-Where the daemon listens is always in `start`'s output, or in `pythinker-webbridge status` (`port` when it is running, `addr` when it is not). If it isn't `127.0.0.1:10086`, use that address for every call in this task. The config file is only for moving the daemon, never for finding it. Then retry the tool call.
+Where the daemon listens is always in `start`'s output, or in `~/.pythinker-webbridge/bin/pythinker-webbridge status` (`port` when it is running, `addr` when it is not). If it isn't `127.0.0.1:10086`, use that address for every call in this task. The config file is only for moving the daemon, never for finding it. Then retry the tool call.
 
 **`start` fails with "did not come up … held by another program"** → another program owns the port. Move the daemon: write `{"addr":"127.0.0.1:<port>"}` (a free port of your choice) to the config file the error names, run `start` again, then ask the user to point the extension at the new port once (Pythinker side panel → Settings → Local agent remote control → Connection address → `ws://127.0.0.1:<port>/ws`; it remembers).
 

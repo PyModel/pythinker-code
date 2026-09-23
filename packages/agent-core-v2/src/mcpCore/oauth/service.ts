@@ -306,9 +306,11 @@ export class McpOAuthService {
         const info = await discoverOAuthServerInfo(serverUrl, {
           fetchFn: this.authFetch(provider, [signal]),
         });
+        const cachedServer = discovery?.authorizationServerUrl;
+        const keepCachedServer = info.resourceMetadata === undefined && cachedServer !== undefined;
         discovery = {
           ...discovery,
-          authorizationServerUrl: info.authorizationServerUrl,
+          authorizationServerUrl: keepCachedServer ? cachedServer : info.authorizationServerUrl,
           resourceMetadata: info.resourceMetadata ?? discovery?.resourceMetadata,
           authorizationServerMetadata: info.authorizationServerMetadata,
         };
@@ -319,10 +321,14 @@ export class McpOAuthService {
     }
     const advertised = discovery.authorizationServerMetadata?.scopes_supported;
     if (advertised === undefined || !advertised.includes(OFFLINE_ACCESS_SCOPE)) return undefined;
+    const resourceScopes = discovery.resourceMetadata?.scopes_supported;
+    const configuredScopes = provider.clientMetadata.scope
+      ?.split(/\s+/)
+      .filter((scope) => scope.length > 0);
     const base =
-      discovery.resourceMetadata?.scopes_supported ??
-      provider.clientMetadata.scope?.split(/\s+/).filter(Boolean) ??
-      [];
+      resourceScopes !== undefined && resourceScopes.length > 0
+        ? resourceScopes
+        : (configuredScopes ?? []);
     if (base.includes(OFFLINE_ACCESS_SCOPE)) return undefined;
     return [...base, OFFLINE_ACCESS_SCOPE].join(' ');
   }

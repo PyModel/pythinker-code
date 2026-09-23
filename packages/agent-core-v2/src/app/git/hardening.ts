@@ -1,4 +1,4 @@
-import { readFile, realpath, stat } from 'node:fs/promises';
+import { open, readFile, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, join, normalize, resolve } from 'node:path';
 
 const NULL_DEVICE = process.platform === 'win32' ? 'NUL' : '/dev/null';
@@ -128,19 +128,21 @@ async function coreWorktreeSafe(
 ): Promise<boolean> {
   if (gitDir === null) return true;
   let resolvedGitDir: string;
+  let workTreeRoot: string;
   try {
     const realGitPath = await realpath(gitDir);
-    if ((await stat(realGitPath)).isDirectory()) {
+    workTreeRoot = dirname(realGitPath);
+    const opened = await readGitPath(realGitPath);
+    if (opened.directory) {
       resolvedGitDir = realGitPath;
     } else {
-      const pointer = parseGitDirPointer(await readFile(realGitPath, 'utf8'));
+      const pointer = parseGitDirPointer(opened.text);
       if (pointer === undefined) return true;
       resolvedGitDir = resolve(dirname(realGitPath), pointer);
     }
   } catch {
     return false;
   }
-  const workTreeRoot = dirname(gitDir);
   const results = await Promise.all(
     ['--local', '--worktree'].map((scope) =>
       probe([
@@ -194,19 +196,19 @@ async function gitConfigStamp(cwd: string, found: string | null): Promise<string
   try {
     if (found === null) return null;
     let gitDir = found;
-    if (!(await stat(gitDir)).isDirectory()) {
-      const pointer = parseGitDirPointer(await readFile(gitDir, 'utf8'));
+    const opened = await readGitPath(gitDir);
+    if (!opened.directory) {
+      const pointer = parseGitDirPointer(opened.text);
       if (pointer === undefined) return null;
       gitDir = resolve(dirname(found), pointer);
     }
     const commondir = await readFile(join(gitDir, 'commondir'), 'utf8').catch(() => undefined);
     const configPaths = resolveConfigPaths(gitDir, commondir);
-    const stamps = await Promise.all(configPaths.map(stampConfigPath));
-    for (const path of configPaths) {
-      const content = await readFile(path, 'utf8').catch(() => null);
-      if (content !== null && INCLUDE_SECTION_RE.test(content)) return null;
+    const reads = await Promise.all(configPaths.map(readConfigStamp));
+    for (const read of reads) {
+      if (read.content !== null && INCLUDE_SECTION_RE.test(read.content)) return null;
     }
-    return stamps.join('|');
+    return reads.map((read) => read.stamp).join('|');
   } catch {
     return null;
   }
@@ -217,7 +219,8 @@ async function findGitDir(start: string): Promise<string | null> {
   for (;;) {
     const candidate = join(dir, '.git');
     try {
-      await stat(candidate);
+      const handle = await open(candidate, 'r');
+      await handle.close();
       return candidate;
     } catch {
     }
@@ -227,11 +230,35 @@ async function findGitDir(start: string): Promise<string | null> {
   }
 }
 
-async function stampConfigPath(path: string): Promise<string> {
+interface GitPathRead {
+  readonly directory: boolean;
+  readonly text: string;
+}
+
+async function readGitPath(path: string): Promise<GitPathRead> {
+  const handle = await open(path, 'r');
   try {
-    const stats = await stat(path);
-    return `${path}:${String(stats.mtimeMs)}:${String(stats.size)}`;
+    const info = await handle.stat();
+    if (info.isDirectory()) return { directory: true, text: '' };
+    return { directory: false, text: await handle.readFile('utf8') };
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readConfigStamp(path: string): Promise<{ readonly stamp: string; readonly content: string | null }> {
+  try {
+    const handle = await open(path, 'r');
+    try {
+      const info = await handle.stat();
+      return {
+        stamp: `${path}:${String(info.mtimeMs)}:${String(info.size)}`,
+        content: await handle.readFile('utf8'),
+      };
+    } finally {
+      await handle.close();
+    }
   } catch {
-    return `${path}:missing`;
+    return { stamp: `${path}:missing`, content: null };
   }
 }

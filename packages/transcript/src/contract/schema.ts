@@ -160,7 +160,7 @@ export const transcriptFrameSchema = z.discriminatedUnion('kind', [
   noticeFrameSchema,
 ]);
 
-export const transcriptStepSchema = z.object({
+const transcriptStepObject = z.object({
   kind: z.literal('step'),
   stepId: stepIdSchema,
   turnId: turnIdSchema,
@@ -176,6 +176,17 @@ export const transcriptStepSchema = z.object({
   endReason: z.string().optional(),
   endMessage: z.string().optional(),
 });
+
+function acceptLegacyStepTiming<T extends z.ZodType>(schema: T) {
+  return z.preprocess((value) => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
+    const record = value as Record<string, unknown>;
+    if (record['llmTiming'] !== undefined || record['timing'] === undefined) return value;
+    return { ...record, llmTiming: record['timing'] };
+  }, schema);
+}
+
+export const transcriptStepSchema = acceptLegacyStepTiming(transcriptStepObject);
 
 export const transcriptTurnSchema = z.object({
   kind: z.literal('turn'),
@@ -388,7 +399,7 @@ export const agentTranscriptSnapshotSchema = z.object({
 });
 
 export const turnHeaderSchema = transcriptTurnSchema.omit({ steps: true });
-export const stepHeaderSchema = transcriptStepSchema.omit({ frames: true });
+export const stepHeaderSchema = acceptLegacyStepTiming(transcriptStepObject.omit({ frames: true }));
 
 export const appendTargetSchema = z.discriminatedUnion('type', [
   z.object({

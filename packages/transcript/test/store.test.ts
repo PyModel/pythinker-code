@@ -5,6 +5,7 @@ import { TranscriptStore } from '#/store/transcriptStore';
 import { appendAtOffset } from '#/ops/apply';
 import type {
   FrameUpsertOp,
+  StepHeader,
   TurnUpsertOp,
   TranscriptOperation,
 } from '#/ops/operation';
@@ -260,6 +261,22 @@ describe('AgentTranscript', () => {
     expect(step?.usage?.output).toBe(5);
     expect(step?.llmTiming?.llmFirstTokenLatencyMs).toBe(120);
     expect(step?.retry).toBeUndefined();
+  });
+
+  it('maps a legacy step timing field onto llmTiming', () => {
+    const tx = new AgentTranscript('main');
+    tx.apply([turn1]);
+    const header: StepHeader & { readonly timing?: { readonly llmFirstTokenLatencyMs: number } } = {
+      kind: 'step',
+      stepId: 't1.1',
+      turnId: 't1',
+      ordinal: 1,
+      state: 'completed',
+      timing: { llmFirstTokenLatencyMs: 40 },
+    };
+    const completed = tx.apply([{ op: 'step.upsert', turnId: 't1', step: header }]);
+    expect(completed.accepted).toHaveLength(1);
+    expect(tx.getTurn('t1')?.steps[0]?.llmTiming).toEqual({ llmFirstTokenLatencyMs: 40 });
   });
 
   it('turn upserts carry durationMs and the terminal error', () => {

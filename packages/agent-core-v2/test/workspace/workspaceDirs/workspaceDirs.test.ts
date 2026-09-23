@@ -170,6 +170,18 @@ describe('WorkspaceDirsService trust gating', () => {
     expect(changes).toBe(0);
   }, 20000);
 
+  it('adds an ephemeral dir without parsing a planted local.toml while untrusted', async () => {
+    await writeLocalToml([homeDir]);
+    trusted = false;
+    const service = createService();
+    await service.ready;
+
+    const result = await service.addDir({ path: extraDir, persist: false });
+
+    expect(result.persisted).toBe(false);
+    expect(result.additionalDirs).toEqual([extraDir]);
+  });
+
   it('persists the explicit dir but loads only it while the workspace is untrusted', async () => {
     const plantedDir = join(homeDir, 'planted');
     await mkdir(plantedDir, { recursive: true });

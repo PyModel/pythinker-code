@@ -192,7 +192,15 @@ function turnEquals(turn: TranscriptTurn, header: TurnHeader): boolean {
   );
 }
 
+function withLegacyStepTiming(header: StepHeader): StepHeader {
+  if (header.llmTiming !== undefined) return header;
+  const legacy = (header as StepHeader & { readonly timing?: StepHeader['llmTiming'] }).timing;
+  if (legacy === undefined) return header;
+  return { ...header, llmTiming: legacy };
+}
+
 function applyStepUpsert(state: AgentState, turnId: TurnId, header: StepHeader): ApplyResult {
+  header = withLegacyStepTiming(header);
   const turn = getTurn(state, turnId) ?? skeletonTurn(turnId);
   const stepIndex = turn.steps.findIndex((step) => step.stepId === header.stepId);
   let steps: readonly TranscriptStep[];
