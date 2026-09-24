@@ -15,7 +15,7 @@ Preferred channel:
 
 Alternative channel:
 
-- Email: code@pythoughts.ai (please include "[security]" in the subject)
+- Email: hello@pymodel.com (please include "[security]" in the subject)
 
 ## What to Include
 
