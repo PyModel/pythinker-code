@@ -1,5 +1,31 @@
 # @pymodel/pythinker-code
 
+## 2.2.1
+
+### Patch Changes
+
+- [#332](https://github.com/PyModel/pythinker-code/pull/332) [`031a7c2`](https://github.com/PyModel/pythinker-code/commit/031a7c2109015a2e9aadda698c1e4a248e0f9c65) Thanks [@elkaix](https://github.com/elkaix)! - Add `auto_session_title` so automatic session titles can be turned off.
+
+- [#332](https://github.com/PyModel/pythinker-code/pull/332) [`031a7c2`](https://github.com/PyModel/pythinker-code/commit/031a7c2109015a2e9aadda698c1e4a248e0f9c65) Thanks [@elkaix](https://github.com/elkaix)! - The browser extension skill resends a failed command as a file and can move the local daemon off a busy port.
+
+- [#332](https://github.com/PyModel/pythinker-code/pull/332) [`031a7c2`](https://github.com/PyModel/pythinker-code/commit/031a7c2109015a2e9aadda698c1e4a248e0f9c65) Thanks [@elkaix](https://github.com/elkaix)! - A forked session keeps the source title kind when you do not set a new title.
+
+- [#332](https://github.com/PyModel/pythinker-code/pull/332) [`031a7c2`](https://github.com/PyModel/pythinker-code/commit/031a7c2109015a2e9aadda698c1e4a248e0f9c65) Thanks [@elkaix](https://github.com/elkaix)! - Fix a crash when opening a session with a very large transcript.
+
+- [#332](https://github.com/PyModel/pythinker-code/pull/332) [`031a7c2`](https://github.com/PyModel/pythinker-code/commit/031a7c2109015a2e9aadda698c1e4a248e0f9c65) Thanks [@elkaix](https://github.com/elkaix)! - MCP sign-in requests offline access when the authorization server advertises it.
+
+- [#332](https://github.com/PyModel/pythinker-code/pull/332) [`031a7c2`](https://github.com/PyModel/pythinker-code/commit/031a7c2109015a2e9aadda698c1e4a248e0f9c65) Thanks [@elkaix](https://github.com/elkaix)! - Set `PYTHINKER_CODE_REPEAT_BREAKER=0` to turn off the repeated-tool-call stop.
+
+- [#331](https://github.com/PyModel/pythinker-code/pull/331) [`ea4bdd6`](https://github.com/PyModel/pythinker-code/commit/ea4bdd691caff92e9ff14c04810e7d0e19a3bbc7) Thanks [@elkaix](https://github.com/elkaix)! - Fix deleting a session from the sidebar.
+
+- [#329](https://github.com/PyModel/pythinker-code/pull/329) [`98235bb`](https://github.com/PyModel/pythinker-code/commit/98235bbad6114629fc14a8b9c54e871900227032) Thanks [@elkaix](https://github.com/elkaix)! - Tower mode: mission titles must be printable ASCII, tower messages, findings, and reviews record the sender's token usage, and task cards show the mission id.
+
+- [#332](https://github.com/PyModel/pythinker-code/pull/332) [`031a7c2`](https://github.com/PyModel/pythinker-code/commit/031a7c2109015a2e9aadda698c1e4a248e0f9c65) Thanks [@elkaix](https://github.com/elkaix)! - Click a transcript fold to open or close that block, and jump to the bottom when the transcript is scrolled up.
+
+- [#332](https://github.com/PyModel/pythinker-code/pull/332) [`031a7c2`](https://github.com/PyModel/pythinker-code/commit/031a7c2109015a2e9aadda698c1e4a248e0f9c65) Thanks [@elkaix](https://github.com/elkaix)! - Choose a regular or fullscreen terminal layout with `tui_mode`.
+
+- [#332](https://github.com/PyModel/pythinker-code/pull/332) [`031a7c2`](https://github.com/PyModel/pythinker-code/commit/031a7c2109015a2e9aadda698c1e4a248e0f9c65) Thanks [@elkaix](https://github.com/elkaix)! - File tools and git calls no longer follow a symlink out of the workspace, and project-local config waits for workspace trust.
+
 ## 2.2.0
 
 ### Minor Changes
