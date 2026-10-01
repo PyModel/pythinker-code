@@ -38,7 +38,7 @@ import type {
   FileHistoryTracked,
   GoalClear,
   GoalCreate,
-  GoalForked,
+  Forked,
   GoalUpdate,
   InteractionRequestEvent,
   InteractionResolvedEvent,
@@ -169,7 +169,7 @@ export type AgentRecord =
   | WireRecordOf<'dynamic_workflow_mode.exit', DynamicWorkflowModeExit>
   | WireRecordOf<'file_history.checkpoint', FileHistoryCheckpointed>
   | WireRecordOf<'file_history.tracked', FileHistoryTracked>
-  | WireRecordOf<'forked', GoalForked>
+  | WireRecordOf<'forked', Forked>
   | WireRecordOf<'full_compaction.begin', FullCompactionBegin>
   | WireRecordOf<'full_compaction.cancel', FullCompactionCancel>
   | WireRecordOf<'full_compaction.complete', FullCompactionComplete>

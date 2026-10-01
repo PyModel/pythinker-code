@@ -3017,7 +3017,7 @@ describe('FullCompaction', () => {
     const events = await ctx.untilTurnEnd();
 
     expect(callCount).toBe(3);
-    expect(compactionMaxCompletionTokens).toEqual([32000]);
+    expect(compactionMaxCompletionTokens).toEqual([undefined]);
     expect(events).toContainEqual(
       expect.objectContaining({
         event: 'compaction.started',
@@ -3110,7 +3110,7 @@ describe('FullCompaction', () => {
       await ctx.untilTurnEnd();
 
       expect(callCount).toBe(3);
-      expect(compactionMaxCompletionTokens).toEqual([undefined]);
+      expect(compactionMaxCompletionTokens).toEqual([Number(maxCompletionTokens)]);
     },
   );
 

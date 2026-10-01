@@ -3,7 +3,7 @@ import { anthropicBetaBase } from '#/llm/requester/bases/anthropic/requester';
 import { openAIBase } from '#/llm/requester/bases/openai/requester';
 import { openAIResponsesBase } from '#/llm/requester/bases/openai-responses/requester';
 
-import { pythinkerAnthropicTrait, pythinkerConnection, pythinkerOpenAITrait } from './trait';
+import { pythinkerAnthropicTrait, pythinkerConnection, pythinkerOpenAITrait, pythinkerResponsesTrait } from './trait';
 import { classifyPythinkerQuotaError } from './errors';
 import { pythinkerMediaContribution } from './media';
 
@@ -24,6 +24,7 @@ export const pythinkerProvider = createProvider({
     },
     openai_responses: {
       base: openAIResponsesBase,
+      trait: pythinkerResponsesTrait,
       connection: pythinkerConnection,
       classifyError: classifyPythinkerQuotaError,
     },
