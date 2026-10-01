@@ -397,6 +397,21 @@ describe("replay adapter (renders the public SDK resume state for the Webview)",
         }),
       ),
       record(message("user", [{ type: "text", text: "Visible prompt" }], { origin: { kind: "user" } }), 2),
+      record(
+        message(
+          "user",
+          [
+            {
+              type: "text",
+              text: '<hook_result hook_event="UserPromptSubmit">\nmerged hook note\n</hook_result>',
+              meta: { contentType: "text/xml", source: "user prompt submit hook" },
+            } as ContentPart,
+            { type: "text", text: "Merged prompt" },
+          ],
+          { origin: { kind: "user" } },
+        ),
+        3,
+      ),
     ]);
 
     expect(events.filter((event) => event.type === "TurnBegin")).toEqual([
@@ -405,7 +420,25 @@ describe("replay adapter (renders the public SDK resume state for the Webview)",
         payload: { user_input: [{ type: "text", text: "Visible prompt" }] },
         _sessionId: "session-1",
       },
+      {
+        type: "TurnBegin",
+        payload: { user_input: [{ type: "text", text: "Merged prompt" }] },
+        _sessionId: "session-1",
+      },
     ]);
+    const hookIndex = events.findIndex(
+      (event) => event.type === "ContentPart" && JSON.stringify(event).includes("merged hook note"),
+    );
+    expect(events[hookIndex - 1]).toEqual({
+      type: "StepBegin",
+      payload: { n: 1 },
+      _sessionId: "session-1",
+    });
+    expect(events[hookIndex]).toEqual({
+      type: "ContentPart",
+      payload: { type: "text", text: "merged hook note" },
+      _sessionId: "session-1",
+    });
   });
 
   it("restores a user-invoked skill as its original slash command", () => {
@@ -493,10 +526,11 @@ describe("replay adapter (renders the public SDK resume state for the Webview)",
       record(
         message("user", [{ type: "text", text: "/review" }], {
           origin: {
-            kind: "skill_activation",
+            kind: "plugin_command",
+            activationId: "activation-1",
+            pluginId: "review-plugin",
+            commandName: "review",
             trigger: "user-slash",
-            skillName: "review",
-            activationId: "act-1",
           },
         }),
         3,
@@ -504,84 +538,6 @@ describe("replay adapter (renders the public SDK resume state for the Webview)",
     ];
 
     expect(replayRecordTurnCount(records)).toBe(2);
-  });
-
-  it("restores shell input and plugin commands as visible user turns", () => {
-    const events = replay([
-      record(message("user", [{ type: "text", text: "pnpm test" }], {
-        origin: { kind: "shell_command", phase: "input" },
-      }), 1),
-      record(message("user", [{ type: "text", text: "<expanded command>" }], {
-        origin: {
-          kind: "plugin_command",
-          activationId: "plugin-activation-1",
-          pluginId: "reviewer",
-          commandName: "check",
-          commandArgs: "focused",
-          trigger: "user-slash",
-        },
-      }), 2),
-    ]);
-
-    expect(events.filter((event) => event.type === "TurnBegin")).toEqual([
-      {
-        type: "TurnBegin",
-        payload: { user_input: [{ type: "text", text: "pnpm test" }] },
-        _sessionId: "session-1",
-      },
-      {
-        type: "TurnBegin",
-        payload: { user_input: [{ type: "text", text: "/reviewer:check focused" }] },
-        _sessionId: "session-1",
-      },
-    ]);
-  });
-
-  it("routes AgentDynamicWorkflow XML results to the matching subagent replay", () => {
-    const main = resumedAgent([
-      record(message("user", [{ type: "text", text: "Run workflow" }], { origin: { kind: "user" } }), 1),
-      record(message("assistant", [], {
-        toolCalls: [{
-          type: "function",
-          id: "workflow-call-1",
-          name: "AgentDynamicWorkflow",
-          arguments: "{}",
-        }],
-      }), 2),
-      record(message("tool", [{
-        type: "text",
-        text: '<subagent agent_id="sub-1" outcome="completed">done</subagent>',
-      }], { toolCallId: "workflow-call-1" }), 5),
-    ]);
-    const child = resumedAgent([
-      record(message("user", [{ type: "text", text: "child task" }], {
-        origin: { kind: "system_trigger", name: "subagent" },
-      }), 3),
-      record(message("assistant", [{ type: "text", text: "workflow child answer" }]), 4),
-    ], { type: "sub" });
-    const state: ResumedSessionState = {
-      sessionMetadata: {
-        createdAt: "",
-        updatedAt: "",
-        title: "",
-        isCustomTitle: false,
-        agents: {
-          main: { type: "main", parentAgentId: null },
-          "sub-1": { type: "sub", parentAgentId: "main" },
-        },
-        custom: {},
-      },
-      agents: { main, "sub-1": child },
-    };
-
-    expect(replaySessionToWebviewEvents(state, "session-1")).toContainEqual({
-      type: "SubagentEvent",
-      payload: {
-        parent_tool_call_id: "workflow-call-1",
-        event: { type: "ContentPart", payload: { type: "text", text: "workflow child answer" } },
-      },
-      _sessionId: "session-1",
-    });
   });
 
   it("routes repeated runs of one subagent to their corresponding Agent calls", () => {

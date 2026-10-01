@@ -1200,6 +1200,34 @@ describe('PythinkerTUI resume message replay', () => {
       message('user', [{ type: 'text', text: hookResult }], {
         origin: { kind: 'hook_result', event: 'UserPromptSubmit' },
       }),
+      message('user', [
+        {
+          type: 'text',
+          text: '<hook_result hook_event="UserPromptSubmit">\nmerged hook note\n</hook_result>',
+          meta: { contentType: 'text/xml', source: 'user prompt submit hook' },
+        } as ContentPart,
+        { type: 'text', text: 'merged prompt' },
+      ]),
+      message(
+        'user',
+        [
+          {
+            type: 'text',
+            text: '<hook_result hook_event="UserPromptSubmit">\nskill hook note\n</hook_result>',
+            meta: { contentType: 'text/xml', source: 'user prompt submit hook' },
+          } as ContentPart,
+          { type: 'text', text: 'Review the requested file.' },
+        ],
+        {
+          origin: {
+            kind: 'skill_activation',
+            activationId: 'act-review',
+            skillName: 'review',
+            skillArgs: 'src/app.ts',
+            trigger: 'user-slash',
+          },
+        },
+      ),
     ]);
 
     const transcript = driver.state.transcriptContainer.render(120).join('\n');
@@ -1207,6 +1235,13 @@ describe('PythinkerTUI resume message replay', () => {
     expect(transcript).toContain('UserPromptSubmit hook');
     expect(transcript).toContain('hook response 1');
     expect(transcript).toContain('hook response 2');
+    expect(transcript).toContain('merged hook note');
+    expect(transcript).toContain('skill hook note');
+    expect(
+      driver.state.transcriptEntries
+        .filter((entry) => entry.kind === 'user')
+        .map((entry) => entry.content),
+    ).toEqual(['prompt', 'merged prompt']);
   });
 
   it('renders replayed compaction records as completed compaction blocks', async () => {
@@ -1490,7 +1525,7 @@ describe('replayBackgroundProjection', () => {
       [agentTask({ model: 'k2-cheap', thinkingEffort: 'low' })],
       {
         'k2-cheap': {
-          provider: 'openai',
+          provider: 'managed:pythinker-code',
           model: 'kimi-k2-cheap',
           displayName: 'Kimi K2 Cheap',
         },
