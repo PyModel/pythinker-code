@@ -377,14 +377,14 @@ onUnmounted(() => {
   position: absolute;
   right: -4px;
   bottom: -4px;
-  min-width: 12px;
-  height: 12px;
-  padding: 0 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
   border-radius: 999px;
   background: var(--color-accent);
   color: var(--color-on-accent, #fff);
-  font-size: 8px;
-  line-height: 12px;
+  font-size: var(--text-xs);
+  line-height: 16px;
   text-align: center;
   font-weight: var(--weight-medium);
 }

@@ -230,8 +230,8 @@ The the UI text scale (`--text-2xs` … `--text-2xl`) expresses stable semantic 
 | `--text-sm`      | Compact supporting copy one step below body text, secondary copy, helper text, Tooltip copy, and Markdown inline code |
 | `--text-xs`      | Tooltip keyboard shortcuts, badges, compact labels, counters, and very weak metadata                         |
 
-- Markdown `h3`-`h6` share `--text-base`; distinguish their hierarchy through weight: `h3`-`h4` use `--weight-semibold`, `h5` uses `--weight-medium`, and `h6` uses `--weight-normal`.
-- Body copy and common controls normally use `--text-base` with `--weight-normal`; titles and labels may strengthen weight without changing their semantic size role.
+- Markdown `h3`-`h6` share `--text-base`; distinguish their hierarchy through weight: `h3`-`h4` use `--weight-semibold`, `h5` uses `--weight-medium`, and `h6` uses `--weight-regular`.
+- Body copy and common controls normally use `--text-base` with `--weight-regular`; titles and labels may strengthen weight without changing their semantic size role.
 - Pair secondary copy with an appropriate semantic color, usually `--color-foreground-subtle`. Pair weak metadata with `--color-foreground-subtlest`. Font size and color hierarchy are independent decisions.
 - **Tooltip**: titles, plain descriptions, and log content use `--text-sm`; keyboard shortcut labels use `--text-xs`. Rich content such as Markdown release notes keeps its content typography hierarchy instead of flattening headings and links to the Tooltip copy size.
 - **Code / Command / Path**: use `--font-mono`, usually with `--text-base`; Markdown inline code uses `--text-sm`.

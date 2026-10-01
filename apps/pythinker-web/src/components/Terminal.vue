@@ -33,35 +33,22 @@ let disposeOutput: (() => void) | null = null;
 let disposeExit: (() => void) | null = null;
 
 const theme = computed<ITheme>(() => {
-  if (isDark.value) {
-    return {
-      background: '#121212',
-      foreground: '#e6edf3',
-      cursor: '#7aa2ff',
-      selectionBackground: '#264f78',
-      black: '#1f1f1f',
-      red: '#ff7b72',
-      green: '#7ee787',
-      yellow: '#f2cc60',
-      blue: '#7aa2ff',
-      magenta: '#d2a8ff',
-      cyan: '#76e3ea',
-      white: '#e6edf3',
-    };
-  }
+  void isDark.value;
+  const css = getComputedStyle(hostRef.value ?? document.documentElement);
+  const v = (token: string): string => css.getPropertyValue(token).trim();
   return {
-    background: '#ffffff',
-    foreground: '#1f2328',
-    cursor: '#1f6feb',
-    selectionBackground: '#c8e1ff',
-    black: '#24292f',
-    red: '#cf222e',
-    green: '#116329',
-    yellow: '#9a6700',
-    blue: '#0969da',
-    magenta: '#8250df',
-    cyan: '#1b7c83',
-    white: '#f6f8fa',
+    background: v('--terminal-bg') || (isDark.value ? '#121212' : '#ffffff'),
+    foreground: v('--terminal-fg'),
+    cursor: v('--terminal-cursor'),
+    selectionBackground: v('--terminal-selection'),
+    black: v('--terminal-black'),
+    red: v('--terminal-red'),
+    green: v('--terminal-green'),
+    yellow: v('--terminal-yellow'),
+    blue: v('--terminal-blue'),
+    magenta: v('--terminal-magenta'),
+    cyan: v('--terminal-cyan'),
+    white: v('--terminal-white'),
   };
 });
 

@@ -3611,7 +3611,7 @@ function selectModel(modelId: string): void {
     }
 
     .ph {
-        font-size: 16px
+        font-size: var(--text-lg)
     }
 
     .model-pill,

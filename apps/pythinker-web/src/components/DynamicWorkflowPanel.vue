@@ -153,6 +153,11 @@ function taskNumber(task: TaskItem, index: number): string {
 .dw-filters,
 .dw-card-top,
 .dw-card-type,
+.dw-card-status {
+  letter-spacing: var(--tracking-wf-label);
+}
+
+.dw-card-type,
 .dw-card-status,
 .dw-card-state,
 .dw-card-time {
@@ -172,13 +177,13 @@ function taskNumber(task: TaskItem, index: number): string {
 .dw-panel-title {
   margin: 0;
   white-space: nowrap;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
 }
 
 .dw-panel-count {
   white-space: nowrap;
-  font-size: 14px;
+  font-size: var(--text-base);
   color: var(--muted);
 }
 
@@ -198,7 +203,7 @@ function taskNumber(task: TaskItem, index: number): string {
   color: var(--muted);
   background: transparent;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
   cursor: pointer;
 }
 
@@ -237,6 +242,7 @@ function taskNumber(task: TaskItem, index: number): string {
   overflow: hidden;
   border-radius: var(--r-md);
   background: var(--panel2);
+  transition: background-color var(--wf-t-base) var(--wf-ease);
 }
 
 .dw-card:hover {
@@ -268,7 +274,7 @@ function taskNumber(task: TaskItem, index: number): string {
 .dw-card-number {
   flex: none;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
 }
 
@@ -277,7 +283,7 @@ function taskNumber(task: TaskItem, index: number): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
+  font-size: var(--text-base);
   font-weight: 550;
 }
 
@@ -296,7 +302,7 @@ function taskNumber(task: TaskItem, index: number): string {
 .dw-card-type {
   gap: 5px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .dw-card-type > svg {
@@ -308,7 +314,7 @@ function taskNumber(task: TaskItem, index: number): string {
   gap: 8px;
   margin-top: auto;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .dw-card-state,
@@ -329,10 +335,23 @@ function taskNumber(task: TaskItem, index: number): string {
   flex: none;
   border-radius: 50%;
   background: var(--muted);
+  transition: background-color var(--wf-t-base) var(--wf-ease);
 }
 
 .dw-state-dot.phase-working {
   background: var(--blue);
+  animation: dw-dot-beat var(--wf-beat) var(--wf-ease) infinite;
+}
+
+@keyframes dw-dot-beat {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-workflow-trace-strong) 100%, transparent);
+  }
+
+  50% {
+    box-shadow: 0 0 0 3px transparent;
+  }
 }
 
 .dw-state-dot.phase-completed {
@@ -379,7 +398,7 @@ function taskNumber(task: TaskItem, index: number): string {
   min-height: 150px;
   place-items: center;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 @media (max-width: 620px) {

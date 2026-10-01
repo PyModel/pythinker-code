@@ -112,9 +112,9 @@ async function retry(): Promise<void> {
 .recovery__copy { display: flex; flex-direction: column; gap: 8px; }
 .recovery__copy h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: var(--text-2xl);
   line-height: 1.15;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   color: var(--color-text);
 }
 .recovery__copy p {

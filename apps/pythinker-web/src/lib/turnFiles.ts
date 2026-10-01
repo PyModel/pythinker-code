@@ -1,7 +1,7 @@
 import type { ChatTurn, DiffViewLine } from '../types';
 import { turnBlocks } from '../components/chatTurnRendering';
 import { diffStats } from './diffLines';
-import { buildEditDiffLines, extractEditPath } from './toolDiff';
+import { buildEditDiffLines, computeEditChangeStat, extractEditPath } from './toolDiff';
 import { normalizeToolName } from './toolMeta';
 
 export interface TurnFileChange {
@@ -70,7 +70,7 @@ export function turnFileChanges(turn: ChatTurn): TurnFileChange[] {
     if (!path) continue;
     const hasWrite = kind === 'write';
     const diff = hasWrite ? null : buildEditDiffLines(block.tool);
-    const stats = diff ? diffStats(diff) : { added: 0, removed: 0 };
+    const stats = diff ? diffStats(diff) : computeEditChangeStat(block.tool) ?? { added: 0, removed: 0 };
     const statsIncomplete = hasWrite || diff === null;
     const key = normalizedPathKey(path);
     const current = changes.get(key);
