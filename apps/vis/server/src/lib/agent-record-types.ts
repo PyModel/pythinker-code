@@ -1,7 +1,7 @@
 // @ts-nocheck
 // apps/vis/server/src/lib/agent-record-types.ts
 // Single source of truth: engine shapes come from agent-core-v2 directly.
-// Do NOT add local interfaces that duplicate upstream shapes — the only
+// Do NOT add local interfaces that duplicate engine shapes — the only
 // exceptions are the legacy records below, which v2 never writes but old
 // (v1-written / pre-migration) wires still contain on disk.
 
@@ -20,26 +20,25 @@ export { WIRE_PROTOCOL_VERSION } from '@pymodel/agent-core-v2/wire/migration/mig
 export type {
   AgentTaskInfo as BackgroundTaskInfo,
   AgentTaskStatus as BackgroundTaskStatus,
-} from '@pymodel/agent-core-v2';
+} from '@pymodel/agent-core-v2/agent/task/types';
 export type { SubagentTaskInfo as AgentBackgroundTaskInfo } from '@pymodel/agent-core-v2';
 export type { ProcessTaskInfo as ProcessBackgroundTaskInfo } from '@pymodel/agent-core-v2/agent/tools/os/bash/process-task';
 export type { QuestionTaskInfo as QuestionBackgroundTaskInfo } from '@pymodel/agent-core-v2/agent/tools/ask-user-question/question-background-task';
 
+import type { AgentTaskInfo as BackgroundTaskInfo } from '@pymodel/agent-core-v2/agent/task/types';
 import type {
-  AgentTaskInfo as BackgroundTaskInfo,
   CronAddPayload,
+  CronTask,
   CronCursorPayload,
   CronDeletePayload,
-  CronTask,
-  ExportSessionManifest,
-  FileHistoryCheckpointed,
-  FileHistoryTracked,
-  Forked,
   FullCompactionBegin,
   FullCompactionCancel,
   FullCompactionComplete,
+  FileHistoryCheckpointed,
+  FileHistoryTracked,
   GoalClear,
   GoalCreate,
+  Forked,
   GoalUpdate,
   InteractionRequestEvent,
   InteractionResolvedEvent,
@@ -79,7 +78,7 @@ import type {
 } from '@pymodel/agent-core-v2/agent/contextMemory/contextEvents';
 import type { TurnCancel, TurnEnded, TurnPrompt, TurnSteer } from '@pymodel/agent-core-v2/agent/loop/turnOps';
 import type { TurnStepInterrupted } from '@pymodel/agent-core-v2/agent/loop/turnEvents';
-import type { TurnStepRetrying } from '@pymodel/agent-core-v2/agent/loop/turnEvents';
+import type { TurnStepRetrying } from '@pymodel/agent-core-v2/agent/stepRetry/stepRetryService';
 import type { UsageRecord } from '@pymodel/agent-core-v2/agent/usage/usageOps';
 import type {
   ConfigUpdate,
@@ -90,7 +89,10 @@ import type {
 import type { PermissionSetMode } from '@pymodel/agent-core-v2/agent/permissionMode/permissionModeOps';
 import type { PermissionRecordApprovalResult } from '@pymodel/agent-core-v2/agent/permissionRules/permissionRulesOps';
 import type { RuntimeSetBinding } from '@pymodel/agent-core-v2/agent/runtimeBinding/runtimeBindingOps';
-import type { SwarmModeEnter, SwarmModeExit } from '@pymodel/agent-core-v2/features/swarm/swarmOps';
+import type {
+  DynamicWorkflowModeEnter,
+  DynamicWorkflowModeExit,
+} from '@pymodel/agent-core-v2/features/dynamic_workflow/dynamicWorkflowOps';
 import type { TowerModeEnter, TowerModeExit } from '@pymodel/agent-core-v2/features/tower/towerOps';
 import type { ToolsUpdateStore } from '@pymodel/agent-core-v2/features/todo/todoOps';
 
@@ -134,19 +136,9 @@ export interface StaleGuardClearedRecord {
   readonly time?: number;
 }
 
-/** v2-dropped durable record: removed with the loop-side prompt admission
- *  facility, but old wires still contain it. */
-export interface PromptAcceptedRecord {
-  readonly type: 'prompt.accepted';
-  readonly agentId: string;
-  readonly promptId: string;
-  readonly content?: unknown;
-  readonly time?: number;
-}
-
 /** The wire file header record. Declared locally (rather than via v2's
  *  `WireMetadataRecord`) so the union member keeps concrete field types —
- *  the upstream interface carries an index signature that would widen
+ *  the engine interface carries an index signature that would widen
  *  `protocol_version` / `created_at` to `unknown`. */
 export interface WireMetadataHeader {
   readonly type: 'metadata';
@@ -173,6 +165,8 @@ export type AgentRecord =
   | WireRecordOf<'cron.add', CronAddPayload>
   | WireRecordOf<'cron.cursor', CronCursorPayload>
   | WireRecordOf<'cron.delete', CronDeletePayload>
+  | WireRecordOf<'dynamic_workflow_mode.enter', DynamicWorkflowModeEnter>
+  | WireRecordOf<'dynamic_workflow_mode.exit', DynamicWorkflowModeExit>
   | WireRecordOf<'file_history.checkpoint', FileHistoryCheckpointed>
   | WireRecordOf<'file_history.tracked', FileHistoryTracked>
   | WireRecordOf<'forked', Forked>
@@ -197,7 +191,7 @@ export type AgentRecord =
   | WireRecordOf<'plugin.session_start', PluginSessionStartEvent>
   | WireRecordOf<'profile.bind', ProfileBind>
   | WireRecordOf<'prompt.aborted', PromptAborted>
-  | PromptAcceptedRecord
+  | WireRecordOf<'prompt.accepted', PromptAcceptedRecord>
   | WireRecordOf<'prompt.completed', PromptCompleted>
   | WireRecordOf<'prompt.steered', PromptSteered>
   | WireRecordOf<'runtime.set_binding', RuntimeSetBinding>
@@ -206,8 +200,6 @@ export type AgentRecord =
   | WireRecordOf<'subagent.failed', SubagentFailed>
   | WireRecordOf<'subagent.spawned', SubagentSpawned>
   | WireRecordOf<'subagent.started', SubagentStarted>
-  | WireRecordOf<'swarm_mode.enter', SwarmModeEnter>
-  | WireRecordOf<'swarm_mode.exit', SwarmModeExit>
   | WireRecordOf<'task.started', TaskStarted>
   | WireRecordOf<'task.terminated', TaskTerminated>
   | WireRecordOf<'task.waitDelivered', TaskWaitDelivered>
@@ -242,10 +234,35 @@ export type AgentRecordOf<K extends AgentRecord['type']> = Extract<
 
 /**
  * `manifest.json` shape inside a `/export-debug-zip` bundle. Structural
- * current engine manifest with every field optional because the bundle may
- * come from another machine or an older pythinker-code version.
+ * mirror of the engine's `ExportSessionManifest`, which is not re-exported
+ * from the package entry. All fields optional-tolerant because the manifest
+ * comes from another machine / pythinker-code version.
  */
-export type ImportManifest = Partial<ExportSessionManifest>;
+export interface ImportManifest {
+  sessionId?: string;
+  exportedAt?: string;
+  pythinkerCodeVersion?: string;
+  wireProtocolVersion?: string;
+  os?: string;
+  nodejsVersion?: string;
+  sessionFirstActivity?: string;
+  sessionLastActivity?: string;
+  title?: string;
+  workspaceDir?: string;
+  sessionLogPath?: string;
+  globalLogPath?: string;
+  desktopLogPath?: string;
+  webLogPath?: string;
+  desktopVersion?: string;
+  installSource?: string;
+  shellEnv?: {
+    term?: string;
+    termProgram?: string;
+    termProgramVersion?: string;
+    multiplexer?: string;
+    shell?: string;
+  };
+}
 
 /** vis-side bookkeeping for one imported bundle, written to
  *  `imported/<importId>/import-meta.json`. */
@@ -308,12 +325,13 @@ export interface AgentInfo {
   wireExists: boolean;
   wireRecordCount: number;
   wireProtocolVersion: string | null;
-  /** Per-item swarm work label persisted by the engine for swarm-spawned
-   *  sub-agents (`AgentMeta.swarmItem`, or `AgentMeta.labels.swarmItem` on
-   *  v2-written sessions). `null` when the agent is not a swarm item or when
-   *  the value cannot be recovered (e.g. disk-only inventory of a session
-   *  with a corrupt `state.json`). */
-  swarmItem: string | null;
+  /** Per-item dynamic_workflow work label persisted by the engine for
+   *  dynamic-workflow-spawned sub-agents (`AgentMeta.dynamicWorkflowItem`, or
+   *  `AgentMeta.labels.dynamicWorkflowItem` on v2-written sessions). `null`
+   *  when the agent is not a dynamic_workflow item or when the value cannot
+   *  be recovered (e.g. disk-only inventory of a session with a corrupt
+   *  `state.json`). */
+  dynamicWorkflowItem: string | null;
 }
 
 export interface SessionDetail {
@@ -323,7 +341,7 @@ export interface SessionDetail {
    *  which can drift after fork/rename. */
   sessionDir: string;
   workDir: string;
-  state: unknown; // 原样透传，前端按 state.json 真实形状渲染
+  state: unknown; // Preserve the source shape; the UI renders the actual state.json form.
   agents: AgentInfo[];
   /** True for sessions imported from a debug zip. */
   imported: boolean;
