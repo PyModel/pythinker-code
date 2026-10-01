@@ -1,5 +1,17 @@
 # @pymodel/pythinker-code
 
+## 2.4.1
+
+### Patch Changes
+
+- [#352](https://github.com/PyModel/pythinker-code/pull/352) [`772e69a`](https://github.com/PyModel/pythinker-code/commit/772e69a77dbff1aca916c3281d59b2ac08eb315a) Thanks [@elkaix](https://github.com/elkaix)! - Run tool calls that some models (such as DeepSeek) write as DSML or <tool_call> text instead of showing them as plain text.
+
+- [#352](https://github.com/PyModel/pythinker-code/pull/352) [`772e69a`](https://github.com/PyModel/pythinker-code/commit/772e69a77dbff1aca916c3281d59b2ac08eb315a) Thanks [@elkaix](https://github.com/elkaix)! - Report an insufficient-balance response from OpenAI-compatible providers as a billing error instead of an authentication error.
+
+- [#349](https://github.com/PyModel/pythinker-code/pull/349) [`69cc714`](https://github.com/PyModel/pythinker-code/commit/69cc714fb23f302b1c6c7696f0ce896d1287bb45) Thanks [@elkaix](https://github.com/elkaix)! - Fix OpenCode Go requests failing with "Request is missing x-opencode-session".
+
+- [#352](https://github.com/PyModel/pythinker-code/pull/352) [`772e69a`](https://github.com/PyModel/pythinker-code/commit/772e69a77dbff1aca916c3281d59b2ac08eb315a) Thanks [@elkaix](https://github.com/elkaix)! - Accept a vendor API key or base URL set in a provider's env table (for example ANTHROPIC_API_KEY or ANTHROPIC_BASE_URL) instead of ignoring it.
+
 ## 2.4.0
 
 ### Minor Changes
