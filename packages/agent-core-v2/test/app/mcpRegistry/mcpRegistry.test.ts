@@ -57,7 +57,7 @@ describe('McpRegistryService', () => {
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), 'pythinker-mcp-registry-home-'));
-    vi.stubEnv('KIMI_CODE_HOME', home);
+    vi.stubEnv('PYTHINKER_CODE_HOME', home);
     disposables = new DisposableStore();
     tempDirs = [home];
     pluginEntries = [];
