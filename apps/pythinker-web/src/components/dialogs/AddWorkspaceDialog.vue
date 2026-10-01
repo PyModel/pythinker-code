@@ -611,7 +611,7 @@ onUnmounted(() => {
   color: #b3261e;
   background: rgba(179, 38, 30, 0.08);
   border: 1px solid rgba(179, 38, 30, 0.25);
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
 }
 .actions {
   display: flex;

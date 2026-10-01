@@ -88,7 +88,7 @@ function onKeydown(e: KeyboardEvent): void {
   max-width: calc(100vw - 48px);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-line);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-2xl);
   box-shadow: var(--shadow-xl);
   overflow: hidden;
   color: var(--color-text);

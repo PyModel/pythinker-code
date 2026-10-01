@@ -329,7 +329,7 @@ onUnmounted(() => {
   padding: 4px 9px 4px 5px;
   background: var(--color-bg);
   border: 1px solid var(--color-line);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   font-size: var(--ui-font-size-sm);
   transition: border-color var(--duration-fast) ease;
 }
@@ -358,13 +358,13 @@ onUnmounted(() => {
 .att-activate:focus-visible {
   outline: none;
   box-shadow: var(--p-focus-ring);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 .att-tile {
   position: relative;
   width: 20px;
   height: 20px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   flex: none;
   display: flex;
   align-items: center;
@@ -380,7 +380,7 @@ onUnmounted(() => {
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--color-accent);
   color: var(--color-on-accent, #fff);
   font-size: var(--text-xs);
@@ -421,7 +421,7 @@ onUnmounted(() => {
   height: 18px;
   padding: 0;
   border: none;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: transparent;
   color: var(--color-text-faint);
   cursor: pointer;
@@ -451,7 +451,7 @@ onUnmounted(() => {
   width: min(300px, calc(100vw - 16px));
   padding: var(--space-2);
   border: 1px solid var(--color-line);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   background: var(--color-surface-raised);
   color: var(--color-text);
   box-shadow: var(--shadow-lg);

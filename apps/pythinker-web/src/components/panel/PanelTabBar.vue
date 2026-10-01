@@ -164,8 +164,8 @@ onUnmounted(closeAddMenu);
 .ptb-x { position: relative; display: grid; place-items: center; flex: none; width: 28px; height: 28px; margin-right: var(--space-1); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-faint); cursor: pointer; }
 .ptb-x:hover { color: var(--color-text); background: var(--color-hover); }
 .ptb-tail { position: relative; display: flex; align-items: center; gap: var(--space-1); flex: none; padding-inline: var(--space-2); }
-.panel-add-menu { position: absolute; top: calc(100% + var(--space-1)); right: var(--space-2); z-index: var(--z-dropdown); display: flex; flex-direction: column; width: 190px; padding: var(--space-1); border: 1px solid var(--color-line); border-radius: var(--radius-md); background: var(--color-surface-raised); box-shadow: var(--shadow-md); }
-.panel-add-menu button { display: flex; align-items: center; gap: var(--space-2); min-height: 34px; padding: 0 var(--space-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text); font: var(--text-sm) var(--font-ui); cursor: pointer; }
+.panel-add-menu { position: absolute; top: calc(100% + var(--space-1)); right: var(--space-2); z-index: var(--z-dropdown); display: flex; flex-direction: column; width: 190px; padding: var(--space-1); border: 1px solid var(--color-line); border-radius: var(--radius-lg); background: var(--color-surface-raised); box-shadow: var(--shadow-md); }
+.panel-add-menu button { display: flex; align-items: center; gap: var(--space-2); min-height: 34px; padding: 0 var(--space-2); border: 0; border-radius: var(--radius-md); background: transparent; color: var(--color-text); font: var(--text-sm) var(--font-ui); cursor: pointer; }
 .panel-add-menu button:hover:not(:disabled), .panel-add-menu button:focus-visible { background: var(--color-hover); outline: none; }
 .panel-add-menu button:disabled { color: var(--color-text-faint); cursor: default; }
 @media (pointer: coarse) { .ptb-tab-main::after, .ptb-x::after { content: ''; position: absolute; inset: calc((var(--touch-target-min) - 28px) / -2); } .ptb-tab-main, .ptb-x { position: relative; } }

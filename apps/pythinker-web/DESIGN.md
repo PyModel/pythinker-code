@@ -218,6 +218,19 @@ be prevented, and therefore does not scale with `--ui-font-size`.
 - Code, Diff, and terminal content retain their independent font-size settings; only their surrounding interface controls use the UI text scale (`--text-2xs` … `--text-2xl`).
 - Mobile Web inputs that require the iOS 16px focus-zoom floor use the fixed 16px mobile input floor.
 
+### Documented glyph exemptions
+
+These fixed icon glyphs are not application text. Their numeric `font-size` is box geometry and must not follow `--ui-font-size`. A search for `font-size:` plus a number may still match them. They are the only permitted matches outside `DesignSystemView.vue`:
+
+- `ApprovalCard.vue` `.ah-ic` — `15px` warning mark in a fixed icon box
+- `QuestionCard.vue` `.qh-ic` — `15px` question mark in a fixed icon box
+- `AttachmentChip.vue` `.att-mention-glyph` — `11px` mention mark in an 18px control
+- `Composer.vue` `.send` and `.stop` — `font-size: 0` hides the text label so the icon shows
+- `Composer.vue` `.send:after` — `17px` arrow glyph sized to the send control
+- `MobileSettingsSheet.vue` `.chev` — `17px` forward chevron glyph
+- `MobileSettingsSheet.vue` `.chev.back` — `20px` back chevron glyph
+- `ThinkingIndicator.vue` size boxes — `14px`, `18px`, and `24px` frames sized to the indicator box
+
 ### Type roles
 
 The the UI text scale (`--text-2xs` … `--text-2xl`) expresses stable semantic roles. Choose a token by content role rather than by isolated visual preference. This repo collapses the caption and secondary roles onto `--text-sm` and separates them through color and weight:

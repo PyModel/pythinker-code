@@ -557,7 +557,7 @@ onUnmounted(() => {
   width: 252px;
   max-width: calc(100vw - 64px);
   border: 1px solid var(--color-line-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--color-surface-raised);
   box-shadow: var(--shadow-lg);
 }
@@ -576,7 +576,7 @@ onUnmounted(() => {
   overflow-y: auto;
   padding: var(--space-1);
   border: 1px solid var(--color-line-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--color-surface-raised);
   box-shadow: var(--shadow-lg);
 }

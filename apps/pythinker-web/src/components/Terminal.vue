@@ -268,7 +268,7 @@ onUnmounted(() => {
 .terminal-dot {
   width: 7px;
   height: 7px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: var(--muted);
   flex: none;
 }

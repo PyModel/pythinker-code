@@ -295,7 +295,7 @@ const accents: { value: Accent; label: string }[] = [
   margin: max(var(--space-6), 3vh);
   overflow: hidden;
   border: var(--p-hairline) solid var(--color-line);
-  border-radius: var(--radius-2xl);
+  border-radius: var(--radius-xl);
   background: var(--color-surface);
 }
 

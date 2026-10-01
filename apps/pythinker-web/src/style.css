@@ -535,7 +535,7 @@ html[data-color-scheme=dark][data-accent=mono] {
     --radius-2xl: 20px;
     --radius-composer: 32px;
     --corner-shape-composer: superellipse(1.5);
-    --radius-menu-row: var(--radius-sm);
+    --radius-menu-row: var(--radius-md);
     --menu-pad: 3.5px;
     --radius-menu-item: calc(var(--radius-lg) - var(--menu-pad) - var(--p-hairline));
     --radius-select-option: calc(var(--radius-md) - var(--space-1) - var(--p-hairline));
@@ -1137,7 +1137,7 @@ a.mention-folder {
     height: calc(var(--space-2) + var(--space-05));
     margin-left: var(--space-1);
     vertical-align: var(--p-mention-tip-spinner-lift);
-    border-radius: 50%;
+    border-radius: var(--radius-full);
     border: var(--p-ring-stroke) solid color-mix(in srgb, currentColor 30%, transparent);
     border-top-color: currentColor;
     animation: mention-tip-spin var(--duration-spin) linear infinite
@@ -1254,7 +1254,7 @@ body {
 
 *::-webkit-scrollbar-thumb {
     background: color-mix(in srgb, var(--color-text) 12%, transparent);
-    border-radius: 999px
+    border-radius: var(--radius-full)
 }
 
 *::-webkit-scrollbar-thumb:hover {

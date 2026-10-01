@@ -192,14 +192,14 @@ function taskNumber(task: TaskItem, index: number): string {
   gap: 2px;
   padding: 3px;
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: var(--radius-lg);
 }
 
 .dw-filter {
   min-height: 28px;
   padding: 0 11px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--muted);
   background: transparent;
   font: inherit;
@@ -292,7 +292,7 @@ function taskNumber(task: TaskItem, index: number): string {
   min-height: 38px;
   overflow: hidden;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.45;
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
@@ -333,7 +333,7 @@ function taskNumber(task: TaskItem, index: number): string {
   width: 7px;
   height: 7px;
   flex: none;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: var(--muted);
   transition: background-color var(--wf-t-base) var(--wf-ease);
 }
@@ -376,7 +376,7 @@ function taskNumber(task: TaskItem, index: number): string {
   place-items: center;
   padding: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   color: var(--muted);
   background: transparent;
   opacity: 0;

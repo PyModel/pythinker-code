@@ -674,5 +674,5 @@ function treePadding(depth: number): string {
 }
 .changes-pane .badge,
 .changed-tree .badge { border-radius: var(--radius-sm); }
-.change-count { font-family: var(--sans); border-radius: 999px; }
+.change-count { font-family: var(--sans); border-radius: var(--radius-full); }
 </style>

@@ -1599,7 +1599,7 @@ function continueFailedTurn(): void {
   color: var(--muted);
   font-size: var(--ui-font-size-sm);
   padding: 4px 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   cursor: pointer;
   transition: color 0.15s ease, border-color 0.15s ease;
 }

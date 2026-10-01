@@ -252,7 +252,7 @@ async function copyPath(): Promise<void> {
   align-items: center;
   flex: none;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   background: var(--bg);
   font-family: var(--mono);
