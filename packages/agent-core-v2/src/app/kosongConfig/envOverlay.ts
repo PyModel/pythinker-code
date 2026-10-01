@@ -3,12 +3,12 @@ import { Error2 } from '#/_base/errors/errors';
 
 import type { ConfigEffectiveOverlay } from '#/app/config/config';
 import { registerConfigOverlay } from '#/app/config/configOverlayContributions';
-import { CONFIG_INVALID_ERROR_CODE } from '#/kosong/contract/errors';
-import { resolveProviderEndpoint } from '#/kosong/provider/providerDefinition';
+import { CONFIG_INVALID_ERROR_CODE } from '#/llm-adapter/contract/errors';
+import { resolveProviderEndpoint } from '#/llm-adapter/provider/provider-definition';
 import {
   PYTHINKER_BASE_URL_ENV,
   PYTHINKER_DEFAULT_BASE_URL,
-} from '#/kosong/provider/providers/pythinker/pythinker.contrib';
+} from '#human/llm-pythinker/trait';
 
 import { ENV_MODEL_PROVIDER_KEY } from './configSection';
 

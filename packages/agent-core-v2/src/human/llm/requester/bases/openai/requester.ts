@@ -2,6 +2,8 @@ import OpenAI from 'openai';
 import { assign, shake } from 'radashi';
 
 import { headersToRecord } from '#/llm/errors';
+import type { FinishInfo } from '#/llm/finish-reason';
+import type { StreamedMessagePart, ToolCall } from '#/llm/message';
 import { modelKey, type LlmModel } from '#/llm/model';
 import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
@@ -43,6 +45,7 @@ import {
   type OpenAIRequestParams,
 } from './format';
 import { DEFAULT_REASONING_KEY, ReasoningKeyDialect } from './reasoning-key';
+import { DsmlStreamParser } from './dsml-tool-parser';
 
 const OPENAI_CHAT_TOOL_CALL_ID_POLICY: ToolCallIdPolicy = {
   normalize: (id) => sanitizeToolCallId(id, 64),
@@ -173,12 +176,34 @@ async function executeOpenAIRequest(
           },
   });
   let messageId: string | undefined;
+  const dsml = new DsmlStreamParser();
+  const recoveredToolCalls: ToolCall[] = [];
+  let nativeToolCallsSeen = false;
+  let finish: FinishInfo | undefined;
+  const emitPart = (part: StreamedMessagePart): void => {
+    onEvent?.({ type: 'llm.streaming.part', part });
+  };
+  const emitTextParts = (parts: readonly StreamedMessagePart[]): void => {
+    for (const part of parts) {
+      if (part.type === 'function') recoveredToolCalls.push(part);
+      else emitPart(part);
+    }
+  };
   for await (const chunk of stream) {
     reasoning.observe(chunk.choices?.[0]?.delta);
     let failed = false;
     parse(chunk, {
-      onDelta: (part) => onEvent?.({ type: 'llm.streaming.part', part }),
-      onFinish: (finish) => onEvent?.({ type: 'llm.streaming.finish', finish }),
+      onDelta: (part) => {
+        if (part.type === 'text') {
+          emitTextParts(dsml.feed(part.text));
+          return;
+        }
+        if (part.type === 'function' || part.type === 'tool_call_part') nativeToolCallsSeen = true;
+        emitPart(part);
+      },
+      onFinish: (next) => {
+        finish = next;
+      },
       onMessageId: (id) => {
         if (id === messageId) return;
         messageId = id;
@@ -193,6 +218,20 @@ async function executeOpenAIRequest(
     if (failed) {
       return;
     }
+  }
+  emitTextParts(dsml.flush());
+  const recovered = !nativeToolCallsSeen && recoveredToolCalls.length > 0;
+  if (recovered) {
+    for (const toolCall of recoveredToolCalls) emitPart(toolCall);
+  }
+  if (finish !== undefined) {
+    onEvent?.({
+      type: 'llm.streaming.finish',
+      finish:
+        recovered && (finish.finishReason === 'completed' || finish.finishReason === null)
+          ? { ...finish, finishReason: 'tool_calls' }
+          : finish,
+    });
   }
   onEvent?.({ type: 'llm.done' });
 }

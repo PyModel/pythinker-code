@@ -406,7 +406,7 @@ export async function handleCatalogAdd(
 
   // Always restore `[thinking]` from what was there before — including
   // `undefined`. Persisting `enabled: false` when the user never set it would
-  // make `resolveThinkingEffort` (agent-core-v2/src/kosong/model/thinking.ts) treat
+  // make `resolveThinkingEffort` (agent-core-v2/src/llm-adapter/model/thinking.ts) treat
   // it as an explicit "off" request and silently disable thinking, even for
   // thinking-capable models.
   config.thinking = previousThinking;
