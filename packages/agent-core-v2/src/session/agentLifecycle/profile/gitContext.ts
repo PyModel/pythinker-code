@@ -203,7 +203,6 @@ async function runGit(
       await proc.kill('SIGKILL');
     } catch {
     }
-    await work.catch(() => {});
     if (timedOut) return { ok: false, kind: 'timeout' };
     return { ok: false, kind: 'command-failed' };
   } finally {
