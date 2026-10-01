@@ -689,7 +689,7 @@ export class TranscriptService {
       return snapshot;
     }
     const modes = { ...snapshot.meta.modes, tower: undefined };
-    const cleared = modes.plan === undefined && modes.swarm === undefined && modes.tower === undefined;
+    const cleared = modes.plan === undefined && modes.dynamic_workflow === undefined && modes.tower === undefined;
     return { ...snapshot, meta: { ...snapshot.meta, modes: cleared ? undefined : modes } };
   }
 
