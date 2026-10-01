@@ -15,7 +15,6 @@ export const FORBIDDEN_CAPABILITY_MARKER = 'moonshot-ai.kosong.UNKNOWN_CAPABILIT
 
 export const CAPABILITY_FILES = [
   'packages/kosong/src/capability.ts',
-  'packages/agent-core-v2/src/kosong/contract/capability.ts',
   'packages/agent-core-v2/src/llm-adapter/contract/capability.ts',
   'packages/agent-core-v2/src/human/llm/capability.ts',
 ];

@@ -64,6 +64,20 @@ describe('pythinkerModelEnvOverlay.apply', () => {
     });
   });
 
+  it('honors the vendor base-url env for a non-pythinker env provider type', () => {
+    const effective: Record<string, unknown> = {
+      providers: { [ENV_MODEL_PROVIDER_KEY]: { type: 'anthropic' } },
+    };
+    apply(effective, {
+      PYTHINKER_MODEL_NAME: 'my-model',
+      ANTHROPIC_BASE_URL: 'https://anthropic-proxy.example.test',
+    });
+    expect((effective['providers'] as Record<string, unknown>)[ENV_MODEL_PROVIDER_KEY]).toEqual({
+      type: 'anthropic',
+      baseUrl: 'https://anthropic-proxy.example.test',
+    });
+  });
+
   it('keeps an existing env-provider type and baseUrl untouched', () => {
     const effective: Record<string, unknown> = {
       providers: {

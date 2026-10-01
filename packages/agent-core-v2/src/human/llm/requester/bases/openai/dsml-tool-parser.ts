@@ -1,4 +1,4 @@
-import type { StreamedMessagePart, ToolCall } from '#/kosong/contract/message';
+import type { StreamedMessagePart, ToolCall } from '#/llm/message';
 
 const MARK = String.raw`\s*[｜|]?\s*(?:DSML\s*[｜|]?)?\s*`;
 const CONTAINER_OPEN_RE = new RegExp(String.raw`<${MARK}tool_calls\s*>`, 'yi');
