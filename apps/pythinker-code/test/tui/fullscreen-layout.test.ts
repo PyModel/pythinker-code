@@ -685,7 +685,6 @@ describe('fullscreen layout', () => {
     state.ui.requestRender(true);
     await vt.waitForRender();
 
-    const alt = state.ui as TuiAltScreen;
     const topRow = () => stripAnsi(vt.getViewport()[0] ?? '').trimEnd();
     const countRows = (text: string) =>
       Array.from({ length: HEIGHT }, (_, i) => stripAnsi(vt.getViewport()[i] ?? '')).filter(
