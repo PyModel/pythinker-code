@@ -464,7 +464,7 @@ function restoreSession(): void {
   align-items: center;
   gap: 3px;
   padding: 1px 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--panel);
   border: 1px solid var(--line);
   font-size: calc(var(--ui-font-size) - 3px);

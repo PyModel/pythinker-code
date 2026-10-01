@@ -11,9 +11,12 @@ const props = withDefaults(defineProps<{
   /** Accessible name for the panel. The panel is a dialog, not a menu: the slot
       holds plain buttons and switches, not `menuitem` children. */
   label?: string;
+  /** Option-overlay shell. Standalone panels start at xl; menus stay at lg. */
+  menu?: boolean;
 }>(), {
   align: 'start',
   label: undefined,
+  menu: false,
 });
 
 const emit = defineEmits<{
@@ -153,6 +156,7 @@ onBeforeUnmount(() => {
       v-if="open"
       ref="panelRef"
       class="popover"
+      :class="{ 'popover--menu': menu }"
       :style="panelStyle"
       role="dialog"
       :aria-label="label"
@@ -173,8 +177,11 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   padding: 2px;
   border: 1px solid var(--line);
-  border-radius: var(--r-md);
+  border-radius: var(--radius-xl);
   background: var(--panel);
   box-shadow: 0 8px 24px color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.popover.popover--menu {
+  border-radius: var(--radius-lg);
 }
 </style>

@@ -153,7 +153,7 @@ onBeforeUnmount(close);
 .multi-select__search { padding: var(--space-1); }
 .multi-select__separator { height: 1px; margin: var(--space-1) 0; background: var(--color-line); }
 .multi-select__options { max-height: 240px; overflow: auto; }
-.multi-select__option { min-height: 32px; display: flex; align-items: center; gap: var(--space-2); padding: 6px 10px; border-radius: var(--radius-sm); color: var(--color-text); font-size: var(--text-base); cursor: pointer; }
+.multi-select__option { min-height: 32px; display: flex; align-items: center; gap: var(--space-2); padding: 6px 10px; border-radius: var(--radius-md); color: var(--color-text); font-size: var(--text-base); cursor: pointer; }
 .multi-select__option:hover { background: var(--color-hover); }
 .multi-select__option.active { background: var(--color-selected); }
 .multi-select__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

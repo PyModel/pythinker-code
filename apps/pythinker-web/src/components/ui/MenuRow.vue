@@ -38,7 +38,7 @@ withDefaults(defineProps<{
   box-sizing: border-box;
   padding: 0 8px;
   border: 0;
-  border-radius: var(--r-md);
+  border-radius: var(--radius-md);
   background: none;
   color: var(--ink);
   font-family: inherit;

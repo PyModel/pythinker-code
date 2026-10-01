@@ -39,7 +39,7 @@ const emit = defineEmits<{
   box-sizing: border-box;
   padding: 6px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: none;
   color: var(--ink);
   font: inherit;

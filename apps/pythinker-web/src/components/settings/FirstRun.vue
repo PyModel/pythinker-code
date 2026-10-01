@@ -320,13 +320,13 @@ async function onProviderAdded(): Promise<void> {
   flex: none;
   border-radius: var(--radius-full);
   border: 1.5px solid currentColor;
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: var(--weight-medium);
 }
 .first-run__step.is-current .first-run__dot { background: var(--blue); border-color: var(--blue); color: #fff; }
 .first-run__step.is-done .first-run__dot { background: var(--ok); border-color: var(--ok); color: #fff; }
 .first-run__body { display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
-.first-run__body h1 { margin: 0; font-size: 24px; font-weight: 500; line-height: 1.2; }
+.first-run__body h1 { margin: 0; font-size: var(--text-2xl); font-weight: var(--weight-medium); line-height: 1.2; }
 .first-run__mark { margin-bottom: 4px; }
 .first-run__sub { margin: 0; color: var(--dim); font-size: var(--ui-font-size); line-height: 1.55; }
 .first-run__options { display: flex; flex-direction: column; gap: 8px; width: 100%; }

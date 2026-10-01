@@ -301,7 +301,7 @@ onUnmounted(() => {
   width: min(var(--p-findbar-w), calc(100% - var(--space-3) * 2));
   background: var(--color-surface-raised);
   border: var(--p-hairline) solid var(--color-line);
-  border-radius: var(--radius-2xl);
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-menu);
   animation: pythinker-card-in var(--duration-slow) var(--ease-out);
 }
@@ -312,7 +312,7 @@ onUnmounted(() => {
   inset: 0;
   border: inherit;
   border-color: var(--color-composer-focus-line);
-  border-radius: var(--radius-2xl);
+  border-radius: var(--radius-xl);
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--duration-slow) var(--ease-in-out);

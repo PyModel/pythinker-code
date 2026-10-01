@@ -938,7 +938,7 @@ function truncatePath(path: string, maxLen = 55): string {
   max-height: 100%;
   object-fit: contain;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: var(--media-alpha-canvas);
 }
 .fp-image.actual {
@@ -959,7 +959,7 @@ function truncatePath(path: string, maxLen = 55): string {
   gap: 12px;
   padding: 20px 24px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
   color: var(--muted);
   font-size: var(--ui-font-size);
@@ -986,7 +986,7 @@ function truncatePath(path: string, maxLen = 55): string {
   height: 14px;
   border: 1.5px solid var(--line);
   border-top-color: var(--color-accent);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   animation: spin 0.7s linear infinite;
 }
 

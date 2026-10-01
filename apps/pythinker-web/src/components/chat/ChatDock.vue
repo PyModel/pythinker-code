@@ -615,7 +615,7 @@ defineExpose({
   -webkit-backdrop-filter: var(--p-menu-backdrop);
   backdrop-filter: var(--p-menu-backdrop);
   border: .5px solid var(--color-line);
-  border-radius: var(--radius-2xl);
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-menu);
   margin-bottom: var(--space-2);
   max-height: min(360px, 50vh);

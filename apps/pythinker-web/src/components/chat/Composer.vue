@@ -2556,7 +2556,7 @@ function selectModel(modelId: string): void {
     align-items: center;
     justify-content: center;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--dim);
     cursor: pointer;
@@ -3285,7 +3285,7 @@ function selectModel(modelId: string): void {
     font-size: var(--ui-font-size);
     color: var(--color-text);
     padding: 5px 9px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     text-align: left;
     transition: background var(--duration-base) var(--ease-out)
 }
@@ -3417,7 +3417,7 @@ function selectModel(modelId: string): void {
     border: none;
     cursor: pointer;
     padding: 6px 7px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     text-align: left
 }
 
@@ -3611,7 +3611,7 @@ function selectModel(modelId: string): void {
     }
 
     .ph {
-        font-size: 16px
+        font-size: var(--text-lg)
     }
 
     .model-pill,
@@ -3673,7 +3673,7 @@ function selectModel(modelId: string): void {
 .att-lightbox-media {
   max-width: 100%;
   max-height: calc(100vh - 96px);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--bg);
   box-shadow: var(--shadow-xl);
   object-fit: contain;
@@ -3694,7 +3694,7 @@ function selectModel(modelId: string): void {
   width: 28px;
   height: 28px;
   border: 1px solid rgba(255,255,255,0.45);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: rgba(20,23,28,0.82);
   color: var(--surface-light);
   cursor: pointer;

@@ -165,7 +165,7 @@ function setPluginEnabled(id: string, enabled: boolean): void {
       <span class="capability-trigger-label">{{ t('capabilityMenu.trigger') }}</span>
     </button>
 
-    <Popover :anchor="props.triggerless ? rootRef : triggerRef" :open="open" :label="t('capabilityMenu.triggerLabel')" @close="close">
+    <Popover menu :anchor="props.triggerless ? rootRef : triggerRef" :open="open" :label="t('capabilityMenu.triggerLabel')" @close="close">
       <div class="capability-panel">
         <div class="capability-viewport">
           <div class="capability-track" :class="{ 'is-drilled': view !== 'root' }">

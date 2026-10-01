@@ -44,7 +44,7 @@ function onKeydown(event: KeyboardEvent): void {
   height: 16px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: none;
   cursor: pointer;
 }
@@ -57,7 +57,7 @@ function onKeydown(event: KeyboardEvent): void {
 
 .track {
   inset: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--line);
   transition: background-color 150ms ease;
 }
@@ -71,7 +71,7 @@ function onKeydown(event: KeyboardEvent): void {
   left: 2px;
   width: 12px;
   height: 12px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: var(--panel);
   transition: transform 150ms ease;
 }

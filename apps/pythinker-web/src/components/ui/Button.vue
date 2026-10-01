@@ -67,7 +67,7 @@ withDefaults(defineProps<{
 /* sizes */
 .ui-button--sm { height: 30px; padding: 0 var(--space-3); font-size: var(--text-sm); border-radius: var(--radius-sm); }
 .ui-button--md { height: 36px; padding: 0 var(--space-4); font-size: var(--text-base); }
-.ui-button--lg { height: 42px; padding: 0 var(--space-5); font-size: 15px; border-radius: var(--radius-lg); }
+.ui-button--lg { height: 42px; padding: 0 var(--space-5); font-size: var(--text-lg); border-radius: var(--radius-lg); }
 
 /* icon + label sit on one row; the svg reset makes <svg> display:block, which
    would otherwise stack it above the text. */

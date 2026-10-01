@@ -180,7 +180,7 @@ function cellStyle(delay: number, index: number): CSSProperties {
 .agent-thinking__ellipsis > i {
   width: 2px;
   height: 2px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: currentColor;
   opacity: 0.25;
   animation: agent-thinking-ellipsis 1100ms ease-in-out infinite;
@@ -210,7 +210,7 @@ function cellStyle(delay: number, index: number): CSSProperties {
 }
 
 .agent-thinking__matrix[data-variant="orbit"] > i {
-  border-radius: 50%;
+  border-radius: var(--radius-full);
 }
 
 .agent-thinking__matrix[data-variant="twinkle"] > i:nth-child(3n) {

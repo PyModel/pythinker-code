@@ -64,7 +64,7 @@ function close(): void {
   height: 14px;
   padding: 0;
   border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   display: inline-flex;
   align-items: center;
   justify-content: center;
