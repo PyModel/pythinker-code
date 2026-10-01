@@ -1,5 +1,25 @@
 # @pymodel/pythinker-code
 
+## 2.3.0
+
+### Minor Changes
+
+- [#335](https://github.com/PyModel/pythinker-code/pull/335) [`b050d20`](https://github.com/PyModel/pythinker-code/commit/b050d20519dbbff8cd81abe4be2bd294f04d561b) Thanks [@elkaix](https://github.com/elkaix)! - The workspace trust prompt now lists the MCP servers, extra directories, and project instruction sources that trusting would activate.
+
+- [#335](https://github.com/PyModel/pythinker-code/pull/335) [`b050d20`](https://github.com/PyModel/pythinker-code/commit/b050d20519dbbff8cd81abe4be2bd294f04d561b) Thanks [@elkaix](https://github.com/elkaix)! - Add PYTHINKER_CODE_TRUST_WORKSPACE=1 to trust the current workspace for headless runs without answering the trust prompt.
+
+### Patch Changes
+
+- [#335](https://github.com/PyModel/pythinker-code/pull/335) [`b050d20`](https://github.com/PyModel/pythinker-code/commit/b050d20519dbbff8cd81abe4be2bd294f04d561b) Thanks [@elkaix](https://github.com/elkaix)! - Stop sending a default completion token cap to models; set maxCompletionTokens in modelOverrides to cap output again.
+
+- [#335](https://github.com/PyModel/pythinker-code/pull/335) [`b050d20`](https://github.com/PyModel/pythinker-code/commit/b050d20519dbbff8cd81abe4be2bd294f04d561b) Thanks [@elkaix](https://github.com/elkaix)! - Forked sessions no longer inherit the source session's scheduled tasks; the source keeps them and the fork notes the clearing.
+
+- [#335](https://github.com/PyModel/pythinker-code/pull/335) [`b050d20`](https://github.com/PyModel/pythinker-code/commit/b050d20519dbbff8cd81abe4be2bd294f04d561b) Thanks [@elkaix](https://github.com/elkaix)! - Stop restricting file tools and background git through symlink-realpath gates and repo-config probes; project-local `local.toml` loads without the trust prompt again. Writes to paths that resolve to env files, credentials, or SSH keys are still blocked.
+
+- [#335](https://github.com/PyModel/pythinker-code/pull/335) [`b050d20`](https://github.com/PyModel/pythinker-code/commit/b050d20519dbbff8cd81abe4be2bd294f04d561b) Thanks [@elkaix](https://github.com/elkaix)! - Publish permission mode changes on agent status updates, stop NotifyUser nudges in clients without an updates panel, and drop the interruption reminder when its turn is undone.
+
+- [#335](https://github.com/PyModel/pythinker-code/pull/335) [`b050d20`](https://github.com/PyModel/pythinker-code/commit/b050d20519dbbff8cd81abe4be2bd294f04d561b) Thanks [@elkaix](https://github.com/elkaix)! - Watch config, skills, and AGENTS.md files for changes again by default; set `[watch] enabled = false` or PYTHINKER_CODE_WATCH=0 to keep them off.
+
 ## 2.2.1
 
 ### Patch Changes
