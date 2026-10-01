@@ -10,6 +10,7 @@ export interface TurnFileChange {
   removed: number;
   hasWrite: boolean;
   statsIncomplete: boolean;
+  estimated: boolean;
   diff: DiffViewLine[] | null;
 }
 
@@ -70,8 +71,10 @@ export function turnFileChanges(turn: ChatTurn): TurnFileChange[] {
     if (!path) continue;
     const hasWrite = kind === 'write';
     const diff = hasWrite ? null : buildEditDiffLines(block.tool);
-    const stats = diff ? diffStats(diff) : computeEditChangeStat(block.tool) ?? { added: 0, removed: 0 };
-    const statsIncomplete = hasWrite || diff === null;
+    const estimate = hasWrite || diff !== null ? null : computeEditChangeStat(block.tool);
+    const stats = diff ? diffStats(diff) : estimate ?? { added: 0, removed: 0 };
+    const estimated = estimate !== null;
+    const statsIncomplete = hasWrite;
     const key = normalizedPathKey(path);
     const current = changes.get(key);
     if (!current) {
@@ -80,6 +83,7 @@ export function turnFileChanges(turn: ChatTurn): TurnFileChange[] {
         ...stats,
         hasWrite,
         statsIncomplete,
+        estimated,
         diff,
       });
       continue;
@@ -88,6 +92,7 @@ export function turnFileChanges(turn: ChatTurn): TurnFileChange[] {
     current.removed += stats.removed;
     current.hasWrite ||= hasWrite;
     current.statsIncomplete ||= statsIncomplete;
+    current.estimated ||= estimated;
     if (current.diff !== null && diff !== null) {
       current.diff = [
         ...current.diff,

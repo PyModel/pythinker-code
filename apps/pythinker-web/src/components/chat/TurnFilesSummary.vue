@@ -23,6 +23,7 @@ const hiddenCount = computed(() => Math.max(0, changes.length - 3));
 const totalAdded = computed(() => changes.reduce((sum, change) => sum + change.added, 0));
 const totalRemoved = computed(() => changes.reduce((sum, change) => sum + change.removed, 0));
 const statsComplete = computed(() => changes.every((change) => !change.statsIncomplete));
+const statsEstimated = computed(() => changes.some((change) => change.estimated));
 const statsTotal = computed(() => totalAdded.value + totalRemoved.value);
 const addGrow = computed(() => statsTotal.value === 0 ? 1 : totalAdded.value);
 const removeGrow = computed(() => statsTotal.value === 0 ? 1 : totalRemoved.value);
@@ -57,8 +58,8 @@ function open(change: TurnFileChange): void {
         {{ t(changes.length === 1 ? 'conversation.turnFiles.titleOne' : 'conversation.turnFiles.titleOther', { number: changes.length }) }}
       </span>
       <span v-if="statsComplete && statsTotal > 0" class="tf-stats">
-        <span v-if="totalAdded > 0" class="tf-add">+{{ totalAdded }}</span>
-        <span v-if="totalRemoved > 0" class="tf-del">−{{ totalRemoved }}</span>
+        <span v-if="totalAdded > 0" class="tf-add">{{ statsEstimated ? '~+' : '+' }}{{ totalAdded }}</span>
+        <span v-if="totalRemoved > 0" class="tf-del">{{ statsEstimated ? '~−' : '−' }}{{ totalRemoved }}</span>
         <span class="diffbar" aria-hidden="true">
           <span class="seg-add" :style="{ flexGrow: addGrow }" />
           <span class="seg-del" :style="{ flexGrow: removeGrow }" />
@@ -81,8 +82,8 @@ function open(change: TurnFileChange): void {
           v-if="!change.statsIncomplete && (change.added > 0 || change.removed > 0)"
           class="tf-stats"
         >
-          <span v-if="change.added > 0" class="tf-add">+{{ change.added }}</span>
-          <span v-if="change.removed > 0" class="tf-del">−{{ change.removed }}</span>
+          <span v-if="change.added > 0" class="tf-add">{{ change.estimated ? '~+' : '+' }}{{ change.added }}</span>
+          <span v-if="change.removed > 0" class="tf-del">{{ change.estimated ? '~−' : '−' }}{{ change.removed }}</span>
         </span>
       </li>
     </ul>

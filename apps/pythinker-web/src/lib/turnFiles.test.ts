@@ -43,6 +43,7 @@ describe('turnFileChanges', () => {
       removed: 2,
       hasWrite: false,
       statsIncomplete: false,
+      estimated: false,
     });
     expect(change?.diff?.some((line) => line.type === 'hunk' && line.text === '···')).toBe(true);
     expect(change?.diff?.at(-1)?.newNo).toBeGreaterThan(1);
@@ -59,7 +60,12 @@ describe('turnFileChanges', () => {
         },
       ]),
     );
-    expect(change).toMatchObject({ hasWrite: true, statsIncomplete: true, diff: null });
+    expect(change).toMatchObject({
+      hasWrite: true,
+      statsIncomplete: true,
+      estimated: false,
+      diff: null,
+    });
   });
 
   it('ignores error-status edit tools', () => {
@@ -72,6 +78,22 @@ describe('turnFileChanges', () => {
     );
     expect(changes).toHaveLength(1);
     expect(changes[0]?.added).toBe(2);
+  });
+
+  it('surfaces estimated counts when an edit diff is too expensive to build', () => {
+    const before = Array.from({ length: 1000 }, (_, index) => `before-${index}`).join('\n');
+    const after = Array.from({ length: 1000 }, (_, index) => `after-${index}`).join('\n');
+    const [change] = turnFileChanges(turn([edit('big', 'src/big.ts', before, after)]));
+
+    expect(change).toMatchObject({
+      path: 'src/big.ts',
+      added: 1000,
+      removed: 1000,
+      hasWrite: false,
+      statsIncomplete: false,
+      estimated: true,
+      diff: null,
+    });
   });
 
   it('ignores non-edit tools', () => {

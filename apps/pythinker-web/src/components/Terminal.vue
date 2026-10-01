@@ -37,7 +37,7 @@ const theme = computed<ITheme>(() => {
   const css = getComputedStyle(hostRef.value ?? document.documentElement);
   const v = (token: string): string => css.getPropertyValue(token).trim();
   return {
-    background: v('--terminal-bg') || (isDark.value ? '#121212' : '#ffffff'),
+    background: v('--terminal-bg') || '#121212',
     foreground: v('--terminal-fg'),
     cursor: v('--terminal-cursor'),
     selectionBackground: v('--terminal-selection'),
