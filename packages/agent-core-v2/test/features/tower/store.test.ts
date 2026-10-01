@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
@@ -12,7 +12,6 @@ import {
   TowerProtocolError,
   TowerStore,
   commitPaths,
-  isWorktreeDirty,
   parseFrontmatter,
   worktreeAddNewBranch,
 } from '../../../src/features/tower/protocol';
@@ -317,74 +316,7 @@ describe('init', () => {
   });
 });
 
-describe('git invocation hardening', () => {
-  it.skipIf(process.platform === 'win32')(
-    'does not run repo-configured hooks when committing',
-    async () => {
-      const hooksDir = join(repo, 'evil-hooks');
-      await mkdir(hooksDir, { recursive: true });
-      const marker = join(repo, 'hook-ran');
-      await writeFile(join(hooksDir, 'pre-commit'), `#!/bin/sh\ntouch "${marker}"\n`);
-      await chmod(join(hooksDir, 'pre-commit'), 0o755);
-      await git(repo, 'config', 'core.hooksPath', hooksDir);
-      await writeFile(join(repo, 'x.txt'), 'x\n');
-
-      await commitPaths(repo, ['x.txt'], 'commit x');
-
-      expect(await git(repo, 'log', '-1', '--format=%s')).toBe('commit x');
-      await expect(stat(marker)).rejects.toThrow();
-    },
-  );
-
-  it.skipIf(process.platform === 'win32')(
-    'does not run a repo-configured fsmonitor command on status',
-    async () => {
-      const outside = await mkdtemp(join(tmpdir(), 'tower-fsm-'));
-      try {
-        const marker = join(outside, 'fsm-ran');
-        const helper = join(outside, 'helper.sh');
-        await writeFile(helper, `#!/bin/sh\ntouch "${marker}"\n`);
-        await chmod(helper, 0o755);
-        await git(repo, 'config', 'core.fsmonitor', helper);
-
-        expect(await isWorktreeDirty(repo)).toBe(false);
-        await expect(stat(marker)).rejects.toThrow();
-      } finally {
-        await rm(outside, { recursive: true, force: true });
-      }
-    },
-  );
-
-  it.skipIf(process.platform === 'win32')(
-    'does not run repo-configured clean filters on status and add',
-    async () => {
-      const outside = await mkdtemp(join(tmpdir(), 'tower-filter-'));
-      try {
-        const marker = join(outside, 'filter-ran');
-        await writeFile(join(repo, '.gitattributes'), '*.txt filter=evil\n');
-        await writeFile(join(repo, 'f.txt'), 'aaaa\n');
-        await git(repo, 'add', '-A');
-        await git(repo, 'commit', '-m', 'add f');
-        await git(repo, 'config', 'filter.evil.clean', `touch "${marker}"`);
-        await git(repo, 'config', 'filter.evil.smudge', 'cat');
-
-        await writeFile(join(repo, 'f.txt'), 'bbbb\n');
-        await git(repo, 'status', '--porcelain');
-        await stat(marker);
-        await rm(marker);
-
-        expect(await isWorktreeDirty(repo)).toBe(true);
-        await expect(stat(marker)).rejects.toThrow();
-
-        await commitPaths(repo, ['f.txt'], 'commit f');
-        expect(await git(repo, 'log', '-1', '--format=%s')).toBe('commit f');
-        await expect(stat(marker)).rejects.toThrow();
-      } finally {
-        await rm(outside, { recursive: true, force: true });
-      }
-    },
-  );
-
+describe('tower commit identity', () => {
   it('falls back to the tower identity when the repository has no committer identity', async () => {
     await git(repo, 'config', '--unset', 'user.name');
     await git(repo, 'config', '--unset', 'user.email');

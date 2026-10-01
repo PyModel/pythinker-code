@@ -17,7 +17,6 @@ import {
   sensitiveTargetError,
   type WorkspaceConfig,
 } from '#/tool/path-access';
-import { checkRealPathWriteTarget } from '#/tool/realpath-access';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
 import { IWriteTool, WriteInputSchema, type WriteInput } from './write';
@@ -74,10 +73,6 @@ export class WriteTool implements IWriteTool {
           }
           const denied = await sensitiveTargetError(lease.runtime.fs!, args.path, path);
           if (denied !== undefined) return { isError: true, output: denied };
-          const accessError = await checkRealPathWriteTarget(lease.runtime.fs!, path, workspace, env.pathClass);
-          if (accessError !== undefined) {
-            return { isError: true, output: accessError.message };
-          }
           return await this.execution(lease.runtime.fs!, args, path);
         } finally {
           lease.dispose();

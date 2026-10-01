@@ -254,4 +254,45 @@ describe('WorkspaceDirsService trust gating', () => {
     expect(result.additionalDirs).toEqual([plantedDir, extraDir]);
     expect(service.additionalDirs).toEqual([plantedDir, extraDir]);
   });
+
+  it('adds an ephemeral dir without validating a stale local.toml while trusted', async () => {
+    await writeLocalToml([join(homeDir, 'vanished')]);
+    const service = createService();
+
+    await expect(service.ready).rejects.toThrow(
+      'workspace.additional_dir must exist and be a directory',
+    );
+
+    const result = await service.addDir({ path: extraDir, persist: false });
+
+    expect(result.persisted).toBe(false);
+    expect(result.additionalDirs).toEqual([extraDir]);
+  });
+
+  it('rejects a trusted workspace whose local.toml claims the filesystem root', async () => {
+    await writeLocalToml(['/']);
+    const service = createService();
+
+    await expect(service.ready).rejects.toThrow(
+      'workspace.additional_dir must not be the user home directory or the filesystem root',
+    );
+  });
+
+  it('keeps a filesystem-root claim out of an untrusted workspace even after trust is granted', async () => {
+    await writeLocalToml(['/']);
+    trusted = false;
+    const service = createService();
+    await service.ready;
+    expect(service.additionalDirs).toEqual([]);
+
+    trusted = true;
+    trustFlips.fire({ trusted: true });
+
+    await vi.waitFor(
+      () => {
+        expect(service.additionalDirs).toEqual([]);
+      },
+      { timeout: 10000, interval: 50 },
+    );
+  }, 20000);
 });

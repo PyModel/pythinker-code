@@ -17,7 +17,7 @@ const vulnerableCode = [
   /\.version\s*=\s*["']3\.2\.7["']/,
   /\.version\s*=\s*["']3\.4\.7["']/,
 ];
-const safeCode = [/@license DOMPurify 3\.4\.14\b/, /\.version\s*=\s*["'`]3\.4\.14["'`]/];
+const safeCode = [/@license DOMPurify 3\.4\.16\b/, /\.version\s*=\s*["'`]3\.4\.16["'`]/];
 
 function compareVersions(left, right) {
   const parse = (value) => value.split('-')[0].split('.').map((part) => Number.parseInt(part, 10) || 0);
@@ -60,10 +60,10 @@ async function assertTextArtifactsSafe(label, root, requireSafeDomPurify = false
     if (safeCode.some((pattern) => pattern.test(content))) safeDomPurify += 1;
   }
   if (requireSafeDomPurify && safeDomPurify === 0) {
-    throw new Error(`${label} does not contain the required DOMPurify 3.4.14 implementation.`);
+    throw new Error(`${label} does not contain the required DOMPurify 3.4.16 implementation.`);
   }
   process.stdout.write(
-    `${label}: vulnerable code absent${requireSafeDomPurify ? '; DOMPurify 3.4.14 present' : ''}.\n`,
+    `${label}: vulnerable code absent${requireSafeDomPurify ? '; DOMPurify 3.4.16 present' : ''}.\n`,
   );
 }
 
@@ -116,17 +116,17 @@ async function assertDependencyProof() {
     ['ws', floor('8.21.3'), '>=8.21.3'],
     ['protobufjs', floor('7.6.5'), '>=7.6.5'],
     ['@protobufjs/utf8', floor('1.1.2'), '>=1.1.2'],
-    ['dompurify', floor('3.4.14'), '>=3.4.14'],
+    ['dompurify', floor('3.4.16'), '>=3.4.16'],
     ['mermaid', floor('11.17.0'), '>=11.17.0'],
     ['react-router', floor('7.18.2'), '>=7.18.2'],
     ['find-my-way', floor('9.9.0'), '>=9.9.0'],
-    ['ip-address', floor('10.5.0'), '>=10.5.0'],
-    ['fast-uri', floor('3.1.5'), '>=3.1.5'],
+    ['ip-address', floor('10.7.1'), '>=10.7.1'],
+    ['fast-uri', floor('3.1.8'), '>=3.1.8'],
     ['brace-expansion', (version) => {
-      if (major(version) === 1) return compareVersions(version, '1.1.18') >= 0;
-      if (major(version) === 2) return compareVersions(version, '2.1.4') >= 0;
-      return major(version) >= 5 && compareVersions(version, '5.0.9') >= 0;
-    }, '1.1.18, 2.1.4, or >=5.0.9'],
+      if (major(version) === 1) return compareVersions(version, '1.1.21') >= 0;
+      if (major(version) === 2) return compareVersions(version, '2.1.7') >= 0;
+      return major(version) >= 5 && compareVersions(version, '5.0.12') >= 0;
+    }, '1.1.21, 2.1.7, or >=5.0.12'],
     ['js-yaml', (version) => major(version) === 3
       ? compareVersions(version, '3.15.1') >= 0
       : major(version) >= 4 && compareVersions(version, '4.3.1') >= 0, '3.15.1 or >=4.3.1'],
@@ -165,8 +165,8 @@ async function assertDependencyProof() {
   const domPurifyPackage = JSON.parse(
     await readFile(resolve(dirname(domPurifyEntry), '../package.json'), 'utf8'),
   );
-  if (domPurifyPackage.version !== '3.4.14') {
-    throw new Error(`Monaco resolves DOMPurify ${domPurifyPackage.version}, expected 3.4.14.`);
+  if (compareVersions(domPurifyPackage.version, '3.4.16') < 0) {
+    throw new Error(`Monaco resolves DOMPurify ${domPurifyPackage.version}, expected >=3.4.16.`);
   }
   for (const distribution of ['dev', 'min']) {
     try {

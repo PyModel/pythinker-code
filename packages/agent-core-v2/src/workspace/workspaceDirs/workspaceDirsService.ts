@@ -55,7 +55,10 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     this.projectRoot = workspace.cwd;
     this.configPath = '';
     this.ready = this.enqueue(() => this.reloadFromDisk());
-    void this.ready.then(() => this.watchLocalToml());
+    this.ready.then(
+      () => this.watchLocalToml(),
+      () => {},
+    );
     this._register(
       this.trust.onDidChange(() => {
         if (!this.trust.isTrusted() && this.setFileDirs([])) {
