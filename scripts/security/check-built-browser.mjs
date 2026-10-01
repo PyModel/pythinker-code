@@ -236,7 +236,7 @@ async function serve(request, response) {
   }
 }
 
-async function launchChrome(executable, profile) {
+async function launchChrome(executable, profile, timeoutMs = 60_000) {
   const browser = spawn(
     executable,
     [
@@ -260,8 +260,9 @@ async function launchChrome(executable, profile) {
   let stderr = '';
   const endpoint = await new Promise((resolveEndpoint, reject) => {
     const timeout = setTimeout(() => {
-      reject(new Error(`Chrome did not expose DevTools. ${stderr}`));
-    }, 15_000);
+      browser.kill('SIGKILL');
+      reject(new Error(`Chrome did not expose DevTools within ${timeoutMs}ms. ${stderr}`));
+    }, timeoutMs);
     browser.stderr.on('data', (chunk) => {
       stderr += chunk.toString();
       const match = stderr.match(/DevTools listening on (ws:\/\/[^\s]+)/);
@@ -531,4 +532,4 @@ if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {
   }
 }
 
-export { CdpClient };
+export { CdpClient, launchChrome };
