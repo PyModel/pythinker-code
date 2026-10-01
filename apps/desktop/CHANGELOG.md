@@ -1,5 +1,21 @@
 # @pymodel/pythinker-desktop
 
+## 1.5.0
+
+### Minor Changes
+
+- [#339](https://github.com/PyModel/pythinker-code/pull/339) [`78fd037`](https://github.com/PyModel/pythinker-code/commit/78fd037a0bd3c24cde31f94213559e2a868aabe5) Thanks [@elkaix](https://github.com/elkaix)! - Let a new message interrupt a running tower wake turn and run as its own turn. Enable tower mode with `[experimental] tower = true`.
+
+### Patch Changes
+
+- [#339](https://github.com/PyModel/pythinker-code/pull/339) [`78fd037`](https://github.com/PyModel/pythinker-code/commit/78fd037a0bd3c24cde31f94213559e2a868aabe5) Thanks [@elkaix](https://github.com/elkaix)! - Fold hook output into your prompt message so one prompt always produces exactly one user message in the transcript.
+
+- [#339](https://github.com/PyModel/pythinker-code/pull/339) [`78fd037`](https://github.com/PyModel/pythinker-code/commit/78fd037a0bd3c24cde31f94213559e2a868aabe5) Thanks [@elkaix](https://github.com/elkaix)! - Cap WaitFor at 90 seconds; sending a message with Enter ends the wait early and steers it into the turn.
+
+- [#339](https://github.com/PyModel/pythinker-code/pull/339) [`78fd037`](https://github.com/PyModel/pythinker-code/commit/78fd037a0bd3c24cde31f94213559e2a868aabe5) Thanks [@elkaix](https://github.com/elkaix)! - Pin your latest message above the transcript in fullscreen mode and render user messages with a ❯ bullet.
+
+- [#339](https://github.com/PyModel/pythinker-code/pull/339) [`78fd037`](https://github.com/PyModel/pythinker-code/commit/78fd037a0bd3c24cde31f94213559e2a868aabe5) Thanks [@elkaix](https://github.com/elkaix)! - Make tower teardown safer around live agents and persist tower state atomically.
+
 ## 1.4.0
 
 ### Minor Changes
