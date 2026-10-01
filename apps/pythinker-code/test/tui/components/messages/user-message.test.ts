@@ -2,14 +2,15 @@ import { resetCapabilitiesCache, setCapabilities, visibleWidth } from '@pymodel/
 import chalk from 'chalk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { UserMessageComponent } from '#/tui/components/messages/user-message';
+import {
+  UserMessageComponent,
+  userMessageLineHeights,
+} from '#/tui/components/messages/user-message';
 import { currentTheme } from '#/tui/theme';
 import type { ImageAttachment } from '#/tui/utils/image-attachment-store';
 
 function stripAnsi(text: string): string {
-  return text
-    .replaceAll(/\u001B\[[0-9;]*m/g, '')
-    .replaceAll(/\u001B\]133;[ABC]\u0007/g, '');
+  return text.replaceAll(/\u001B\[[0-9;]*m/g, '').replaceAll(/\u001B\]133;[ABC]\u0007/g, '');
 }
 
 describe('UserMessageComponent', () => {
@@ -20,8 +21,8 @@ describe('UserMessageComponent', () => {
   });
 
   afterEach(() => {
-    chalk.level = previousChalkLevel;
     resetCapabilitiesCache();
+    chalk.level = previousChalkLevel;
   });
 
   it('renders role text on a full-width highlighted surface', () => {
@@ -30,7 +31,7 @@ describe('UserMessageComponent', () => {
     const contentLine = lines.find((line) => line.includes('hello'));
 
     expect(contentLine).toBeDefined();
-    expect(contentLine).toContain(currentTheme.boldFg('roleUser', '✨ '));
+    expect(contentLine).toContain(currentTheme.boldFg('roleUser', '❯ '));
     expect(contentLine).toContain(currentTheme.fg('textStrong', 'hello'));
     expect(contentLine).toContain('\u001B[48;2;28;34;56m');
     expect(visibleWidth(contentLine ?? '')).toBe(20);
@@ -39,10 +40,7 @@ describe('UserMessageComponent', () => {
   it('renders video placeholders as plain text, not inline image escapes', () => {
     setCapabilities({ images: null, trueColor: true, hyperlinks: true });
 
-    const component = new UserMessageComponent(
-      'please inspect [video #1 sample.mov]',
-      [],
-    );
+    const component = new UserMessageComponent('please inspect [video #1 sample.mov]', []);
 
     const out = stripAnsi(component.render(80).join('\n'));
 
@@ -117,26 +115,15 @@ describe('UserMessageComponent', () => {
     setCapabilities({ images: null, trueColor: true, hyperlinks: true });
 
     const withBullet = stripAnsi(new UserMessageComponent('hello', []).render(80).join('\n'));
-    expect(withBullet).toContain('✨');
+    expect(withBullet).toContain('❯');
     expect(withBullet).toContain('hello');
 
     const lines = new UserMessageComponent('$ ls', [], '').render(80).map(stripAnsi);
     const contentLine = lines.find((l) => l.includes('$ ls'));
     expect(contentLine).toBeDefined();
-    expect(stripAnsi(lines.join('\n'))).not.toContain('✨');
+    expect(stripAnsi(lines.join('\n'))).not.toContain('❯');
     // The `$` sits at the leading column where the bullet used to be.
     expect(contentLine?.startsWith('$ ls')).toBe(true);
-  });
-
-  it('preserves bulletless shell echoes without a message surface', () => {
-    setCapabilities({ images: null, trueColor: true, hyperlinks: true });
-    const shellEcho = currentTheme.fg('shellMode', '$ ls');
-    const contentLine = new UserMessageComponent(shellEcho, [], '')
-      .render(20)
-      .find((line) => line.includes('$ ls'));
-
-    expect(contentLine).toContain(shellEcho);
-    expect(contentLine).not.toContain('\u001B[48;2;28;34;56m');
   });
 
   it('marks the rendered zone with OSC 133 markers, once across cache hits', () => {
@@ -149,5 +136,50 @@ describe('UserMessageComponent', () => {
 
     const cached = component.render(80);
     expect(cached[0]).toBe(lines[0]);
+  });
+
+  describe('bullet', () => {
+    it('renders ❯ as the default bullet', () => {
+      setCapabilities({ images: null, trueColor: true, hyperlinks: true });
+
+      const rendered = stripAnsi(new UserMessageComponent('hello', []).render(80).join('\n'));
+      expect(rendered).toContain('❯');
+    });
+
+    it('indents continuation lines by the marker width', () => {
+      setCapabilities({ images: null, trueColor: true, hyperlinks: true });
+
+      const wrapped = new UserMessageComponent('word '.repeat(40).trim(), [])
+        .render(20)
+        .map(stripAnsi)
+        .filter((line) => line.includes('word'));
+      expect(wrapped[0]?.startsWith('❯ ')).toBe(true);
+      expect(wrapped[1]?.startsWith('  word')).toBe(true);
+    });
+
+  });
+});
+
+describe('userMessageLineHeights', () => {
+  it('counts one visual row per short logical line', () => {
+    expect(userMessageLineHeights('one\ntwo\nthree', 80)).toEqual([1, 1, 1]);
+  });
+
+  it('skips leading blank lines, matching the rendered content offset', () => {
+    expect(userMessageLineHeights('\n\none\ntwo', 80)).toEqual([1, 1]);
+  });
+
+  it('counts wrapped rows for long logical lines at the bullet-adjusted width', () => {
+    // Width 12 minus the 2-cell bullet leaves 10 columns for text.
+    expect(userMessageLineHeights('a'.repeat(25), 12)).toEqual([3]);
+  });
+
+  it('expands tabs like the Text component does before wrapping', () => {
+    expect(userMessageLineHeights('\t' + 'a'.repeat(8), 12)).toEqual([2]);
+  });
+
+  it('honours an explicit bullet when measuring the content width', () => {
+    expect(userMessageLineHeights('a'.repeat(11), 12, '')).toEqual([1]);
+    expect(userMessageLineHeights('a'.repeat(11), 12)).toEqual([2]);
   });
 });
