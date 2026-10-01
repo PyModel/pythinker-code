@@ -10,14 +10,14 @@ import { Error2 } from '#/_base/errors/errors';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
 import { IEventService } from '#/app/event/event';
-import { ModelCatalogErrors } from '#/kosong/model/errors';
-import { modelRecordProviderId, type ModelRecord } from '#/kosong/model/model';
+import { ModelCatalogErrors } from '#/llm-adapter/model/errors';
+import { modelRecordProviderId, type ModelRecord } from '#/llm-adapter/model/model';
 import {
   IProviderService,
   type ModelSource,
   type ProviderConfig,
-} from '#/kosong/provider/provider';
-import { getProviderDefinition } from '#/kosong/provider/providerDefinition';
+} from '#/llm-adapter/provider/provider';
+import { getProviderDefinition } from '#/llm-adapter/provider/provider-definition';
 
 import {
   DEFAULT_MODEL_SECTION,

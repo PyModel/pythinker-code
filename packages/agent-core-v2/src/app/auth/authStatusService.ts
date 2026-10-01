@@ -1,8 +1,8 @@
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
-import { IModelService } from '#/kosong/model/model';
-import { resolveModelForReady } from '#/kosong/model/modelAuth';
-import { IProviderService } from '#/kosong/provider/provider';
+import { IModelService } from '#/llm-adapter/model/model';
+import { resolveModelForReady } from '#/llm-adapter/model/model-auth';
+import { IProviderService } from '#/llm-adapter/provider/provider';
 
 import type { AuthSummary } from './authStatus';
 import { IAuthStatusService } from './authStatus';

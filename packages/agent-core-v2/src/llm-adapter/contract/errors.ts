@@ -426,6 +426,16 @@ export function errorFromLlmMessage(error: LlmErrorMessage): Error {
         traceIdFromHeadersRecord(error.headers),
       );
     case 'quota_exhausted':
+      if (error.statusCode !== 429) {
+        return new APIStatusError(
+          error.statusCode,
+          error.message,
+          error.requestId,
+          error.retryAfterMs,
+          traceIdFromHeadersRecord(error.headers),
+          PROVIDER_API_ERROR_CODE,
+        );
+      }
       return new APIProviderQuotaExhaustedError(
         error.message,
         error.requestId,

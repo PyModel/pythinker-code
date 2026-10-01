@@ -335,11 +335,21 @@ export function isContextOverflowErrorCode(code: string | null | undefined): boo
   return code === 'context_length_exceeded';
 }
 
+const BILLING_REJECTION_PHRASES = [
+  'insufficient balance',
+  'insufficient credit',
+  'credits exhausted',
+  'please recharge',
+];
+
 function isOpenAIInsufficientQuotaError(error: RawOpenAISDKAPIError): boolean {
-  if (error.status !== 429) return false;
+  if (![401, 402, 403, 429].includes(error.status ?? 0)) return false;
   if (typeof error.code === 'string' && isOpenAIInsufficientQuotaCode(error.code)) return true;
   if (typeof error.type === 'string' && isOpenAIInsufficientQuotaCode(error.type)) return true;
-  return error.message.toLowerCase().includes('insufficient_quota');
+  const message = error.message.toLowerCase();
+  if (message.includes('insufficient_quota')) return true;
+  if (error.status === 429) return false;
+  return BILLING_REJECTION_PHRASES.some((phrase) => message.includes(phrase));
 }
 
 export function convertOpenAIError(
@@ -367,7 +377,7 @@ export function convertOpenAIError(
       return {
         kind: 'quota_exhausted',
         message: sanitizeStatusErrorMessage(error.message),
-        statusCode: 429,
+        statusCode: error.status,
         requestId,
         retryAfterMs,
         headers,

@@ -3,8 +3,8 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2, ErrorCodes } from '#/errors';
 import { IConfigService } from '#/app/config/config';
 import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
-import { IModelCatalog } from '#/kosong/model/catalog';
-import { declaredDefaultEffortForModel, type ThinkingConfig } from '#/kosong/model/thinking';
+import { IModelCatalog } from '#/llm-adapter/model/catalog';
+import { declaredDefaultEffortForModel, type ThinkingConfig } from '#/llm-adapter/model/thinking';
 
 import {
   INHERIT_SUBAGENT_MODEL_POLICY,

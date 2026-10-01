@@ -11,9 +11,9 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
-import { IModelCatalog } from '#/kosong/model/catalog';
-import { IModelService, modelRecordProviderId, type ModelsSection } from '#/kosong/model/model';
-import { type ProviderConfig, type ProvidersSection } from '#/kosong/provider/provider';
+import { IModelCatalog } from '#/llm-adapter/model/catalog';
+import { IModelService, modelRecordProviderId, type ModelsSection } from '#/llm-adapter/model/model';
+import { type ProviderConfig, type ProvidersSection } from '#/llm-adapter/provider/provider';
 import { modelsDevProviderModels, resolveModelsDevImport } from './modelsDev';
 
 import { DEFAULT_MODEL_SECTION, MODELS_SECTION, PROVIDERS_SECTION } from './configSection';
@@ -176,7 +176,6 @@ export class ModelsDevImportService implements IModelsDevImportService {
       await this.seedDefaultModelWhenUnset(config, `${targetId}/${firstModel.id}`);
     }
 
-    await this.models.settled;
     const imported = await this.modelCatalog.getProvider(targetId);
     return { provider: imported, modelsImported: models.length };
   }
@@ -258,7 +257,6 @@ export class ModelsDevImportService implements IModelsDevImportService {
       }
     }
 
-    await this.models.settled;
     const imported = [];
     for (const entry of Object.values(entries)) {
       imported.push(await this.modelCatalog.getProvider(entry.id));

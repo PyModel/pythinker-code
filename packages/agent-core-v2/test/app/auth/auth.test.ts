@@ -23,10 +23,10 @@ import { WebSearchProviderService } from '#/app/auth/webSearch/webSearchService'
 import { ConfigRegistry } from '#/app/config/configService';
 import { IConfigService } from '#/app/config/config';
 import type { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
-import { IModelService, type ModelRecord } from '#/kosong/model/model';
-import { IProviderService, type ProviderConfig } from '#/kosong/provider/provider';
-import { ProviderService } from '#/kosong/provider/providerService';
-import '#/kosong/provider/providers/pythinker/pythinker.contrib';
+import { IModelService, type ModelRecord } from '#/llm-adapter/model/model';
+import { IProviderService, type ProviderConfig } from '#/llm-adapter/provider/provider';
+import { ProviderService } from '#/llm-adapter/provider/provider-service';
+import '#/llm-adapter/provider/provider-definition';
 
 import { stubAgentIdentity } from '../agentIdentity/stubs';
 import { stubBootstrap } from '../bootstrap/stubs';
@@ -112,10 +112,12 @@ describe('AuthSummaryService', () => {
   const providers: Record<string, ProviderConfig> = {
     oauth: { type: 'pythinker', oauth: oauthRef },
     api: { type: 'openai', apiKey: 'sk-example' },
+    envkey: { type: 'anthropic', env: { ANTHROPIC_API_KEY: 'sk-ant-example' } },
   };
   const models: Record<string, ModelRecord> = {
     'oauth/model': { provider: 'oauth', model: 'model', maxContextSize: 4096 },
     'api/model': { provider: 'api', model: 'model', maxContextSize: 4096 },
+    'envkey/model': { provider: 'envkey', model: 'model', maxContextSize: 4096 },
   };
 
   function create(
@@ -188,6 +190,11 @@ describe('AuthSummaryService', () => {
       { loggedIn: true, provider: 'oauth' },
     ]);
     expect(getCachedAccessToken).toHaveBeenCalledWith('oauth', oauthRef);
+  });
+
+  it('accepts a vendor API key set in the provider env table', async () => {
+    const { service } = create();
+    await expect(service.ensureReady('envkey/model')).resolves.toBeUndefined();
   });
 
   it('accepts API keys and rejects missing stored OAuth tokens', async () => {

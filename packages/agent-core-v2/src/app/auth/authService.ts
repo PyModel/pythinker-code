@@ -14,15 +14,15 @@ import { type ILogger, ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { LifecycleScope } from '#/app/scopes';
-import { IModelService, type ModelRecord } from '#/kosong/model/model';
+import { IModelService, type ModelRecord } from '#/llm-adapter/model/model';
 import {
   effectiveModelConfig,
   nonEmpty,
   providerNameFromFlatModel,
   resolveModelAuthMaterial,
   resolveModelForReady,
-} from '#/kosong/model/modelAuth';
-import { IProviderService, type OAuthRef } from '#/kosong/provider/provider';
+} from '#/llm-adapter/model/model-auth';
+import { IProviderService, type OAuthRef } from '#/llm-adapter/provider/provider';
 
 import {
   AuthModelNotResolvedError,
