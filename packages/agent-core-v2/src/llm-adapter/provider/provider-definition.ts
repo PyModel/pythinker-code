@@ -7,6 +7,7 @@ import {
   pythinkerAnthropicTrait,
   pythinkerConnection,
   pythinkerOpenAITrait,
+  pythinkerResponsesTrait,
   PYTHINKER_DEFAULT_BASE_URL,
 } from '#human/llm-pythinker/trait';
 import { classifyPythinkerQuotaError } from '#human/llm-pythinker/errors';
@@ -246,6 +247,7 @@ registerProviderDefinition({
 registerProviderDefinition({
   id: 'pythinker',
   baseProtocol: 'openai_responses',
+  trait: pythinkerResponsesTrait,
   connection: pythinkerConnection,
   classifyError: classifyPythinkerQuotaError,
   endpoint: pythinkerEndpoint,
