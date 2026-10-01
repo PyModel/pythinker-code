@@ -3878,7 +3878,14 @@ export class PythinkerTUI {
     try {
       info = await this.harness.getWorkspaceTrustInfo(workDir);
     } catch {
-      info = { trusted: false, gatedMcpServers: [] };
+      info = {
+        trusted: false,
+        gatedMcpServers: [],
+        gatedAdditionalDirs: [],
+        additionalDirSources: [],
+        warnings: ['Could not inspect project settings.'],
+        instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] },
+      };
     }
     if (info.trusted) {
       return false;
@@ -3889,7 +3896,9 @@ export class PythinkerTUI {
       this.mountEditorReplacement(
         new TrustPromptComponent({
           workDir,
-          gatedMcpServers: info.gatedMcpServers,
+          info,
+          getAvailableRows: () =>
+            this.state.terminal.rows - (this.state.ui instanceof TuiAltScreen ? 1 : 0),
           onSelect: (c) => {
             resolve(c);
           },

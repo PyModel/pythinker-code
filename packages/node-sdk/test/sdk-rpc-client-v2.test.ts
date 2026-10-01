@@ -8,7 +8,7 @@
  * Wiring: real v2 engine bootstrapped on a temp PYTHINKER_CODE_HOME; remote provider calls are stubbed.
  * Run: pnpm exec vitest run test/sdk-rpc-client-v2.test.ts
  */
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -1239,6 +1239,10 @@ describe('SDKRpcClientV2 workspace trust', () => {
             cwd: '/tmp/root',
             env: { SECRET: 'hidden' },
           },
+          'disabled-server': {
+            command: 'never-runs',
+            enabled: false,
+          },
           'http-server': {
             transport: 'http',
             url: 'https://example.test/mcp',
@@ -1259,14 +1263,34 @@ describe('SDKRpcClientV2 workspace trust', () => {
       const info = await harness.getWorkspaceTrustInfo(workDir);
       expect(info.trusted).toBe(false);
       expect(info.gatedMcpServers).toEqual([
-        { name: 'http-server', transport: 'http', url: 'https://example.test/mcp' },
-        { name: 'nested-server', transport: 'stdio', command: 'nested-cmd' },
-        { name: 'root-server', transport: 'stdio', command: 'root-cmd', args: ['--safe'], cwd: '/tmp/root' },
+        {
+          name: 'http-server',
+          transport: 'http',
+          url: 'https://example.test/mcp',
+          origin: await realpath(join(workDir, '.mcp.json')),
+        },
+        {
+          name: 'nested-server',
+          transport: 'stdio',
+          command: 'nested-cmd',
+          origin: await realpath(join(workDir, '.pythinker-code', 'mcp.json')),
+        },
+        {
+          name: 'root-server',
+          transport: 'stdio',
+          command: 'root-cmd',
+          args: ['--safe'],
+          cwd: '/tmp/root',
+          origin: await realpath(join(workDir, '.mcp.json')),
+        },
       ]);
       const serialized = JSON.stringify(info);
+      // Environment variables and headers stay in the source configuration.
       expect(serialized).not.toContain('hidden');
       expect(serialized).not.toContain('SECRET');
       expect(serialized).not.toContain('TOKEN');
+      // Disabled servers never connect, so they are not part of the disclosure.
+      expect(serialized).not.toContain('disabled-server');
     } finally {
       await harness.close();
     }
@@ -1289,8 +1313,8 @@ describe('SDKRpcClientV2 workspace trust', () => {
       join(workDir, '.mcp.json'),
       JSON.stringify({
         mcpServers: {
-          github: { command: 'project-github', enabled: false },
-          toString: { transport: 'http', url: 'https://example.test/mcp', enabled: false },
+          github: { command: 'project-github' },
+          toString: { transport: 'http', url: 'https://example.test/mcp' },
         },
       }),
       'utf-8',
@@ -1305,22 +1329,44 @@ describe('SDKRpcClientV2 workspace trust', () => {
           command: 'project-github',
           args: undefined,
           cwd: workDir,
+          origin: await realpath(join(workDir, '.mcp.json')),
         },
-        { name: 'toString', transport: 'http', url: 'https://example.test/mcp' },
+        {
+          name: 'toString',
+          transport: 'http',
+          url: 'https://example.test/mcp',
+          origin: await realpath(join(workDir, '.mcp.json')),
+        },
       ]);
     } finally {
       await harness.close();
     }
   });
 
-  it('degrades the gated-server list to empty on an invalid project mcp.json', async () => {
+  it('reports failed configuration and instruction sources while retaining readable instructions', async () => {
     const { harness } = await makeHarness();
     const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
     tempDirs.push(workDir);
     await writeFile(join(workDir, '.mcp.json'), '{not json', 'utf-8');
+    await writeFile(join(workDir, 'AGENTS.md'), '# Project instructions\n', 'utf-8');
+    await mkdir(join(workDir, '.pythinker-code'));
+    await symlink(join(workDir, 'missing.md'), join(workDir, '.pythinker-code', 'AGENTS.md'));
     try {
       const info = await harness.getWorkspaceTrustInfo(workDir);
-      expect(info).toEqual({ trusted: false, gatedMcpServers: [] });
+      expect(info).toEqual({
+        trusted: false,
+        gatedMcpServers: [],
+        gatedAdditionalDirs: [],
+        additionalDirSources: [],
+        warnings: expect.arrayContaining([
+          'Could not inspect MCP configuration.',
+          expect.stringContaining(join(workDir, '.pythinker-code', 'AGENTS.md')),
+        ]),
+        instructionSources: {
+          agentsMdPaths: [await realpath(join(workDir, 'AGENTS.md'))],
+          skills: [], agentProfiles: [], paths: [await realpath(join(workDir, 'AGENTS.md'))],
+        },
+      });
     } finally {
       await harness.close();
     }
@@ -1335,6 +1381,10 @@ describe('SDKRpcClientV2 workspace trust', () => {
       expect(await harness.getWorkspaceTrustInfo(workDir)).toEqual({
         trusted: true,
         gatedMcpServers: [],
+        gatedAdditionalDirs: [],
+        additionalDirSources: [],
+        warnings: [],
+        instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] },
       });
       // The trust marker lives in the pythinker home, never in the checkout.
       const markers = await readdir(join(homeDir, 'workspace-trust'));
