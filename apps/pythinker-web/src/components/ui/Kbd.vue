@@ -34,7 +34,7 @@ defineProps<{
   background: var(--color-surface-sunken);
   color: var(--color-text-muted);
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1;
 }
 </style>

@@ -330,6 +330,84 @@ html[data-color-scheme=dark] {
     }
 }
 
+/* Terminal palette: consumed by the embedded terminal (xterm theme). Keep the
+   same token names in every scope so one reader covers light and dark. */
+:root {
+    --terminal-bg: #ffffff;
+    --terminal-fg: #1f2328;
+    --terminal-cursor: #1f6feb;
+    --terminal-selection: #c8e1ff;
+    --terminal-black: #24292f;
+    --terminal-red: #cf222e;
+    --terminal-green: #116329;
+    --terminal-yellow: #9a6700;
+    --terminal-blue: #0969da;
+    --terminal-magenta: #8250df;
+    --terminal-cyan: #1b7c83;
+    --terminal-white: #f6f8fa
+}
+
+html[data-color-scheme=dark] {
+    --terminal-bg: #121212;
+    --terminal-fg: #e6edf3;
+    --terminal-cursor: #7aa2ff;
+    --terminal-selection: #264f78;
+    --terminal-black: #1f1f1f;
+    --terminal-red: #ff7b72;
+    --terminal-green: #7ee787;
+    --terminal-yellow: #f2cc60;
+    --terminal-blue: #7aa2ff;
+    --terminal-magenta: #d2a8ff;
+    --terminal-cyan: #76e3ea;
+    --terminal-white: #e6edf3
+}
+
+@media(prefers-color-scheme:dark) {
+    html[data-color-scheme=system] {
+        --terminal-bg: #121212;
+        --terminal-fg: #e6edf3;
+        --terminal-cursor: #7aa2ff;
+        --terminal-selection: #264f78;
+        --terminal-black: #1f1f1f;
+        --terminal-red: #ff7b72;
+        --terminal-green: #7ee787;
+        --terminal-yellow: #f2cc60;
+        --terminal-blue: #7aa2ff;
+        --terminal-magenta: #d2a8ff;
+        --terminal-cyan: #76e3ea;
+        --terminal-white: #e6edf3
+    }
+}
+
+/* Dynamic workflow feature tokens: the rail/trace ramp and the shared motion
+   scale for the workflow timeline. Only this feature consumes them. */
+:root {
+    --color-workflow-rule: rgba(13, 13, 13, .055);
+    --color-workflow-trace: rgba(13, 13, 13, .3);
+    --color-workflow-trace-strong: rgba(13, 13, 13, .55);
+    --wf-t-fast: 120ms;
+    --wf-t-base: 160ms;
+    --wf-t-enter: 200ms;
+    --wf-t-ink: 320ms;
+    --wf-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+    --wf-beat: 1.6s;
+    --tracking-wf-label: 0.09em
+}
+
+html[data-color-scheme=dark] {
+    --color-workflow-rule: rgba(255, 255, 255, .065);
+    --color-workflow-trace: rgba(255, 255, 255, .35);
+    --color-workflow-trace-strong: rgba(255, 255, 255, .6)
+}
+
+@media(prefers-color-scheme:dark) {
+    html[data-color-scheme=system] {
+        --color-workflow-rule: rgba(255, 255, 255, .065);
+        --color-workflow-trace: rgba(255, 255, 255, .35);
+        --color-workflow-trace-strong: rgba(255, 255, 255, .6)
+    }
+}
+
 /* Accent: black/white — remaps the accent tokens to grayscale. Orthogonal to
    the color scheme (only recolours the accent). */
 html[data-accent=mono] {

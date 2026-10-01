@@ -11,7 +11,7 @@ import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { DiffViewLine, FilePreviewRequest, ToolCall, ToolMedia } from '../../../types';
 import { diffStats } from '../../../lib/diffLines';
-import { buildEditDiffLines, extractEditPath } from '../../../lib/toolDiff';
+import { buildEditDiffLines, computeEditChangeStat, extractEditPath } from '../../../lib/toolDiff';
 import { normalizeToolName, toolGlyph, toolLabel } from '../../../lib/toolMeta';
 import { fileTypeIconSvg } from '../../../lib/icons';
 import DiffLines from '../DiffLines.vue';
@@ -57,6 +57,7 @@ const editDiff = computed<DiffViewLine[] | null>(() => buildEditDiffLines(props.
 const stats = computed(() => {
   const diff = editDiff.value;
   if (diff && props.tool.status !== 'error') return diffStats(diff);
+  if (props.tool.status !== 'error') return computeEditChangeStat(props.tool) ?? { added: 0, removed: 0 };
   return { added: 0, removed: 0 };
 });
 const hasDiffs = computed(() => stats.value.added > 0 || stats.value.removed > 0);

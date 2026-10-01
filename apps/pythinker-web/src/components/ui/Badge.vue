@@ -32,7 +32,7 @@ withDefaults(defineProps<{
   border: 1px solid transparent;
 }
 .ui-badge--md { height: 22px; padding: 0 9px; font-size: var(--text-xs); }
-.ui-badge--sm { height: 18px; padding: 0 7px; font-size: 11px; }
+.ui-badge--sm { height: 18px; padding: 0 7px; font-size: var(--text-xs); }
 
 .ui-badge__dot { width: 6px; height: 6px; border-radius: var(--radius-full); background: currentColor; flex: none; }
 

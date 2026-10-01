@@ -109,3 +109,67 @@ export function diffStats(lines: DiffViewLine[]): DiffStats {
   }
   return { added, removed };
 }
+
+const MAX_STAT_CELLS = 400_000;
+
+/**
+ * Count the truly changed lines between two contents without producing diff
+ * rows. Common prefix and suffix are trimmed first, so a small edit inside a
+ * large file stays cheap; past a cell budget the count degrades to the
+ * conservative "everything in the changed region" estimate rather than
+ * reporting no change at all.
+ */
+export function computeLineChangeStat(before: string | null, after: string): DiffStats {
+  const beforeLines = splitLines(before ?? '');
+  const afterLines = splitLines(after);
+
+  let prefixIndex = 0;
+  while (
+    prefixIndex < beforeLines.length &&
+    prefixIndex < afterLines.length &&
+    beforeLines[prefixIndex] === afterLines[prefixIndex]
+  ) {
+    prefixIndex += 1;
+  }
+
+  let beforeTailIndex = beforeLines.length - 1;
+  let afterTailIndex = afterLines.length - 1;
+  while (
+    beforeTailIndex >= prefixIndex &&
+    afterTailIndex >= prefixIndex &&
+    beforeLines[beforeTailIndex] === afterLines[afterTailIndex]
+  ) {
+    beforeTailIndex -= 1;
+    afterTailIndex -= 1;
+  }
+
+  const trimmedBefore = beforeLines.slice(prefixIndex, beforeTailIndex + 1);
+  const trimmedAfter = afterLines.slice(prefixIndex, afterTailIndex + 1);
+
+  if (trimmedBefore.length === 0) return { added: trimmedAfter.length, removed: 0 };
+  if (trimmedAfter.length === 0) return { added: 0, removed: trimmedBefore.length };
+
+  if (trimmedBefore.length * trimmedAfter.length > MAX_STAT_CELLS) {
+    return { added: trimmedAfter.length, removed: trimmedBefore.length };
+  }
+
+  const lcs: number[] = Array.from({ length: trimmedAfter.length + 1 }, () => 0);
+  for (let beforeIndex = 1; beforeIndex <= trimmedBefore.length; beforeIndex += 1) {
+    let previousDiagonal = 0;
+    for (let afterIndex = 1; afterIndex <= trimmedAfter.length; afterIndex += 1) {
+      const previousRow = lcs[afterIndex]!;
+      if (trimmedBefore[beforeIndex - 1] === trimmedAfter[afterIndex - 1]) {
+        lcs[afterIndex] = previousDiagonal + 1;
+      } else {
+        lcs[afterIndex] = Math.max(lcs[afterIndex]!, lcs[afterIndex - 1]!);
+      }
+      previousDiagonal = previousRow;
+    }
+  }
+
+  const unchanged = lcs[trimmedAfter.length] ?? 0;
+  return {
+    added: trimmedAfter.length - unchanged,
+    removed: trimmedBefore.length - unchanged,
+  };
+}

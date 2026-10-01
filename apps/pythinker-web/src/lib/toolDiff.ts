@@ -3,7 +3,8 @@
 // a live tool call in the session turns so the side panel can stay reactive.
 
 import type { ChatTurn, DiffViewLine, ToolCall } from '../types';
-import { buildDiffLines } from './diffLines';
+import type { DiffStats } from './diffLines';
+import { buildDiffLines, computeLineChangeStat } from './diffLines';
 import { normalizeToolName } from './toolMeta';
 
 function parseArg(arg: string): Record<string, unknown> | null {
@@ -45,6 +46,22 @@ export function buildEditDiffLines(tool: { name: string; arg: string }): DiffVie
 export function extractEditPath(arg: string): string | undefined {
   const d = parseArg(arg);
   return d && typeof d.path === 'string' ? d.path : undefined;
+}
+
+/**
+ * Changed-line counts for an Edit tool call, even when a full line diff is
+ * too expensive to build. Returns null for tools a from-args stat cannot
+ * represent (Write, replace_all, missing strings).
+ */
+export function computeEditChangeStat(tool: { name: string; arg: string }): DiffStats | null {
+  const kind = normalizeToolName(tool.name);
+  if (kind !== 'edit') return null;
+  const d = parseArg(tool.arg);
+  if (!d || d.replace_all === true) return null;
+  const before = typeof d.old_string === 'string' ? d.old_string : null;
+  const after = typeof d.new_string === 'string' ? d.new_string : null;
+  if (before === null || after === null) return null;
+  return computeLineChangeStat(before, after);
 }
 
 /** Find a tool call by id across all session turns (for the live panel lookup). */
