@@ -5,6 +5,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
+    "architecture:check": "node scripts/architecture/architecture-check.mjs",
     "postinstall": "node scripts/fix-node-pty-perms.mjs && node scripts/security/prune-monaco-distributions.mjs",
     "build": "pnpm -r run build",
     "build:packages": "pnpm -r --filter './packages/*' run build",
@@ -61,7 +62,8 @@
     "tsdown": "0.22.3",
     "tsx": "^4.23.5",
     "typescript": "6.0.3",
-    "vitest": "4.1.11"
+    "vitest": "4.1.11",
+    "yaml": "^2.9.1"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm exec lint-staged",

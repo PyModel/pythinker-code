@@ -1,0 +1,85 @@
+version: 1
+
+# Existing modules start unmanaged (legacy). Flip managed: true per module once
+# its contract entrypoints and layers are declared; managed modules are checked
+# against every rule in scripts/architecture.
+modules:
+  - id: pythinker-code
+    roots: [apps/pythinker-code/src]
+    managed: false
+  - id: pythinker-web
+    roots: [apps/pythinker-web/src]
+    managed: false
+  - id: pythinker-inspect
+    roots: [apps/pythinker-inspect/src]
+    managed: false
+  - id: desktop
+    roots: [apps/desktop/src]
+    managed: false
+  - id: vscode
+    roots: [apps/vscode/src]
+    managed: false
+  - id: vis-server
+    roots: [apps/vis/server/src]
+    managed: false
+  - id: vis-web
+    roots: [apps/vis/web/src]
+    managed: false
+  - id: agent-core
+    roots: [packages/agent-core/src]
+    managed: false
+  - id: agent-core-v2
+    roots: [packages/agent-core-v2/src]
+    managed: false
+  - id: agent-gateway
+    roots: [packages/agent-gateway/src]
+    managed: false
+  - id: node-sdk
+    roots: [packages/node-sdk/src]
+    managed: false
+  - id: kosong
+    roots: [packages/kosong/src]
+    managed: false
+  - id: pyaos
+    roots: [packages/pyaos/src]
+    managed: false
+  - id: klient
+    roots: [packages/klient/src]
+    managed: false
+  - id: transcript
+    roots: [packages/transcript/src]
+    managed: false
+  - id: protocol
+    roots: [packages/protocol/src]
+    managed: false
+  - id: oauth
+    roots: [packages/oauth/src]
+    managed: false
+  - id: telemetry
+    roots: [packages/telemetry/src]
+    managed: false
+  - id: tree-sitter-bash
+    roots: [packages/tree-sitter-bash/src]
+    managed: false
+  - id: minidb
+    roots: [packages/minidb/src]
+    managed: false
+  - id: acp-server
+    roots: [packages/acp-server/src]
+    managed: false
+  - id: pi-tui
+    roots: [packages/pi-tui/src]
+    managed: false
+  - id: remote-control
+    roots: [packages/remote-control/src]
+    managed: false
+
+global:
+  maxFileLines: 400
+  maxContractLines: 300
+  maxPublicMethods: 12
+  forbidCycles: true
+  forbidDeepImports: true
+  managedOnly: true
+
+exceptions: []
