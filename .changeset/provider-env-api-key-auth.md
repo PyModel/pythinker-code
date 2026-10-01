@@ -3,4 +3,4 @@
 "@pymodel/pythinker-desktop": patch
 ---
 
-Accept a vendor API key set in a provider's env table (for example ANTHROPIC_API_KEY) instead of reporting the model as not logged in.
+Accept a vendor API key or base URL set in a provider's env table (for example ANTHROPIC_API_KEY or ANTHROPIC_BASE_URL) instead of ignoring it.
