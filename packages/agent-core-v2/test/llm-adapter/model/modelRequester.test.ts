@@ -467,3 +467,26 @@ describe('buildStreamTiming', () => {
     });
   });
 });
+
+describe('ModelRequesterImpl OpenCode session header', () => {
+  async function headersFor(baseUrl: string, cacheKey: string | undefined) {
+    const requester = new FakeLlmRequester();
+    requester.handler = (_i, emit) => textStream(emit);
+    const impl = new ModelRequesterImpl(modelWith(undefined), {
+      resolve: () => ({ requester, protocol: 'openai', model: { ...BASE_LLM_MODEL, baseUrl } }),
+    });
+    await collect(impl.request(INPUT, undefined, { cacheKey }));
+    return requester.calls[0]!.config.model.defaultHeaders;
+  }
+
+  it('sends the session id as x-opencode-session to the OpenCode gateway', async () => {
+    expect(await headersFor('https://opencode.ai/zen/go/v1', 'session-1')).toEqual({
+      'x-opencode-session': 'session-1',
+    });
+  });
+
+  it('does not send the header to other providers or without a session id', async () => {
+    expect(await headersFor('https://api.example.test/v1', 'session-1')).toBeUndefined();
+    expect(await headersFor('https://opencode.ai/zen/go/v1', undefined)).toBeUndefined();
+  });
+});
