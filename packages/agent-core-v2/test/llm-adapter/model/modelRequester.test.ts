@@ -469,11 +469,19 @@ describe('buildStreamTiming', () => {
 });
 
 describe('ModelRequesterImpl OpenCode session header', () => {
-  async function headersFor(baseUrl: string, cacheKey: string | undefined) {
+  async function headersFor(
+    baseUrl: string,
+    cacheKey: string | undefined,
+    defaultHeaders?: Record<string, string>,
+  ) {
     const requester = new FakeLlmRequester();
     requester.handler = (_i, emit) => textStream(emit);
     const impl = new ModelRequesterImpl(modelWith(undefined), {
-      resolve: () => ({ requester, protocol: 'openai', model: { ...BASE_LLM_MODEL, baseUrl } }),
+      resolve: () => ({
+        requester,
+        protocol: 'openai',
+        model: { ...BASE_LLM_MODEL, baseUrl, defaultHeaders },
+      }),
     });
     await collect(impl.request(INPUT, undefined, { cacheKey }));
     return requester.calls[0]!.config.model.defaultHeaders;
@@ -488,5 +496,13 @@ describe('ModelRequesterImpl OpenCode session header', () => {
   it('does not send the header to other providers or without a session id', async () => {
     expect(await headersFor('https://api.example.test/v1', 'session-1')).toBeUndefined();
     expect(await headersFor('https://opencode.ai/zen/go/v1', undefined)).toBeUndefined();
+  });
+
+  it('keeps a session header the user configured', async () => {
+    expect(
+      await headersFor('https://opencode.ai/zen/go/v1', 'session-1', {
+        'X-OpenCode-Session': 'custom',
+      }),
+    ).toEqual({ 'X-OpenCode-Session': 'custom' });
   });
 });

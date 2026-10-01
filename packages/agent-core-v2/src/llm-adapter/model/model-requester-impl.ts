@@ -162,7 +162,11 @@ export class ModelRequesterImpl implements ModelRequester {
 
     const credential = await this.model.credentialProvider?.resolve();
     const credentialed = applyCredential(resolved.model, credential);
-    const sessionHeaders = opencodeSessionHeaders(credentialed.baseUrl, params?.cacheKey);
+    const sessionHeaders = opencodeSessionHeaders(
+      credentialed.baseUrl,
+      params?.cacheKey,
+      credentialed.defaultHeaders,
+    );
     await requester.generate(
       {
         ...config,

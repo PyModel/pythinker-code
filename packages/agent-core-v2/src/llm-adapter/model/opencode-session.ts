@@ -18,8 +18,12 @@ export function isOpencodeGatewayBaseUrl(baseUrl: string | undefined): boolean {
 export function opencodeSessionHeaders(
   baseUrl: string | undefined,
   conversationId: string | undefined,
+  existing?: Readonly<Record<string, string>>,
 ): Record<string, string> | undefined {
   const id = conversationId?.trim();
   if (!isOpencodeGatewayBaseUrl(baseUrl) || id === undefined || id.length === 0) return undefined;
+  if (Object.keys(existing ?? {}).some((key) => key.toLowerCase() === OPENCODE_SESSION_HEADER)) {
+    return undefined;
+  }
   return { [OPENCODE_SESSION_HEADER]: id };
 }
