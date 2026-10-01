@@ -46,8 +46,6 @@ import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileL
 import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
 import { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
 
-import { setWatchEnabled } from '#human/utils/watch';
-
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 
 const watchMockState = vi.hoisted(() => ({ mode: 'inert' as 'inert' | 'real' }));
@@ -337,7 +335,6 @@ async function withStack(
 describe('agent profile loaders + session catalog', () => {
   beforeEach(() => {
     watchMockState.mode = 'inert';
-    setWatchEnabled(false);
     delete process.env['PYTHINKER_CODE_WATCH'];
     _clearAgentProfileContributionsForTests();
     const builtinDefault: AgentProfile = normalizeAgentProfile({
@@ -762,7 +759,6 @@ describe('agent profile loaders + session catalog', () => {
 
   it('rescans the workspace source when a project agent file changes on disk', async () => {
     watchMockState.mode = 'real';
-    setWatchEnabled(true);
     process.env['PYTHINKER_CODE_WATCH'] = '1';
     try {
       await withFixture(async (fixture) => {
@@ -795,7 +791,6 @@ describe('agent profile loaders + session catalog', () => {
       });
     } finally {
       delete process.env['PYTHINKER_CODE_WATCH'];
-      setWatchEnabled(false);
     }
   }, 15000);
 

@@ -1,3 +1,4 @@
+import type { LlmModel } from '#/llm/model';
 import type { ProtocolEndpoint, ProviderConnection } from '#/llm/protocol/connection';
 import type { ContentPart, ToolDescription } from '#/llm/message';
 import { providerImagePolicy } from '#/llm/media/image-formats';
@@ -8,6 +9,7 @@ import type {
   OpenAIWireMessage,
   OpenAIWireToolCall,
 } from '#/llm/requester/bases/openai/contract';
+import type { OpenAIResponsesTrait } from '#/llm/requester/bases/openai-responses/trait';
 import type { OpenAITrait } from '#/llm/requester/bases/openai/trait';
 
 import { normalizePythinkerToolSchema } from './schema';
@@ -64,6 +66,19 @@ function convertPythinkerTool(tool: ToolDescription): Record<string, unknown> {
 
 const pythinkerAcceptedImageMimes = (): ReadonlySet<string> => providerImagePolicy('pythinker').acceptedMimes;
 
+export function pythinkerUnsetCompletionTokens(input: {
+  readonly model: LlmModel;
+  readonly usedContextTokens?: number;
+}): number | undefined {
+  const window = input.model.maxContextSize;
+  if (window === undefined || window <= 0 || input.usedContextTokens === undefined) return undefined;
+  return Math.max(1, window - input.usedContextTokens);
+}
+
+export const pythinkerResponsesTrait: OpenAIResponsesTrait = {
+  completionTokensWhenUnset: pythinkerUnsetCompletionTokens,
+};
+
 export const pythinkerOpenAITrait: OpenAITrait = {
   strictThinkingValidation: true,
 
@@ -90,6 +105,8 @@ export const pythinkerOpenAITrait: OpenAITrait = {
   encodeMaxCompletionTokens: (maxCompletionTokens) => ({
     max_completion_tokens: maxCompletionTokens,
   }),
+
+  completionTokensWhenUnset: pythinkerUnsetCompletionTokens,
 
   buildParams: (params) => {
     const { extra_body: extraBody, ...rest } = params;
