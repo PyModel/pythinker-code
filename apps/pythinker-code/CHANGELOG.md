@@ -1,5 +1,15 @@
 # @pymodel/pythinker-code
 
+## 2.5.0
+
+### Minor Changes
+
+- [#356](https://github.com/PyModel/pythinker-code/pull/356) [`d1b4e58`](https://github.com/PyModel/pythinker-code/commit/d1b4e58eeccafad615c121dd56f5b45754818408) Thanks [@elkaix](https://github.com/elkaix)! - Homebrew now installs the native `pythinker` binary on macOS and Linux, without Node.js.
+
+### Patch Changes
+
+- [#355](https://github.com/PyModel/pythinker-code/pull/355) [`34b854a`](https://github.com/PyModel/pythinker-code/commit/34b854a4cae5ca91cd2d05a583aeca75f7924b15) Thanks [@elkaix](https://github.com/elkaix)! - Native `pythinker update` downloads the new binary from the GitHub release again; native installs on 2.2.0–2.4.1 need one reinstall to receive it (see [#354](https://github.com/PyModel/pythinker-code/issues/354)).
+
 ## 2.4.1
 
 ### Patch Changes
