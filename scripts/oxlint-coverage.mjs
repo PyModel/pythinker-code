@@ -10,6 +10,10 @@ import { fileURLToPath } from 'node:url';
 // format included); afterwards a small probe run with a forced plain format
 // walks a known directory and must report a real file count.
 const MIN_FILES = Number(process.env.LINT_MIN_FILES ?? '10');
+if (!Number.isFinite(MIN_FILES) || MIN_FILES <= 0) {
+  process.stderr.write(`oxlint coverage check failed: LINT_MIN_FILES must be a positive number, got ${String(process.env.LINT_MIN_FILES)}\n`);
+  process.exit(2);
+}
 const PROBE_DIR = 'scripts';
 
 const repoBin = join(fileURLToPath(new URL('..', import.meta.url)), 'node_modules', '.bin', 'oxlint');
