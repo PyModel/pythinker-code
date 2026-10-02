@@ -7,7 +7,7 @@
     ]
   },
   "additional_dirs": [],
-  "custom_title": "帮我创建一个 plan，来优化我当前 diff 中的代码",
+  "custom_title": "Create a plan for me to optimize the code in my current diff",
   "title_generated": false,
   "title_generate_attempts": 0,
   "plan_mode": false,
