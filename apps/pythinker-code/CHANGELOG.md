@@ -1,5 +1,11 @@
 # @pymodel/pythinker-code
 
+## 2.5.1
+
+### Patch Changes
+
+- [#359](https://github.com/PyModel/pythinker-code/pull/359) [`b67e4ee`](https://github.com/PyModel/pythinker-code/commit/b67e4ee49fbcadbb106e4b67f5ca249de7c67882) Thanks [@elkaix](https://github.com/elkaix)! - Fix the VS Code sign-in plan-upgrade button opening a stale third-party page instead of the Pythinker plan page.
+
 ## 2.5.0
 
 ### Minor Changes
