@@ -120,7 +120,7 @@ export async function pollCdnUntilCaughtUp(options) {
  * `platforms[*].url` in the CDN `latest.json`, plus every file the release
  * `manifest.json` names, resolved against the release asset base.
  *
- * A matching version string proves nothing about these: 2.3.0 through 2.4.1
+ * A matching version string proves nothing about these: 2.4.0 and 2.4.1
  * shipped with the CDN in sync while every bare-binary URL returned 404.
  */
 export function collectReleaseDownloadUrls({ latestJson, releaseManifest, releaseAssetUrl }) {
