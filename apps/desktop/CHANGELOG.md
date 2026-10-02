@@ -1,5 +1,13 @@
 # @pymodel/pythinker-desktop
 
+## 1.6.2
+
+### Patch Changes
+
+- [#364](https://github.com/PyModel/pythinker-code/pull/364) [`c431d50`](https://github.com/PyModel/pythinker-code/commit/c431d5097315866809bd3afc4ca46c31ddb025f4) Thanks [@elkaix](https://github.com/elkaix)! - A session whose model was deleted or lost its provider switches to the best available model at the next turn, with a warning, instead of failing the turn.
+
+- [#365](https://github.com/PyModel/pythinker-code/pull/365) [`81f1070`](https://github.com/PyModel/pythinker-code/commit/81f10708255cd41095b79005c5b382dee60f6f2c) Thanks [@elkaix](https://github.com/elkaix)! - Clients that open a session while a tool approval is pending now show the agent's status instead of none.
+
 ## 1.6.1
 
 ### Patch Changes
