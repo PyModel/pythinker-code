@@ -296,10 +296,9 @@ describe('watch signal mode', () => {
 
       const file = join(root, 'a.txt');
       await writeFile(file, 'v1');
-      await wait(300);
 
+      await expect.poll(() => events.some((e) => e.path === file && e.action === 'created')).toBe(true);
       expect(events[0]).toEqual({ path: root, action: 'modified', kind: 'directory' });
-      expect(events.some((e) => e.path === file && e.action === 'created')).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -366,10 +365,9 @@ describe('watch signal mode', () => {
 
       const file = join(root, 'a.txt');
       await writeFile(file, 'v1');
-      await wait(300);
 
+      await expect.poll(() => events.some((e) => e.path === file && e.action === 'created')).toBe(true);
       expect(nativeCalls).toBe(0);
-      expect(events.some((e) => e.path === file && e.action === 'created')).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
