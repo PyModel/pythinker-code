@@ -137,8 +137,9 @@ export function collectReleaseDownloadUrls({ latestJson, releaseManifest, releas
 }
 
 /**
- * HEAD each URL and return the ones that do not answer 2xx. A transport error
- * or 5xx is retried `attempts` times in total; a 4xx is final at once.
+ * HEAD each URL and return the ones that do not answer 2xx. A transport error,
+ * 5xx, 403 or 429 (GitHub rate limiting) is retried `attempts` times in total;
+ * any other 4xx is final at once.
  */
 export async function findUnreachableUrls({ fetchImpl, sleep, urls, attempts = 3, retryDelayMs = 5_000 }) {
   const unreachable = [];
@@ -148,7 +149,7 @@ export async function findUnreachableUrls({ fetchImpl, sleep, urls, attempts = 3
       try {
         const response = await fetchImpl(url, { method: 'HEAD' });
         status = response.status;
-        if (response.ok || (status >= 400 && status < 500)) break;
+        if (response.ok || (status >= 400 && status < 500 && status !== 403 && status !== 429)) break;
       } catch (error) {
         status = error instanceof Error ? error.message : 'unreachable';
       }

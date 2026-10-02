@@ -86,3 +86,17 @@ void test('recovers when a retry succeeds', async () => {
   assert.deepEqual(unreachable, []);
   assert.equal(calls, 2);
 });
+
+void test('retries a rate-limited 429 instead of reporting it at once', async () => {
+  let calls = 0;
+  const unreachable = await findUnreachableUrls({
+    fetchImpl: async () => {
+      calls += 1;
+      return new Response(null, { status: calls === 1 ? 429 : 200 });
+    },
+    sleep: async () => {},
+    urls: ['a'],
+  });
+  assert.deepEqual(unreachable, []);
+  assert.equal(calls, 2);
+});
