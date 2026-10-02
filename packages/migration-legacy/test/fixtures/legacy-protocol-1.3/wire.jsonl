@@ -1,7 +1,7 @@
 {"type": "metadata", "protocol_version": "1.3"}
-{"timestamp": 1773128640.5874681, "message": {"type": "TurnBegin", "payload": {"user_input": [{"type": "text", "text": "帮我写一个示例函数，处理字符串清理和分块"}]}}}
+{"timestamp": 1773128640.5874681, "message": {"type": "TurnBegin", "payload": {"user_input": [{"type": "text", "text": "Write me an example function that handles string cleanup and chunking"}]}}}
 {"timestamp": 1773128640.589089, "message": {"type": "StepBegin", "payload": {"n": 1}}}
-{"timestamp": 1773128644.0387058, "message": {"type": "ContentPart", "payload": {"type": "think", "think": "用户想要写一个示例函数，处理字符串清理和分块。我先看看当前 diff 中有哪些相关代码可以参考。\n\n让我先检查一下当前的 git diff。", "encrypted": null}}}
+{"timestamp": 1773128644.0387058, "message": {"type": "ContentPart", "payload": {"type": "think", "think": "The user wants an example function that handles string cleanup and chunking. Let me first check the current diff for related code to reference.\n\nLet me check the current git diff first.", "encrypted": null}}}
 {"timestamp": 1773128644.1119459, "message": {"type": "ToolCall", "payload": {"type": "function", "id": "Shell:0", "function": {"name": "Shell", "arguments": "{\"command\": \"git diff --no-color\"}"}, "extras": null}}}
 {"timestamp": 1773128644.112614, "message": {"type": "ApprovalRequest", "payload": {"id": "245bc43b-84ab-4db1-9e40-3f5508b0404f", "tool_call_id": "Shell:0", "sender": "Shell", "action": "run command", "description": "Run command `git diff --no-color`", "display": [{"type": "shell", "language": "bash", "command": "git diff --no-color"}]}}}
 {"timestamp": 1773128644.112929, "message": {"type": "StatusUpdate", "payload": {"context_usage": 0.03866, "context_tokens": 9665, "max_context_tokens": 250000, "token_usage": {"input_other": 4033, "output": 57, "input_cache_read": 5632, "input_cache_creation": 0}, "message_id": "chatcmpl-fixture-legacy-0001"}}}

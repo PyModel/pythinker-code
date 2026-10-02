@@ -5,7 +5,7 @@
     "auto_approve_actions": []
   },
   "additional_dirs": [],
-  "custom_title": "你启动三个 sub agent，每个 sub，都要运行一些需要被批准的简单指令，运行两个以上",
+  "custom_title": "Launch three sub agents; each one must run a few simple commands that require approval — run at least two",
   "title_generated": false,
   "title_generate_attempts": 1,
   "plan_mode": false,

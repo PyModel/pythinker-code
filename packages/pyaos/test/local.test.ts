@@ -341,7 +341,7 @@ describe('LocalPyaos', () => {
   });
 
   describe('readText errors parameter (Python compat)', () => {
-    // Valid UTF-8 "中", invalid 0xff, valid UTF-8 "文".
+    // Valid UTF-8 "\u4E2D", invalid 0xff, valid UTF-8 "\u6587".
     const invalidBytes = Buffer.concat([
       Buffer.from([0xe4, 0xb8, 0xad]),
       Buffer.from([0xff]),
@@ -362,8 +362,8 @@ describe('LocalPyaos', () => {
 
       const content = await pyaos.readText(filePath, { errors: 'replace' });
       expect(content).toContain('\uFFFD');
-      expect(content).toContain('中');
-      expect(content).toContain('文');
+      expect(content).toContain('\u4E2D');
+      expect(content).toContain('\u6587');
     });
 
     it('drops invalid bytes with errors="ignore"', async () => {
@@ -371,7 +371,7 @@ describe('LocalPyaos', () => {
       await pyaos.writeBytes(filePath, invalidBytes);
 
       const content = await pyaos.readText(filePath, { errors: 'ignore' });
-      expect(content).toBe('中文');
+      expect(content).toBe('\u4E2D\u6587');
       expect(content).not.toContain('\uFFFD');
     });
 
