@@ -486,7 +486,7 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
       }
       return;
     }
-    void this.exit('foreign-reconcile');
+    await this.exit('foreign-reconcile');
   }
 
   private async resolveTowerOwner(): Promise<string | undefined> {

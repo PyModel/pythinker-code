@@ -986,6 +986,7 @@ describe('AgentTowerService', () => {
     ]);
 
     const ix2 = disposables.add(new TestInstantiationService());
+    ix2.stub(ILogService, stubLog());
     ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     registerTestAgentWire(ix2, testWireScope('wire', 'tower-replay'), {
@@ -1011,6 +1012,7 @@ describe('AgentTowerService', () => {
     ];
 
     const ix2 = disposables.add(new TestInstantiationService());
+    ix2.stub(ILogService, stubLog());
     ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     registerTestAgentWire(ix2, testWireScope('wire', 'tower-legacy'), {
@@ -1722,6 +1724,7 @@ describe('AgentTowerService', () => {
     ]);
 
     const ix2 = disposables.add(new TestInstantiationService());
+    ix2.stub(ILogService, stubLog());
     ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     ix2.set(IEventBus, new SyncDescriptor(EventBusService));
@@ -1824,6 +1827,7 @@ describe('AgentTowerService', () => {
     }
 
     const ix2 = disposables.add(new TestInstantiationService());
+    ix2.stub(ILogService, stubLog());
     ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     ix2.set(IEventBus, new SyncDescriptor(EventBusService));
@@ -1891,6 +1895,7 @@ describe('AgentTowerService', () => {
     }
 
     const ix2 = disposables.add(new TestInstantiationService());
+    ix2.stub(ILogService, stubLog());
     ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     ix2.set(IEventBus, new SyncDescriptor(EventBusService));
@@ -1965,6 +1970,7 @@ describe('AgentTowerService', () => {
       await new TowerStore(repo).init('session-original');
 
       const ix2 = disposables.add(new TestInstantiationService());
+      ix2.stub(ILogService, stubLog());
       ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
       ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
       ix2.set(IEventBus, new SyncDescriptor(EventBusService));
@@ -2076,6 +2082,7 @@ describe('AgentTowerService', () => {
       });
 
       const ix2 = disposables.add(new TestInstantiationService());
+      ix2.stub(ILogService, stubLog());
       ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
       ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
       ix2.set(IEventBus, new SyncDescriptor(EventBusService));
@@ -2268,6 +2275,7 @@ describe('AgentTowerService', () => {
       ix2.stub(IAgentToolExecutorService, stubToolExecutorEvents().executor);
       ix2.stub(IAgentToolApprovalService, { formatDenyMessage });
       ix2.stub(ITelemetryService, { track2: () => {} });
+      ix2.stub(ILogService, stubLog());
       ix2.stub(IFlagService, stubFlag(() => false));
       ix2.stub(ISessionManager, {
         get: (id: string) => (id === 'session-original' ? {} : undefined),
@@ -2343,6 +2351,7 @@ describe('AgentTowerService', () => {
     }
 
     const ix2 = disposables.add(new TestInstantiationService());
+    ix2.stub(ILogService, stubLog());
     ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     ix2.set(IEventBus, new SyncDescriptor(EventBusService));
@@ -2420,6 +2429,7 @@ describe('AgentTowerService', () => {
     }
 
     const ix2 = disposables.add(new TestInstantiationService());
+    ix2.stub(ILogService, stubLog());
     ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     ix2.set(IEventBus, new SyncDescriptor(EventBusService));
@@ -2478,6 +2488,7 @@ describe('AgentTowerService', () => {
 
   it('restore does not touch the profile tool overlay while tower mode is inactive', async () => {
     const ix2 = disposables.add(new TestInstantiationService());
+    ix2.stub(ILogService, stubLog());
     ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     ix2.set(IEventBus, new SyncDescriptor(EventBusService));
