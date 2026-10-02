@@ -155,6 +155,7 @@ export function bindSessionTranscript(
     if (loopStatus?.state === 'running' && loopStatus.activeTurnId !== undefined) {
       const promptId = loopStatus.activePromptId;
       projector.seedActiveTurn({ turnId: loopStatus.activeTurnId, promptId });
+      applyOps(handle.id, projector.seedPhase());
     }
     const list = agentDisposables.get(handle.id) ?? [];
     list.push(busD);
