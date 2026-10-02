@@ -1597,6 +1597,24 @@ describe('AgentTranscriptProjector', () => {
     expect(tx.getMeta().agent).toMatchObject({ model: 'k3', thinkingEffort: 'high' });
   });
 
+  it('seeds meta.agent.phase when attaching to a turn blocked on an approval', () => {
+    const projector = new AgentTranscriptProjector('main', TEST_SESSION_ID, {
+      activitySnapshot: () => ({
+        turn: { turnId: 1, phase: 'running', step: 1, ending: false, activeToolCalls: [], since: 1000 },
+      }),
+      pendingApprovals: () => [{ approvalId: 'ap1', toolCallId: 'c1', since: 1500 }],
+    });
+    const tx = new AgentTranscript('main');
+
+    tx.apply(projector.seedPhase());
+
+    expect(tx.getMeta().agent?.phase).toMatchObject({
+      kind: 'awaiting_approval',
+      turnId: 1,
+      approval: { approvalId: 'ap1', toolCallId: 'c1' },
+    });
+  });
+
   it('maps domain events into meta.agent.phase', () => {
     let snapshot: AgentActivitySnapshot = {};
     let approvals: readonly LegacyActivityApproval[] = [];

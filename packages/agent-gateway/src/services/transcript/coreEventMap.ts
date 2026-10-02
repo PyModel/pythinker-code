@@ -357,7 +357,12 @@ export class AgentTranscriptProjector {
     return [...ops, { op: 'meta.merge', meta: { agent: { phase } } }];
   }
 
-  private phaseFor(event: ProjectorBusEvent): ReturnType<typeof toLegacyPhase> {
+  seedPhase(): TranscriptOperation[] {
+    const phase = this.tracker()?.recompute();
+    return phase === undefined ? [] : [{ op: 'meta.merge', meta: { agent: { phase } } }];
+  }
+
+  private tracker(): LegacyActivityTracker | undefined {
     if (this.lookups?.activitySnapshot === undefined || this.lookups.pendingApprovals === undefined) {
       return undefined;
     }
@@ -365,7 +370,12 @@ export class AgentTranscriptProjector {
       this.lookups.activitySnapshot,
       this.lookups.pendingApprovals,
     );
-    return phaseFromDomainEvent(this.activityTracker, event);
+    return this.activityTracker;
+  }
+
+  private phaseFor(event: ProjectorBusEvent): ReturnType<typeof toLegacyPhase> {
+    const tracker = this.tracker();
+    return tracker === undefined ? undefined : phaseFromDomainEvent(tracker, event);
   }
 
   private mapEvent(event: ProjectorBusEvent): TranscriptOperation[] {
