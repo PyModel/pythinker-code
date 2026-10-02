@@ -83,7 +83,7 @@ async function fetchText(fetchImpl, url, label, init = {}) {
 }
 
 function brewFormulaVersion(formula) {
-  const match = typeof formula === 'string' ? /pythinker-code-(\d+\.\d+\.\d+)\.tgz/u.exec(formula) : null;
+  const match = typeof formula === 'string' ? /^\s*version "([^"]+)"\s*$/mu.exec(formula) : null;
   return match === null ? undefined : validVersion(match[1]);
 }
 

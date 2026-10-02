@@ -47,19 +47,30 @@ function json(body, status = 200) {
   });
 }
 
+function brewFormulaText(version) {
+  const tag = encodeURIComponent(`@pymodel/pythinker-code@${version}`);
+  return [
+    'class PythinkerCode < Formula',
+    `  version "${version}"`,
+    `  url "https://github.com/PyModel/pythinker-code/releases/download/${tag}/pythinker-code-darwin-arm64.tar.gz"`,
+    '',
+  ].join('\n');
+}
+
 function fixtureFetch({
   cliAssets = expectedCliAssets,
   nightlyAssets = desktopAssets(desktopNightlyVersion, 'nightly'),
   brewVersion = '1.3.0',
+  brewFormula,
 } = {}) {
   return async (input) => {
     const url = new URL(String(input));
     if (url.hostname === 'registry.npmjs.org') return json({ latest: '1.3.0' });
     if (url.hostname === 'raw.githubusercontent.com') {
-      return new Response(
-        `url "https://registry.npmjs.org/@pymodel/pythinker-code/-/pythinker-code-${brewVersion}.tgz"\n`,
-        { status: 200, headers: { 'content-type': 'text/plain' } },
-      );
+      return new Response(brewFormula ?? brewFormulaText(brewVersion), {
+        status: 200,
+        headers: { 'content-type': 'text/plain' },
+      });
     }
     if (url.hostname === 'code.pythinker.com') {
       return json({
@@ -163,6 +174,21 @@ void test('fails when the Homebrew formula lags the published CLI version', asyn
   const brew = result.rows.find((row) => row.lane === 'Homebrew');
   assert.equal(brew?.ok, false);
   assert.equal(brew?.observed, '1.2.0');
+});
+
+void test('fails when the Homebrew formula has no version stanza', async (t) => {
+  const rootDir = await fixtureRoot(t);
+  const result = await collectReleaseStatus({
+    rootDir,
+    desktopCommitCount,
+    fetchImpl: fixtureFetch({ brewFormula: 'class PythinkerCode < Formula\n' }),
+  });
+
+  assert.equal(result.ok, false);
+  const brew = result.rows.find((row) => row.lane === 'Homebrew');
+  assert.equal(brew?.ok, false);
+  assert.equal(brew?.observed, 'unavailable');
+  assert.match(brew?.details ?? '', /no pythinker-code tarball version/u);
 });
 
 void test('fails when the current desktop Nightly release is incomplete', async (t) => {
