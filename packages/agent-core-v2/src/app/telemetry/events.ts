@@ -85,6 +85,12 @@ export interface TurnEndedEvent {
   enabled_plugins?: string;
 }
 
+export interface ModelFallbackEvent {
+  turn_id: number;
+  from_model: string;
+  to_model: string;
+}
+
 export interface PromptCacheProbeEvent {
   source: 'fork';
   turn_id: number;
@@ -650,6 +656,16 @@ export const telemetryEventDefinitions = {
         'Trace id of the most recent LLM request in this turn; absent for non-Pythinker protocols',
       enabled_plugins:
         'Comma-separated sorted ids of enabled, loaded plugins when the turn ends; empty string for a known empty set, absent when no plugin snapshot is available',
+    },
+  }),
+  model_fallback_triggered: defineAgentTelemetryEvent<ModelFallbackEvent>({
+    owner: 'pythinker-code',
+    comment:
+      'At turn start the bound model no longer resolved, so the agent switched to the best-ranked ready model.',
+    properties: {
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      from_model: 'Bound model alias that no longer resolved',
+      to_model: 'Ready model alias the agent switched to',
     },
   }),
   prompt_cache_probe: defineAgentTelemetryEvent<PromptCacheProbeEvent>({

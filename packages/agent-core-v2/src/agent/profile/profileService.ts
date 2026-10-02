@@ -8,6 +8,10 @@ import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { type ModelOverrides } from '#/llm-adapter/model/model.types';
 import { type ModelRequestParams, type SamplingOptions } from '#/llm-adapter/model/model-requester';
 import { IProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocol';
+import { IModelService } from '#/llm-adapter/model/model';
+import { rankDefaultModelCandidates } from '#/llm-adapter/model/default-model-policy';
+import { resolveModelForReady } from '#/llm-adapter/model/model-auth';
+import { IProviderService } from '#/llm-adapter/provider/provider';
 import {
   drivesThinkingThroughTraits,
   modelSupportsThinkingEffort,
@@ -74,6 +78,7 @@ import {
   profileKey,
   ToolsResetActiveTools,
   ToolsSetActiveTools,
+  ModelFallbackSwitched,
   WarningIssued,
   type ActiveToolsState,
   type ConfigUpdatePayload,
@@ -162,6 +167,8 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     @IPluginService private readonly plugins: IPluginService,
     @IAgentIdentity private readonly identity: IAgentIdentity,
     @IAgentAgentsMdReminderService private readonly agentsMdReminder: IAgentAgentsMdReminderService,
+    @IModelService private readonly models: IModelService,
+    @IProviderService private readonly providers: IProviderService,
   ) {
     super();
     this.states.contributeState(profileKey);
@@ -442,7 +449,8 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     return this.resolveThinkingState(this.tryResolveRawModel()).effective;
   }
 
-  resolveModelContext(): ProfileModelContext {
+  resolveModelContext(turnId?: number): ProfileModelContext {
+    if (turnId !== undefined) this.ensureResolvableModel(turnId);
     const modelAlias = this.model;
     const model = this.modelCatalog.get(modelAlias);
     const loopControl = this.config.get<LoopControl>('loopControl');
@@ -456,6 +464,36 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       compactionTriggerRatio: loopControl?.compactionTriggerRatio,
       compactionMaxAttempts: loopControl?.compactionMaxAttempts,
     };
+  }
+
+  private ensureResolvableModel(turnId: number): void {
+    const alias = this.modelAlias;
+    if (alias === undefined) return;
+    const models = this.models.list();
+    const providers = this.providers.list();
+    const defaultProvider = this.providers.getDefaultProvider();
+    const isReady = (id: string): boolean =>
+      resolveModelForReady(id, models, providers, defaultProvider).resolved;
+    const resolution = resolveModelForReady(alias, models, providers, defaultProvider);
+    if (resolution.resolved) return;
+    const resolvedTo = rankDefaultModelCandidates(models).find(isReady);
+    if (resolvedTo === undefined || resolvedTo === alias) return;
+    this.update({ modelAlias: resolvedTo });
+    this.telemetry.track2('model_fallback_triggered', {
+      turn_id: turnId,
+      from_model: alias,
+      to_model: resolvedTo,
+    });
+    void this.dispatcher.dispatch(
+      new ModelFallbackSwitched({ turnId, fromModel: alias, toModel: resolvedTo }),
+    );
+    void this.dispatcher.dispatch(
+      new WarningIssued({
+        agentId: this.scopeContext.agentId,
+        code: 'model-fallback',
+        message: `Model "${alias}" is no longer available (${resolution.reason}); switched to "${resolvedTo}".`,
+      }),
+    );
   }
 
   resolveRequestParams(): ModelRequestParams {

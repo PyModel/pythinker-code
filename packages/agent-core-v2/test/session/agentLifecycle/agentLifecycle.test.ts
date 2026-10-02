@@ -36,6 +36,8 @@ import { agentContextOf, IAgentScopeContext } from '#/agent/scopeContext/scopeCo
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
 import { IModelCatalog } from '#/llm-adapter/model/catalog';
+import { IModelService } from '#/llm-adapter/model/model';
+import { IProviderService } from '#/llm-adapter/provider/provider';
 import type { ToolCall } from '#human/llm/message';
 import { IProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocol';
 import { IHostClock } from '#/os/interface/hostClock';
@@ -325,6 +327,11 @@ describe('AgentLifecycleService', () => {
       cwd: '/tmp/pythinker-agentLifecycle-home',
       getEnv: () => undefined,
     } as unknown as IBootstrapService);
+    ix.stub(IModelService, { list: () => ({}) } as unknown as IModelService);
+    ix.stub(IProviderService, {
+      list: () => ({}),
+      getDefaultProvider: () => undefined,
+    } as unknown as IProviderService);
     ix.stub(IFlagService, {
       _serviceBrand: undefined,
       enabled: () => false,
