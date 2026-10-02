@@ -6,7 +6,6 @@ import {
   nativeManifestUrl,
   selectPlatformEntry,
 } from '#/cli/update/native-manifest';
-import { pythinkerCodeCdnBinariesBase } from '#/constant/app';
 
 const VERSION = '0.7.0';
 
@@ -195,10 +194,9 @@ describe('selectPlatformEntry', () => {
 });
 
 describe('url helpers', () => {
-  it('builds the manifest and binary URLs from the binaries base', () => {
-    expect(nativeManifestUrl(VERSION)).toBe(`${pythinkerCodeCdnBinariesBase()}/${VERSION}/manifest.json`);
-    expect(nativeBinaryUrl(VERSION, 'pythinker-code-win32-x64.zip')).toBe(
-      `${pythinkerCodeCdnBinariesBase()}/${VERSION}/pythinker-code-win32-x64.zip`,
-    );
+  it('points the manifest and binaries at the GitHub release for the version', () => {
+    const base = `https://github.com/PyModel/pythinker-code/releases/download/%40pymodel%2Fpythinker-code%40${VERSION}`;
+    expect(nativeManifestUrl(VERSION)).toBe(`${base}/manifest.json`);
+    expect(nativeBinaryUrl(VERSION, 'pythinker-code-win32-x64.exe')).toBe(`${base}/pythinker-code-win32-x64.exe`);
   });
 });

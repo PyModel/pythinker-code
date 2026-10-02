@@ -114,3 +114,47 @@ export async function pollCdnUntilCaughtUp(options) {
     await sleep(intervalMs);
   }
 }
+
+/**
+ * Every download URL a client can be sent to for `version`: each
+ * `platforms[*].url` in the CDN `latest.json`, plus every file the release
+ * `manifest.json` names, resolved against the release asset base.
+ *
+ * A matching version string proves nothing about these: 2.3.0 through 2.4.1
+ * shipped with the CDN in sync while every bare-binary URL returned 404.
+ */
+export function collectReleaseDownloadUrls({ latestJson, releaseManifest, releaseAssetUrl }) {
+  const urls = new Set();
+  for (const entry of Object.values(latestJson?.platforms ?? {})) {
+    if (typeof entry?.url === 'string') urls.add(entry.url);
+  }
+  for (const entry of Object.values(releaseManifest?.platforms ?? {})) {
+    for (const name of [entry?.filename, entry?.compressed?.filename, entry?.zstd?.file]) {
+      if (typeof name === 'string') urls.add(releaseAssetUrl(name));
+    }
+  }
+  return [...urls].sort((left, right) => left.localeCompare(right));
+}
+
+/**
+ * HEAD each URL and return the ones that do not answer 2xx. A transport error
+ * or 5xx is retried `attempts` times in total; a 4xx is final at once.
+ */
+export async function findUnreachableUrls({ fetchImpl, sleep, urls, attempts = 3, retryDelayMs = 5_000 }) {
+  const unreachable = [];
+  for (const url of urls) {
+    let status = 'unreachable';
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        const response = await fetchImpl(url, { method: 'HEAD' });
+        status = response.status;
+        if (response.ok || (status >= 400 && status < 500)) break;
+      } catch (error) {
+        status = error instanceof Error ? error.message : 'unreachable';
+      }
+      if (attempt < attempts) await sleep(retryDelayMs);
+    }
+    if (typeof status !== 'number' || status < 200 || status >= 300) unreachable.push({ url, status });
+  }
+  return unreachable;
+}

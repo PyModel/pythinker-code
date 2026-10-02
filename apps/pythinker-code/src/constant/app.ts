@@ -108,11 +108,15 @@ export function pythinkerCodeCdnLatestUrl(): string {
 export function pythinkerCodeCdnLatestJsonUrl(): string {
   return `${pythinkerCodeCdnBase()}/latest.json`;
 }
-// Per-release native artifacts: `/binaries/<version>/manifest.json` +
-// `/binaries/<version>/pythinker-code-<target>[.exe]` — the bare platform binary
-// (same layout install.ps1 consumes).
-export function pythinkerCodeCdnBinariesBase(): string {
-  return `${pythinkerCodeCdnBase()}/binaries`;
+// Per-release native artifacts live on the GitHub release for that version:
+// `manifest.json` plus every file it names (bare binary and `.zst`). The
+// release pipeline uploads them and `latest.json` points at the same URLs.
+// The CDN serves no `/binaries/` route — it answers any unknown path with the
+// site's HTML and a 200.
+const PYTHINKER_CODE_GITHUB_RELEASES_BASE = 'https://github.com/PyModel/pythinker-code/releases/download';
+export function pythinkerCodeReleaseAssetUrl(version: string, filename: string): string {
+  const tag = encodeURIComponent(`${NPM_PACKAGE_NAME}@${version}`);
+  return `${PYTHINKER_CODE_GITHUB_RELEASES_BASE}/${tag}/${filename}`;
 }
 // The marketplace env override name lives in the shared agent-core-v2 plugin
 // domain (agent-gateway consumes it from there). Deep-path import: this module is

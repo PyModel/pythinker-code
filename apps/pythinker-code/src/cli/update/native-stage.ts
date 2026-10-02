@@ -3,9 +3,10 @@
  * without touching the running executable. The actual swap happens on the
  * next startup (see `native-swap.ts`).
  *
- * The CDN serves the bare platform binary (e.g. `pythinker-code-win32-x64.exe`),
- * whose sha256 comes from the per-release manifest over HTTPS — a staged
- * binary is byte-exact what the release pipeline produced.
+ * The GitHub release serves the bare platform binary (e.g.
+ * `pythinker-code-win32-x64.exe`) and its `.zst` variant, whose sha256 comes
+ * from the per-release manifest over HTTPS — a staged binary is byte-exact
+ * what the release pipeline produced.
  */
 
 import { createHash } from 'node:crypto';
@@ -440,7 +441,7 @@ export async function stageNativeUpdate(
     // would still be adopted here and reported as success, only for the
     // startup swap's claim-time re-verify to reject and discard it. Compare
     // the actual digest before adopting; a mismatch falls through and
-    // re-stages from the CDN (published under a new generation name — the
+    // re-stages from the release (published under a new generation name — the
     // damaged exe is left for the age-gated orphan cleanup).
     const digest = await hashFileSha256(stagedExePath(options.exePath, existing));
     if (digest === existing.sha256) {

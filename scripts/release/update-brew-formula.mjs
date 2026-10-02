@@ -3,7 +3,10 @@
  * tarball. `changeset publish` can succeed several minutes before the public
  * GET of `/-/pythinker-code-<version>.tgz` returns 200, so the download polls
  * until the tarball is fetchable (fetch, sleep, and clock are injected so the
- * poll is unit-testable without a network or a real wait).
+ * poll is unit-testable without a network or a real wait). The poll is also
+ * the only "is it on npm" gate: `npm view` lags the same way (2.4.0 and 2.4.1
+ * both failed a one-shot check that ran seconds after publish), and a version
+ * that never appears still fails closed once the budget runs out.
  */
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -55,28 +58,9 @@ export async function downloadNpmTarball(options) {
   }
 }
 
-export function assertPublishedNpmVersion({ name, version, execFile = execFileSync }) {
-  try {
-    const out = execFile(
-      'npm',
-      ['view', `${name}@${version}`, 'version', '--registry=https://registry.npmjs.org'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
-    ).trim();
-    if (out !== version) {
-      throw new Error(`npm view returned ${out}`);
-    }
-  } catch (error) {
-    throw new Error(
-      `${name}@${version} is not on npm. Identity freeze: refuse to poll a tarball that will never appear.`,
-      { cause: error },
-    );
-  }
-}
-
 async function main() {
   const packageJson = JSON.parse(readFileSync(new URL('../../apps/pythinker-code/package.json', import.meta.url), 'utf8'));
   const version = packageJson.version;
-  assertPublishedNpmVersion({ name: '@pymodel/pythinker-code', version });
   const tarballUrl = `https://registry.npmjs.org/@pymodel/pythinker-code/-/pythinker-code-${version}.tgz`;
   const { tarball } = await downloadNpmTarball({
     url: tarballUrl,

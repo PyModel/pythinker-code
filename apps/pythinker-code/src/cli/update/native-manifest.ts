@@ -1,5 +1,5 @@
 /**
- * Per-release native artifact manifest (`/binaries/<version>/manifest.json`).
+ * Per-release native artifact manifest (`manifest.json` on the GitHub release).
  *
  * Published alongside the release and consumed by the install scripts; the
  * staged updater reuses the same file so checksums and file names have a
@@ -12,7 +12,7 @@
 import { valid } from 'semver';
 import { z } from 'zod';
 
-import { pythinkerCodeCdnBinariesBase } from '#/constant/app';
+import { pythinkerCodeReleaseAssetUrl } from '#/constant/app';
 
 const MANIFEST_FETCH_TIMEOUT_MS = 10_000;
 
@@ -47,11 +47,11 @@ export type NativeReleaseManifest = z.infer<typeof NativeReleaseManifestSchema>;
 export type NativePlatformEntry = z.infer<typeof PlatformEntrySchema>;
 
 export function nativeManifestUrl(version: string): string {
-  return `${pythinkerCodeCdnBinariesBase()}/${version}/manifest.json`;
+  return pythinkerCodeReleaseAssetUrl(version, 'manifest.json');
 }
 
 export function nativeBinaryUrl(version: string, filename: string): string {
-  return `${pythinkerCodeCdnBinariesBase()}/${version}/${filename}`;
+  return pythinkerCodeReleaseAssetUrl(version, filename);
 }
 
 /**
