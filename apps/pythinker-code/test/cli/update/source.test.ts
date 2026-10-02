@@ -4,6 +4,7 @@ import {
   classifyByPathHeuristic,
   classifyInstallSource,
   detectInstallSource,
+  detectNativeInstall,
 } from '#/cli/update/source';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
@@ -158,6 +159,18 @@ describe('detectInstallSource', () => {
     ).resolves.toBe('native');
   });
 
+  it('returns homebrew for a native binary that Homebrew installed in its Cellar', async () => {
+    await expect(
+      detectInstallSource({
+        getPackageRoot: () => '/opt/homebrew/Cellar/pythinker-code/2.5.0/bin',
+        getGlobalPrefix: async () => '/opt/homebrew',
+        detectNative: () => true,
+        execPath: '/opt/homebrew/Cellar/pythinker-code/2.5.0/bin/pythinker',
+        platform: 'darwin',
+      }),
+    ).resolves.toBe('homebrew');
+  });
+
   it('returns unsupported when nothing matches', async () => {
     await expect(
       detectInstallSource({
@@ -195,5 +208,22 @@ describe('detectInstallSource', () => {
       }),
     ).resolves.toBe('unsupported');
     expect(resolveCommandPath).toHaveBeenCalledWith('npm');
+  });
+});
+
+describe('detectNativeInstall', () => {
+  it('is true for a native binary outside any package manager', () => {
+    expect(detectNativeInstall('/Users/someone/.local/bin/pythinker', () => true)).toBe(true);
+  });
+
+  it('is false for a native binary that Homebrew owns, so it never stages or swaps itself', () => {
+    expect(detectNativeInstall('/opt/homebrew/Cellar/pythinker-code/2.5.0/bin/pythinker', () => true)).toBe(false);
+    expect(
+      detectNativeInstall('/home/linuxbrew/.linuxbrew/Cellar/pythinker-code/2.5.0/bin/pythinker', () => true),
+    ).toBe(false);
+  });
+
+  it('is false when the process is not a native binary', () => {
+    expect(detectNativeInstall('/Users/someone/.local/bin/pythinker', () => false)).toBe(false);
   });
 });

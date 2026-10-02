@@ -494,7 +494,11 @@ jobs:
     permissions:
       contents: read
     name: Update Homebrew tap
-    needs: release
+    # The formula installs the native tarballs, so it can only point at them
+    # once publish-native-assets has put them on the release.
+    needs:
+      - release
+      - publish-native-assets
     if: >-
       needs.release.outputs.pythinker_native_release == 'true'
       && vars.RELEASE_LANE_BREW != 'disabled'
@@ -525,6 +529,51 @@ jobs:
         env:
           TAP_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
         run: node scripts/release/update-brew-formula.mjs
+
+  # Installs the bumped formula from the public tap on a real Homebrew, the
+  # way users get it, and checks the binary reports the released version.
+  # Homebrew relocates and may re-sign what it installs, so this is the only
+  # proof the native binary survives a keg on each OS.
+  verify-brew-install:
+    timeout-minutes: 20
+    name: Verify Homebrew install (${{ matrix.os }})
+    needs:
+      - update-brew-tap
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned from v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: apps/pythinker-code/package.json
+          sparse-checkout-cone-mode: false
+
+      - name: Install pythinker-code from PyModel/tap
+        shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          HOMEBREW_NO_INSTALL_CLEANUP: '1'
+        run: |
+          set -euo pipefail
+          if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          fi
+          expected="$(jq -r .version apps/pythinker-code/package.json)"
+          brew tap pymodel/tap
+          brew install --formula pymodel/tap/pythinker-code
+          brew test pymodel/tap/pythinker-code
+          actual="$("$(brew --prefix)/bin/pythinker" --version)"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::Homebrew installed pythinker $actual, expected $expected."
+            exit 1
+          fi
+          echo "Homebrew installs pythinker $actual on ${{ matrix.os }}."
 
   deploy-docs:
     name: Deploy docs
@@ -663,6 +712,7 @@ jobs:
       - redeploy-cdn
       - verify-cdn-release
       - update-brew-tap
+      - verify-brew-install
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -687,7 +737,7 @@ jobs:
           CDN_DEPLOY_RESULT: ${{ needs.redeploy-cdn.result }}
           CDN_VERIFY_RESULT: ${{ needs.verify-cdn-release.result }}
           BREW_ENABLED: ${{ vars.RELEASE_LANE_BREW != 'disabled' }}
-          BREW_RESULT: ${{ needs.update-brew-tap.result }}
+          BREW_RESULT: ${{ needs.verify-brew-install.result }}
           DESKTOP_EXPECTED: ${{ needs.release.outputs.desktop_version_bumped }}
           DESKTOP_ENABLED: ${{ vars.RELEASE_LANE_DESKTOP != 'disabled' }}
           DESKTOP_RESULT: ${{ needs.cut-desktop-tag.result }}
