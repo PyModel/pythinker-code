@@ -52,6 +52,8 @@ import { AgentReminderService, IAgentReminderService } from '#/features/reminder
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { SubagentSuspended } from '#/features/dynamic_workflow/session/sessionDynamicWorkflowService';
 import { IModelCatalog } from '#/llm-adapter/model/catalog';
+import { IModelService } from '#/llm-adapter/model/model';
+import { IProviderService } from '#/llm-adapter/provider/provider';
 import { IProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocol';
 import { McpConnectionManager } from '#/mcpCore/connection-manager';
 import { McpOAuthService } from '#/mcpCore/oauth/service';
@@ -392,6 +394,11 @@ describe('SessionSubagentScopeCacheService', () => {
       cwd: '/tmp/pythinker-subagentScopeCache-home',
       getEnv: () => undefined,
     } as unknown as IBootstrapService);
+    ix.stub(IModelService, { list: () => ({}) } as unknown as IModelService);
+    ix.stub(IProviderService, {
+      list: () => ({}),
+      getDefaultProvider: () => undefined,
+    } as unknown as IProviderService);
     ix.stub(IFlagService, {
       _serviceBrand: undefined,
       enabled: () => false,
