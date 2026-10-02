@@ -26,8 +26,7 @@ function loadSeaModule(): NodeSeaModule | null {
   return cachedSea;
 }
 
-/** Runtime SEA detection — true when running as a packaged native binary. */
-export function detectNativeInstall(): boolean {
+function isSeaBinary(): boolean {
   const sea = loadSeaModule();
   if (sea === null) return false;
   try {
@@ -35,6 +34,19 @@ export function detectNativeInstall(): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * True for a self-updating native install: a packaged native binary that no
+ * package manager owns. A native binary Homebrew installed lives in its
+ * Cellar; staging or swapping it there would desync Homebrew's records, so
+ * `brew upgrade` stays its only update path.
+ */
+export function detectNativeInstall(
+  execPath: string = process.execPath,
+  isSea: () => boolean = isSeaBinary,
+): boolean {
+  return isSea() && classifyByPathHeuristic(execPath) !== 'homebrew';
 }
 
 // Path heuristic markers (compared in lowercase; both forward and backward slashes accepted).
@@ -70,6 +82,7 @@ export interface DetectInstallSourceDeps {
   readonly getPackageRoot: () => string;
   readonly getGlobalPrefix: () => Promise<string>;
   readonly detectNative: () => boolean;
+  readonly execPath: string;
   readonly platform: NodeJS.Platform;
 }
 
@@ -153,11 +166,14 @@ export async function detectInstallSource(
     getGlobalPrefix:
       deps.getGlobalPrefix ??
       (() => npmGlobalPrefix(platform)),
-    detectNative: deps.detectNative ?? detectNativeInstall,
+    detectNative: deps.detectNative ?? isSeaBinary,
+    execPath: deps.execPath ?? process.execPath,
     platform,
   };
 
-  if (resolved.detectNative()) return 'native';
+  if (resolved.detectNative()) {
+    return classifyByPathHeuristic(resolved.execPath) === 'homebrew' ? 'homebrew' : 'native';
+  }
 
   const packageRoot = resolved.getPackageRoot();
   const heuristic = classifyByPathHeuristic(packageRoot);

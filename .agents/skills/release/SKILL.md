@@ -43,7 +43,8 @@ workspace, set its `private` and changesets policy explicitly and update `flake.
 | `Native release artifact` | CLI was published | Six signed/tested zips, checksums, provenance |
 | `Publish native release assets` | native builds passed | All-or-nothing immutable upload with `manifest.json` |
 | `Redeploy CDN` + verify | native assets published | Webhook may retry; verification is the hard gate |
-| `Update Homebrew tap` | CLI was published | App token scoped to `homebrew-tap` contents |
+| `Update Homebrew tap` | native assets published | Renders `Formula/pythinker-code.rb` from the four native `.tar.gz` (macOS/Linux × arm64/x64), hashes downloaded bytes, pushes with an App token scoped to `homebrew-tap` contents, reads the formula back from the tap |
+| `Verify Homebrew install` | tap updated | `brew install` + `brew test` from `pymodel/tap` on macOS and Linux; `pythinker --version` must equal the release. This is the Homebrew lane result in the summary |
 | `Release lane summary` | always | One table with provenance state; fails when an expected enabled lane failed or skipped |
 
 Set `RELEASE_LANE_DESKTOP`, `RELEASE_LANE_VSCODE`, `RELEASE_LANE_CDN`, or
@@ -70,6 +71,17 @@ otherwise errors.
   `beta`/`dev` tags). A mismatch means the checkout in the job predates the release commit or npm
   propagation lag — check `npm view @pymodel/pythinker-code dist-tags` before touching anything.
   Dokploy deploy specifics: see memory `cdn-dokploy-deploy-pipeline`.
+- **Homebrew lane red.** `Update Homebrew tap` polls each native tarball for 10 minutes, so a
+  failure there means the release has no tarball for that target: check `Publish native release
+  assets` first. `Verify Homebrew install` red with the bump green means the formula installs but the
+  binary fails in a keg on that OS; reproduce with `HOMEBREW_NO_AUTOREMOVE=1 brew install
+  pymodel/tap/pythinker-code` (plain `brew uninstall` afterwards autoremoves orphaned dependencies).
+  A native binary under a Homebrew `Cellar/` reports install source `homebrew` and never
+  self-updates; `brew upgrade pythinker-code` is its only update path.
+- **Native update 404s.** `verify-release-consistency.mjs` HEADs every URL in the CDN `latest.json`
+  and every file the release `manifest.json` names. A red gate lists the missing assets; the
+  updater fetches exactly those URLs from the GitHub release (`pythinkerCodeReleaseAssetUrl`). The
+  CDN has no `/binaries/` route — it answers unknown paths with the site HTML and HTTP 200.
 - **`pnpm install` fails in CI or locally.** `engine-strict=true` + Node `>=24.15.0` — check
   `.nvmrc` before debugging anything else.
 - **Identity freeze / version rewind.** Copying another product's `CHANGELOG.md`, `package.json`
