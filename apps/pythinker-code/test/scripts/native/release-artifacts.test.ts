@@ -97,6 +97,8 @@ describe('native release artifacts', () => {
     for (const name of [
       `pythinker-code-${target}.zip`,
       `pythinker-code-${target}.zip.sha256`,
+      `pythinker-code-${target}`,
+      `pythinker-code-${target}.sha256`,
       `pythinker-code-${target}.zst`,
       `pythinker-code-${target}.zst.sha256`,
       `pythinker-code-${target}.tar.gz`,
@@ -168,6 +170,11 @@ describe('native release artifacts', () => {
         },
       },
     });
+    const bare = resolve(artifactsDir, `pythinker-code-${target}`);
+    expect(readFileSync(bare, 'utf-8')).toBe(binaryContent);
+    expect(readFileSync(`${bare}.sha256`, 'utf-8')).toBe(
+      `${sha256(Buffer.from(binaryContent))}  pythinker-code-${target}\n`,
+    );
   });
 
   it('keeps the .exe suffix in Windows manifest filenames', async () => {
@@ -199,6 +206,7 @@ describe('native release artifacts', () => {
       expect(entry.filename).toBe('pythinker-code-win32-x64.exe');
       expect(entry.checksum).toBe(sha256(binaryContent));
       expect(entry.compressed.filename).toBe('pythinker-code-win32-x64.zst');
+      expect(await readFile(join(releaseDir, entry.filename))).toEqual(binaryContent);
     } finally {
       rmSync(releaseDir, { recursive: true, force: true });
     }

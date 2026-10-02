@@ -82,6 +82,8 @@ The CLI ships as a native binary, so there is no Node.js prerequisite.
 | Nix | `nix run github:PyModel/pythinker-code` |
 | npm | `npm install -g @pymodel/pythinker-code` (needs Node.js 24.15+) |
 
+> Native install on 2.2.0–2.4.1? `pythinker update` cannot download new versions there. Run the install command again once to get a later version ([#354](https://github.com/PyModel/pythinker-code/issues/354)).
+
 ```sh
 cd your-project
 pythinker

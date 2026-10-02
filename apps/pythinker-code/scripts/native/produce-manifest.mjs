@@ -9,6 +9,10 @@
  * (produced by package.mjs across the 6 native-build matrix runners). The
  * zip is the only form in which binaries leave the matrix runners, so this
  * script extracts each bare executable and emits next to it:
+ *   pythinker-code-<target>[.exe]     the bare binary; `filename` in the
+ *                                manifest and `url` in the CDN latest.json
+ *                                both name it, and updaters without zstd
+ *                                support download it
  *   pythinker-code-<target>.zst       zstd -19, consumed by the staged updater
  *   pythinker-code-<target>.tar.gz    consumed by install.sh / install.ps1
  *   <artifact>.sha256            sidecars in `<hex>  <name>` format
@@ -23,7 +27,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -71,8 +75,8 @@ for (const sumFile of sumFiles.sort()) {
   const target = basename(sumFile, '.sha256').replace(/^pythinker-code-/, '').replace(/\.zip$/, '');
   const zipName = `pythinker-code-${target}.zip`;
   const exeName = target.startsWith('win32') ? 'pythinker.exe' : 'pythinker';
-  // The CDN bare-binary layout carries the .exe suffix on Windows
-  // (src/constant/app.ts); the updater's fallback downloads this filename.
+  // Windows keeps the .exe suffix. Every file the manifest names is uploaded
+  // to the release, so the updater can always fetch it.
   const binaryName = target.startsWith('win32') ? `pythinker-code-${target}.exe` : `pythinker-code-${target}`;
   const artifactBase = `pythinker-code-${target}`;
   const zstName = `${artifactBase}.zst`;
@@ -83,6 +87,8 @@ for (const sumFile of sumFiles.sort()) {
     await run('unzip', ['-o', resolve(inputDir, zipName), '-d', workDir]);
     const exePath = join(workDir, exeName);
     const binaryChecksum = await sha256File(exePath);
+    await copyFile(exePath, resolve(inputDir, binaryName));
+    await writeFile(resolve(inputDir, `${binaryName}.sha256`), `${binaryChecksum}  ${binaryName}\n`);
     await run('zstd', ['-T0', '-19', '-q', '-f', '-o', resolve(inputDir, zstName), exePath]);
     await run('tar', ['-C', workDir, '-czf', resolve(inputDir, tarballName), exeName]);
 

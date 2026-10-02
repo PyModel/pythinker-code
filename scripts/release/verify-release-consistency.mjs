@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
-import { pollCdnUntilCaughtUp } from './cdn-consistency.mjs';
+import { collectReleaseDownloadUrls, findUnreachableUrls, pollCdnUntilCaughtUp } from './cdn-consistency.mjs';
 
 const PACKAGE_NAME = '@pymodel/pythinker-code';
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
@@ -133,5 +133,42 @@ console.log(
   `CDN matches npm (${cdnPoll.cdnVersion}) after ${cdnPoll.attempts} attempt(s), ` +
     `${cdnPoll.retriggers} rebuild request(s)`,
 );
+
+// Clients download what latest.json and the release manifest name, so every
+// one of those URLs must resolve. A version match alone let releases ship
+// whose binaries 404ed for every installed native client.
+const releaseAssetUrl = (name) =>
+  `https://github.com/PyModel/pythinker-code/releases/download/${encodeURIComponent(releaseTag)}/${name}`;
+async function fetchJson(url) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return JSON.parse(await response.text());
+}
+let latestJson;
+let releaseManifest;
+try {
+  latestJson = await fetchJson(CDN_MANIFEST_URL);
+  releaseManifest = await fetchJson(releaseAssetUrl('manifest.json'));
+} catch (error) {
+  fail(`cannot read latest.json or the ${releaseTag} manifest.json: ${error.message}`);
+}
+const downloadUrls = collectReleaseDownloadUrls({ latestJson, releaseManifest, releaseAssetUrl });
+if (downloadUrls.length === 0) fail(`latest.json and the ${releaseTag} manifest.json name no downloads`);
+const unreachable = await findUnreachableUrls({
+  fetchImpl: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(15_000) }),
+  sleep: (ms) =>
+    new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    }),
+  urls: downloadUrls,
+});
+if (unreachable.length > 0) {
+  fail(
+    `${unreachable.length} of ${downloadUrls.length} advertised download(s) do not resolve — ` +
+      'native updates for those platforms fail:\n' +
+      unreachable.map(({ url, status }) => `  ${status} ${url}`).join('\n'),
+  );
+}
+console.log(`All ${downloadUrls.length} advertised downloads resolve`);
 
 console.log(`consistency OK: latest=${distTags.latest} beta=${distTags.beta ?? '-'} dev=${distTags.dev ?? '-'}`);
