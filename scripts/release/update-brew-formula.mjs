@@ -137,6 +137,9 @@ async function main() {
   const packageJson = JSON.parse(readFileSync(new URL('../../apps/pythinker-code/package.json', import.meta.url), 'utf8'));
   const version = packageJson.version;
 
+  // One budget for all four tarballs, so the poll always ends inside the
+  // job's timeout.
+  const deadline = Date.now() + ASSET_POLL_BUDGET_MS;
   const assets = {};
   for (const target of Object.values(BREW_TARGETS)) {
     const url = nativeTarballUrl(version, target);
@@ -148,7 +151,7 @@ async function main() {
           setTimeout(resolve, ms);
         }),
       now: () => Date.now(),
-      budgetMs: ASSET_POLL_BUDGET_MS,
+      budgetMs: Math.max(0, deadline - Date.now()),
       intervalMs: ASSET_POLL_INTERVAL_MS,
     });
     assets[target] = { url, sha256: createHash('sha256').update(body).digest('hex') };

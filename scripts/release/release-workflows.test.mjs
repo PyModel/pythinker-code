@@ -32,6 +32,10 @@ void test('release workflow uses full push-boundary lane signals and isolated jo
   assert.match(workflow, /APPLE_CERTIFICATE_P12: \$\{\{ secrets\.MAC_CSC_LINK \}\}/u);
   assert.match(workflow, /APPLE_NOTARIZATION_KEY_P8: \$\{\{ secrets\.APPLE_API_KEY_P8 \}\}/u);
   assert.match(workflow, /^  update-brew-tap:\n    timeout-minutes: 20$/mu);
+  const brewJob = workflow.slice(workflow.indexOf('  update-brew-tap:'), workflow.indexOf('  verify-brew-install:'));
+  assert.match(brewJob, /needs:\n      - release\n      - publish-native-assets\n/u);
+  assert.match(workflow, /^  verify-brew-install:/mu);
+  assert.match(workflow, /BREW_RESULT: \$\{\{ needs\.verify-brew-install\.result \}\}/u);
 });
 
 void test('VS Code release supports isolated recovery and attests verified VSIX files', () => {
