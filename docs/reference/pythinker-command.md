@@ -198,7 +198,7 @@ Generate a new persistent bearer token (written to `~/.pythinker-code/server.tok
 
 ### `pythinker install-app`
 
-Print the Pythinker Code desktop app page and open it in the default browser, so you can download and install the desktop app without leaving the terminal. The URL follows the active region: `https://www.kimi.com/code` on the mainland region, `https://www.kimi.ai/code` on the global region.
+Print the Pythinker Code desktop app page and open it in the default browser, so you can download and install the desktop app without leaving the terminal. The page is `https://www.pythinker.com/code`.
 
 ```sh
 pythinker install-app
