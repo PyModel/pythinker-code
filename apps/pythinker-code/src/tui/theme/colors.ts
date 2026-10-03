@@ -211,7 +211,7 @@ export const darkColors: ColorPalette = {
   effortLow: '#B3B3B3',
   effortMedium: '#E8E8E8',
   effortHigh: '#6FA8DC',
-  effortXHigh: '#A78BFA',
+  effortXHigh: '#D58BF0',
   effortMax: '#F2C744',
 
   diffAdded: '#4EC87E',
@@ -290,7 +290,7 @@ export const lightColors: ColorPalette = {
   effortLow: '#8C8C8C',
   effortMedium: '#404040',
   effortHigh: '#2E6FB8',
-  effortXHigh: '#7048B6',
+  effortXHigh: '#8E3AA8',
   effortMax: '#B8860B',
 
   diffAdded: '#0E7A38',
