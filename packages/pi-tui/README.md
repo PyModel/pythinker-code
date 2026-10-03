@@ -68,6 +68,91 @@ tui.requestRender(); // Request a re-render
 tui.onDebug = () => console.log("Debug triggered");
 ```
 
+### Colors and terminal styles
+
+Colors are values that can be converted or mixed before terminal rendering:
+
+```typescript
+import {
+  colorToRgb,
+  foregroundAnsi,
+  getTerminalColorMode,
+  mixColors,
+  parseColor,
+  rgbColor,
+  styleText,
+} from "@earendil-works/pi-tui";
+
+const accent = parseColor("oklch(70% 0.12 220)");
+const background = parseColor("#20242a");
+const foreground = mixColors(accent, background, 0.2);
+
+const text = styleText(
+  "Ready",
+  { fg: foreground, bg: background, bold: true },
+  getTerminalColorMode(),
+);
+```
+
+`Color` is an indexed ANSI color, an sRGB color, or an OKLCH color. Every color converts to sRGB, so color math such as `mixColors()` always works. Indices 0-15 follow the user's terminal palette, so their sRGB values are approximations. `styleText()` converts colors to truecolor or 256-color output based on the requested terminal mode.
+
+`parseColor()` also accepts OKHSL, as in `okhsl(250 60% 55%)`; `okhslColor()` builds it in code and `colorToOkhsl()` reads any color's OKHSL channels. OKHSL saturation is relative to the most the sRGB gamut allows at the hue and lightness, so every value is in gamut and equal saturation looks equally colorful across hues. OKHSL colors are converted to sRGB when created.
+
+Conversions are not cached. OKLCH colors, especially ones outside the sRGB gamut, are more expensive to convert than sRGB or indexed colors. For colors used on every render, convert once and reuse the result:
+
+```typescript
+const { r, g, b } = colorToRgb(mixColors(accent, background, 0.2));
+const foreground = rgbColor(r, g, b); // cheap to render repeatedly
+const foregroundCode = foregroundAnsi(foreground, getTerminalColorMode());
+```
+
+### Alternate-screen viewport layouts
+
+`TuiAltScreen` can render an explicit terminal-height layout. `VStack` and `HStack` allocate constrained regions, while `ScrollView` owns scrolling for one region. These semantics are intentionally unavailable on `TuiMainScreen`, where the terminal owns scrollback.
+
+```typescript
+import {
+  Container,
+  isViewportTUI,
+  ScrollView,
+  Text,
+  VStack,
+} from "@earendil-works/pi-tui";
+
+const transcript = new Container();
+transcript.addChild(new Text("History"));
+
+const editorAndFooter = new VStack([
+  editor,
+  new Text("status"),
+]);
+
+if (isViewportTUI(tui)) {
+  tui.setLayoutRoot(new VStack([
+    {
+      component: new ScrollView(transcript, {
+        follow: "end",
+        primary: true,
+        overscroll: "chain",
+      }),
+      basis: 0,
+      grow: 1,
+      minSize: 1,
+    },
+    {
+      component: editorAndFooter,
+      basis: "auto",
+      shrink: 1,
+      minSize: 1,
+    },
+  ]));
+}
+```
+
+Stack entries support `basis`, `grow`, `shrink`, `minSize`, `maxSize`, and responsive `visible` callbacks. Mouse-wheel input targets the scroll view under the pointer and unused delta chains to outer scroll views by default. The primary scroll view receives the alternate-screen keyboard navigation actions and wheel input over non-scrollable regions. It can also jump between OSC 133 semantic prompt markers, matching common terminal prompt-navigation shortcuts. Press `Ctrl+Shift+F` to open or close its bordered search panel. The panel shows the configured previous/next shortcuts and provides clickable arrow controls; by default, `Enter`/`Ctrl+G` and `Shift+Enter`/`Ctrl+Shift+G` move between matches, and `Escape` also closes search. `TuiAltScreenOptions.searchMatchStyle` and `searchCurrentMatchStyle` customize match highlighting, while `searchNavigationButtonStyle` styles each arrow button and receives its hover state. `TuiAltScreenOptions.scrollToEndIndicator` renders a clickable label centered on the last row of a `follow: "end"` primary scroll view while it is scrolled away from the end; clicking it resumes end-following.
+
+Layout geometry is rebuilt for each requested frame. Stateful components are retained, and their existing rendered-line caches remain effective. Calling `render(width)` directly on these layout components produces an unbounded document, which is also used when alt mode restores the main screen.
+
 ### Overlays
 
 Overlays render components on top of existing content without replacing it. Useful for dialogs, menus, and modal UI.
@@ -154,7 +239,8 @@ All components implement:
 interface Component {
   render(width: number): string[];
   handleInput?(data: string): void;
-  invalidate?(): void;
+  handleMouse?(event: TuiMouseEvent): TuiMouseEventResult | undefined;
+  invalidate(): void;
 }
 ```
 
@@ -162,7 +248,8 @@ interface Component {
 |--------|-------------|
 | `render(width)` | Returns an array of strings, one per line. Each line **must not exceed `width`** or the TUI will error. Use `truncateToWidth()` or manual wrapping to ensure this. |
 | `handleInput?(data)` | Called when the component has focus and receives keyboard input. The `data` string contains raw terminal input (may include ANSI escape sequences). |
-| `invalidate?()` | Called to clear any cached render state. Components should re-render from scratch on the next `render()` call. |
+| `handleMouse?(event)` | Called by `TuiAltScreen` for normalized pointer input targeted at the component. |
+| `invalidate()` | Required. Clear any cached render state so the next `render()` starts from scratch. Components without cached render state can use an empty implementation. |
 
 The TUI appends a full SGR reset and OSC 8 reset at the end of each rendered line. Styles do not carry across lines. If you emit multi-line text with styling, reapply styles per line or use `wrapTextWithAnsi()` so styles are preserved for each wrapped line.
 
@@ -181,6 +268,8 @@ class MyInput implements Component, Focusable {
     // Emit marker right before the fake cursor
     return [`> ${beforeCursor}${marker}\x1b[7m${atCursor}\x1b[27m${afterCursor}`];
   }
+
+  invalidate(): void {}
 }
 ```
 
@@ -678,6 +767,8 @@ class MyInteractiveComponent implements Component {
       return truncateToWidth(prefix + item, width);
     });
   }
+
+  invalidate(): void {}
 }
 ```
 
@@ -709,6 +800,8 @@ class MyComponent implements Component {
     // Pad to exact width (optional, for backgrounds)
     return [line + " ".repeat(width - visible)];
   }
+
+  invalidate(): void {}
 }
 ```
 
@@ -766,7 +859,7 @@ See `test/chat-simple.ts` for a complete chat interface example with:
 
 Run it:
 ```bash
-npx tsx test/chat-simple.ts
+node test/chat-simple.ts
 ```
 
 ## Development
@@ -779,7 +872,7 @@ npm install
 npm run check
 
 # Run the demo
-npx tsx test/chat-simple.ts
+node test/chat-simple.ts
 ```
 
 ### Debug logging
@@ -787,5 +880,5 @@ npx tsx test/chat-simple.ts
 Set `PI_TUI_WRITE_LOG` to capture the raw ANSI stream written to stdout.
 
 ```bash
-PI_TUI_WRITE_LOG=/tmp/tui-ansi.log npx tsx test/chat-simple.ts
+PI_TUI_WRITE_LOG=/tmp/tui-ansi.log node test/chat-simple.ts
 ```
