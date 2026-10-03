@@ -24,6 +24,7 @@ import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel'
 import { EffortSelectorComponent } from '#/tui/components/dialogs/effort-selector';
 import { pythinkerCodePluginMarketplaceUrl } from '#/constant/app';
 import { BRAILLE_SPINNER_FRAMES } from '#/tui/constant/rendering';
+import { currentTheme } from '#/tui/theme';
 import {
   AgentDynamicWorkflowProgressComponent,
   agentDynamicWorkflowGridHeightForTerminalRows,
@@ -1523,6 +1524,38 @@ describe('PythinkerTUI message flow', () => {
     thinking: { enabled: true },
   });
 
+  it('cycles thinking effort with Shift-Tab, skipping off, and tints the prompt frame', async () => {
+    const session = makeSession();
+    const startupInput: PythinkerTUIStartupInput = {
+      ...makeStartupInput(),
+      cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
+    };
+    const { driver, harness } = await makeDriver(
+      session,
+      { getConfig: vi.fn(async () => thinkingModelsConfig()) },
+      startupInput,
+    );
+    harness.track.mockClear();
+    const press = async (expected: string) => {
+      driver.state.editor.onShiftTab?.();
+      await vi.waitFor(() => {
+        expect(driver.state.appState.thinkingEffort).toBe(expected);
+      });
+    };
+
+    expect(driver.state.appState.thinkingEffort).toBe('high');
+    await press('max');
+    await press('low');
+    await press('high');
+    await press('max');
+    await press('low');
+
+    expect(harness.track.mock.calls.map(([event]) => event)).toContain('shortcut_effort_cycle');
+    expect(session.setPlanMode).not.toHaveBeenCalled();
+    expect(driver.state.editor.borderColor('x')).toBe(currentTheme.fg('effortLow', 'x'));
+    expect(stripSgr(renderTranscript(driver))).not.toContain('Thinking set to');
+  });
+
   it('blocks an effort switch once the waited-out first prompt starts a turn (v2 engine)', async () => {
     const lazySession = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {
@@ -2695,19 +2728,6 @@ command = "vim"
       );
     });
     expect(failedSession.onEvent).toHaveBeenCalledOnce();
-  });
-
-  it('tracks Shift-Tab mode switches through the editor handler', async () => {
-    const { driver, session, harness } = await makeDriver();
-    harness.track.mockClear();
-
-    driver.state.editor.onShiftTab?.();
-
-    await vi.waitFor(() => {
-      expect(session.setPlanMode).toHaveBeenCalledWith(true);
-    });
-    expect(harness.track).toHaveBeenCalledWith('shortcut_plan_toggle', { enabled: true });
-    expect(harness.track).toHaveBeenCalledWith('shortcut_mode_switch', { to_mode: 'plan' });
   });
 
   it('routes /yolo through session permission state without app-layer telemetry duplication', async () => {

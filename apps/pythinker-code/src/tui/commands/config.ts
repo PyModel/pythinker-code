@@ -401,11 +401,31 @@ export function showModelPicker(host: SlashCommandHost, selectedValue: string = 
   );
 }
 
+/**
+ * Shift+Tab: step to the next thinking effort of the current model and wrap.
+ * `off` is skipped when the model declares concrete efforts. The switch is
+ * session-only and quiet, so repeated presses do not fill the transcript.
+ */
+export async function cycleThinkingEffort(host: SlashCommandHost): Promise<void> {
+  const alias = host.state.appState.model;
+  const model = host.state.appState.availableModels[alias];
+  if (model === undefined) return;
+  if (host.state.appState.streamingPhase !== 'idle') return;
+  const segments = segmentsFor(effectiveModelForHost(host, model));
+  const hasEfforts = segments.some((effort) => effort !== 'off' && effort !== 'on');
+  const cycle = hasEfforts ? segments.filter((effort) => effort !== 'off') : segments;
+  if (cycle.length < 2) return;
+  const index = cycle.indexOf(host.state.appState.thinkingEffort);
+  const next = cycle[(index + 1) % cycle.length]!;
+  await performModelSwitch(host, alias, next, false, true);
+}
+
 async function performModelSwitch(
   host: SlashCommandHost,
   alias: string,
   effort: ThinkingEffort,
   persist: boolean,
+  quiet = false,
 ): Promise<void> {
   let session = host.session;
   if (session === undefined) {
@@ -488,6 +508,7 @@ async function performModelSwitch(
     }
   }
 
+  if (quiet) return;
   let status: string;
   if (effectiveModelChanged) {
     status = persist

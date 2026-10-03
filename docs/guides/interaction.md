@@ -75,7 +75,7 @@ Approvals are not triggered for regular tool calls in Ask When Needed mode, nor 
 
 In Plan mode the agent first outputs an action plan and waits for your approval before modifying any files — useful for complex or high-risk tasks.
 
-- Toggle: `Shift-Tab` or `/plan`
+- Toggle: `/plan`
 - Clear the current plan: `/plan clear` (only while idle)
 
 After producing a plan the agent pauses for your review — you can approve it, reject it, or ask for revisions. Exiting Plan mode requires your confirmation even if Ask When Needed mode is also active. Never Ask mode is the exception: plan exits are approved automatically and marked as "Auto-approved" in the transcript.

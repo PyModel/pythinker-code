@@ -62,6 +62,7 @@ import {
   type SkillListSession,
 } from './commands';
 import * as slashCommands from './commands/dispatch';
+import { cycleThinkingEffort } from './commands/config';
 import { CacheHintController } from './controllers/cache-hint-controller';
 import { BannerComponent } from './components/chrome/banner';
 import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
@@ -1204,8 +1205,8 @@ export class PythinkerTUI {
   // Input Dispatch
   // =========================================================================
 
-  handlePlanToggle(next: boolean): void {
-    void slashCommands.handlePlanCommand(this, next ? 'on' : 'off');
+  cycleThinkingEffort(): void {
+    void cycleThinkingEffort(this);
   }
 
   handleInputModeChange(mode: 'prompt' | 'bash'): void {
@@ -2278,7 +2279,7 @@ export class PythinkerTUI {
       !sameStringArrays(this.state.appState.additionalDirs, patch.additionalDirs ?? []);
     const busyChanged = 'streamingPhase' in patch || 'isCompacting' in patch;
     Object.assign(this.state.appState, patch);
-    if ('planMode' in patch) this.updateEditorBorderHighlight();
+    if ('planMode' in patch || 'thinkingEffort' in patch) this.updateEditorBorderHighlight();
     this.state.footer.setState(this.state.appState);
     this.updateActivityPane();
     if (busyChanged) {
@@ -3782,7 +3783,11 @@ export class PythinkerTUI {
     const highlighted = this.state.appState.planMode || isBash || trimmed.startsWith('/');
     this.state.editor.borderHighlighted = highlighted;
     // Shell mode gets its own hue; plan-mode and slash context stay primary.
-    const borderToken = isBash ? 'shellMode' : highlighted ? 'primary' : 'border';
+    const borderToken = isBash
+      ? 'shellMode'
+      : highlighted
+        ? 'primary'
+        : effortBorderToken(this.state.appState.thinkingEffort);
     this.state.editor.borderColor = (s: string) => currentTheme.fg(borderToken, s);
     this.state.ui.requestRender();
   }
@@ -4361,4 +4366,17 @@ function toSteerInputItem(message: QueuedMessage): SteerInputItem {
     imageAttachmentIds: message.imageAttachmentIds,
     videoAttachmentIds: message.videoAttachmentIds,
   };
+}
+
+const EFFORT_BORDER_TOKENS: Readonly<Record<string, ColorToken>> = {
+  on: 'effortHigh',
+  low: 'effortLow',
+  medium: 'effortMedium',
+  high: 'effortHigh',
+  xhigh: 'effortXHigh',
+  max: 'effortMax',
+};
+
+export function effortBorderToken(effort: string): ColorToken {
+  return EFFORT_BORDER_TOKENS[effort] ?? 'border';
 }

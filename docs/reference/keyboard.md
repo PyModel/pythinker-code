@@ -26,10 +26,10 @@ Pressing `Ctrl-C` **during streaming** cancels immediately — no second confirm
 
 | Shortcut | Function |
 | --- | --- |
-| `Shift-Tab` | Toggle Plan mode |
+| `Shift-Tab` | Cycle thinking effort |
 | `!` | Enter shell mode (in an empty input box) |
 
-Press `Shift-Tab` to enable or disable Plan mode. When enabled, the Agent prioritizes read-only tools for research and planning and can write to the current plan file; `Bash` is subject to the current permission mode and regular rules, without any additional separate approval triggered by Plan mode. Simply toggling does not create an empty plan file. Press `Shift-Tab` again to exit Plan mode.
+Press `Shift-Tab` to step through the current model's thinking efforts (for example low, medium, high, xhigh, max), wrapping at the end. The prompt frame takes the color of the selected effort. Run `/plan` to enable or disable Plan mode. When enabled, the Agent prioritizes read-only tools for research and planning and can write to the current plan file; `Bash` is subject to the current permission mode and regular rules, without any additional separate approval triggered by Plan mode. Simply toggling does not create an empty plan file. Run `/plan` again to exit Plan mode.
 
 Type `!` in an empty input box to enter shell mode and run terminal commands directly; while a command is running, press `Ctrl+B` to move it to a background task. See [Interaction and input](../guides/interaction.md#shell-mode).
 
