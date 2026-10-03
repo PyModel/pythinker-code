@@ -2786,12 +2786,12 @@ command = "vim"
     }
     expect(subscribeOrder).toBeLessThan(snapshotOrder);
     const transcript = renderTranscript(driver);
-    expect(transcript).toContain('MCP server "local-tools" connected');
-    expect(transcript).toContain('2 tools (stdio)');
+    expect(transcript).not.toContain('MCP server "local-tools"');
+    expect(transcript).not.toContain('Loading MCP');
     expect(transcript).toContain('MCP server "remote-tools" failed: connection refused');
   });
 
-  it('deduplicates identical MCP status updates while allowing reconnect transitions', async () => {
+  it('shows one transient MCP loading line that disappears once servers connect', async () => {
     const eventListeners: Array<(event: Event) => void> = [];
     const connectedServer = {
       name: 'local-tools',
@@ -2817,9 +2817,7 @@ command = "vim"
       server: connectedServer,
     } as Event);
 
-    expect(countOccurrences(renderTranscript(driver), 'MCP server "local-tools" connected')).toBe(
-      1,
-    );
+    expect(renderTranscript(driver)).not.toContain('MCP server "local-tools"');
 
     eventListeners[0]?.({
       type: 'mcp.server.status',
@@ -2831,6 +2829,8 @@ command = "vim"
         toolCount: 0,
       },
     } as Event);
+    expect(countOccurrences(renderTranscript(driver), 'Loading MCP: local-tools')).toBe(1);
+
     eventListeners[0]?.({
       type: 'mcp.server.status',
       agentId: 'main',
@@ -2838,9 +2838,41 @@ command = "vim"
       server: connectedServer,
     } as Event);
 
-    expect(countOccurrences(renderTranscript(driver), 'MCP server "local-tools" connected')).toBe(
-      2,
-    );
+    const transcript = renderTranscript(driver);
+    expect(transcript).not.toContain('Loading MCP');
+    expect(transcript).not.toContain('MCP server "local-tools"');
+  });
+
+  it('lists loading MCP server names and drops each one as it connects', async () => {
+    const eventListeners: Array<(event: Event) => void> = [];
+    const server = (name: string, status: 'pending' | 'connected') => ({
+      type: 'mcp.server.status',
+      agentId: 'main',
+      sessionId: 'ses-1',
+      server: { name, transport: 'http', status, toolCount: status === 'connected' ? 1 : 0 },
+    }) as Event;
+    const session = makeSession({
+      onEvent: vi.fn((listener: (event: Event) => void) => {
+        eventListeners.push(listener);
+        return vi.fn();
+      }),
+      listMcpServers: vi.fn(async () => []),
+    });
+    const { driver } = await makeDriver(session);
+    driver.sessionEventHandler.startSubscription();
+    await Promise.resolve();
+
+    eventListeners[0]?.(server('alpha', 'pending'));
+    eventListeners[0]?.(server('beta', 'pending'));
+    expect(renderTranscript(driver)).toContain('Loading MCP: alpha, beta');
+
+    eventListeners[0]?.(server('alpha', 'connected'));
+    const partial = renderTranscript(driver);
+    expect(partial).toContain('Loading MCP: beta');
+    expect(partial).not.toContain('alpha');
+
+    eventListeners[0]?.(server('beta', 'connected'));
+    expect(renderTranscript(driver)).not.toContain('Loading MCP');
   });
 
   it('does not let a late MCP snapshot overwrite a live status event', async () => {
@@ -2890,8 +2922,8 @@ command = "vim"
     await Promise.resolve();
 
     const transcript = renderTranscript(driver);
-    expect(transcript).toContain('MCP server "local-tools" connected');
     expect(transcript).not.toContain('stale failure');
+    expect(driver.sessionEventHandler.mcpServers.get('local-tools')?.status).toBe('connected');
   });
 
   it('sends normal editor input to the active session and marks the turn as waiting', async () => {
