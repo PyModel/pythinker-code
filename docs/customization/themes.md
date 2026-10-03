@@ -30,7 +30,7 @@ Active `/model` provider and `AskUserQuestion` tabs use `selectionBg` for the ba
 | `effortLow` | `#B3B3B3` | `#8C8C8C` | Low thinking effort; colors the prompt-area border. |
 | `effortMedium` | `#E8E8E8` | `#404040` | Medium thinking effort; colors the prompt-area border. |
 | `effortHigh` | `#6FA8DC` | `#2E6FB8` | High thinking effort; colors the prompt-area border. |
-| `effortXHigh` | `#A78BFA` | `#7048B6` | Extra-high thinking effort; colors the prompt-area border. |
+| `effortXHigh` | `#D58BF0` | `#8E3AA8` | Extra-high thinking effort; colors the prompt-area border. |
 | `effortMax` | `#F2C744` | `#B8860B` | Maximum thinking effort; colors the editor effort dot. |
 | `diffAdded` | `#4EC87E` | `#0E7A38` | Added lines. |
 | `diffRemoved` | `#E85454` | `#B91C1C` | Removed lines. |
