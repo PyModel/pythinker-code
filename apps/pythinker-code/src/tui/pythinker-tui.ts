@@ -3473,6 +3473,7 @@ export class PythinkerTUI {
 
     this.lastActivityMode = activityModeKey;
     this.state.activityContainer.clear();
+    this.state.editor.ruleStatus = undefined;
 
     switch (effectiveMode) {
       case 'hidden':
@@ -3485,6 +3486,7 @@ export class PythinkerTUI {
         const spinner = this.ensureActivitySpinner(waitingSpinnerLabel(stepRetry));
         this.syncAgentDynamicWorkflowActivitySpinner(placeSpinnerInAgentDynamicWorkflow ? spinner : undefined);
         if (placeSpinnerInAgentDynamicWorkflow) break;
+        this.state.editor.ruleStatus = spinner;
         this.state.activityContainer.addChild(
           new ActivityPaneComponent({
             mode: 'waiting',
@@ -3500,6 +3502,7 @@ export class PythinkerTUI {
           currentTheme.fg('primary', s),
         );
         this.syncAgentDynamicWorkflowActivitySpinner(undefined);
+        this.state.editor.ruleStatus = spinner;
         this.state.activityContainer.addChild(
           new ActivityPaneComponent({
             mode: 'thinking',
@@ -3514,6 +3517,7 @@ export class PythinkerTUI {
           currentTheme.fg('primary', s),
         );
         this.syncAgentDynamicWorkflowActivitySpinner(undefined);
+        this.state.editor.ruleStatus = spinner;
         this.state.activityContainer.addChild(
           new ActivityPaneComponent({
             mode: 'composing',
@@ -3527,6 +3531,7 @@ export class PythinkerTUI {
         const spinner = this.ensureActivitySpinner();
         this.syncAgentDynamicWorkflowActivitySpinner(placeSpinnerInAgentDynamicWorkflow ? spinner : undefined);
         if (placeSpinnerInAgentDynamicWorkflow) break;
+        this.state.editor.ruleStatus = spinner;
         this.state.activityContainer.addChild(
           new ActivityPaneComponent({
             mode: 'tool',

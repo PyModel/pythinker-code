@@ -99,6 +99,10 @@ export class ActivitySpinner extends Text {
     return this.inlineText;
   }
 
+  renderLine(): string {
+    return this.displayText;
+  }
+
   private updateDisplay(): void {
     if (this.useVerbLabels) this.label = formatThinkingSpinnerLabel();
     const frame = this.frames[this.currentFrame]!;

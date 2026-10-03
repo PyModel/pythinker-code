@@ -8,11 +8,13 @@ import {
   matchesKey,
   Key,
   SelectList,
+  truncateToWidth,
   visibleWidth,
   type SelectItem,
   type TUI,
 } from '@pymodel/pi-tui';
 
+import type { ActivitySpinner } from '#/tui/components/chrome/activity-spinner';
 import { currentTheme } from '#/tui/theme';
 import { createEditorTheme } from '#/tui/theme/pi-tui-theme';
 import { printableChar } from '#/tui/utils/printable-key';
@@ -154,6 +156,8 @@ export class CustomEditor extends Editor {
   public inputMode: 'prompt' | 'bash' = 'prompt';
   public onInputModeChange?: (mode: 'prompt' | 'bash') => void;
   public connectedAbove = false;
+  /** Activity spinner drawn inside the top rule while the agent works (pi style). */
+  public ruleStatus: ActivitySpinner | undefined;
   public borderHighlighted = false;
   /**
    * Called when the user triggers "paste image" (Ctrl-V on Unix,
@@ -341,11 +345,16 @@ export class CustomEditor extends Editor {
     // overwrite it (e.g. plan-mode / slash-context highlight via
     // `editor.borderColor = chalk.hex(primary)`), so we route corners and
     // side bars through the same hook to stay in sync.
-    return wrapWithSideBorders(lines, (s) => this.borderColor(s), {
+    const wrapped = wrapWithSideBorders(lines, (s) => this.borderColor(s), {
       connectedAbove: this.connectedAbove && !this.borderHighlighted,
       label: isBash ? ` ${currentTheme.boldFg('shellMode', '! shell mode')} ` : undefined,
       plain: !this.connectedAbove,
     });
+    const top = wrapped[0];
+    if (this.ruleStatus !== undefined && !isBash && !this.connectedAbove && top !== undefined && /^─+$/.test(stripSgr(top))) {
+      wrapped[0] = ruleWithStatus(this.ruleStatus, width, (s) => this.borderColor(s));
+    }
+    return wrapped;
   }
 
   private computeArgumentHint(): string | undefined {
@@ -841,6 +850,16 @@ export function injectPromptSymbol(
   }
   const rendered = paint ? paint(symbol) : symbol;
   return '  ' + rendered + ' ' + line.slice(4);
+}
+
+function ruleWithStatus(
+  status: ActivitySpinner,
+  width: number,
+  paint: (s: string) => string,
+): string {
+  status.setAvailableWidth(Math.max(1, width - 4));
+  const text = truncateToWidth(status.renderLine(), Math.max(1, width - 4), '');
+  return paint('── ') + text + ' ' + paint('─'.repeat(Math.max(0, width - 4 - visibleWidth(text))));
 }
 
 /**

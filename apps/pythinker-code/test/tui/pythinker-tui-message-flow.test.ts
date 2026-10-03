@@ -415,7 +415,7 @@ async function confirmUndoSelection(driver: MessageDriver): Promise<void> {
 }
 
 function renderActivity(driver: MessageDriver): string {
-  return driver.state.activityContainer.render(120).join('\n');
+  return [...driver.state.activityContainer.render(120), driver.state.editor.render(120)[0] ?? ''].join('\n');
 }
 
 function renderBtwPanel(driver: MessageDriver): string {

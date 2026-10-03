@@ -21,43 +21,27 @@ function createMockSpinner(initialText = 'working') {
         availableWidth = width;
         update();
       },
+      renderLine() {
+        return spinner.render(availableWidth > 0 ? availableWidth : 200)[0] ?? '';
+      },
     }) as unknown as import('#/tui/components/chrome/activity-spinner').ActivitySpinner,
     getTip: () => tip,
   };
 }
 
 describe('ActivityPaneComponent', () => {
-  it('renders the waiting loader after a spacer', () => {
-    const { spinner } = createMockSpinner('loading');
-    const component = new ActivityPaneComponent({
-      mode: 'waiting',
-      spinner,
-    });
+  it.each(['waiting', 'tool', 'composing', 'thinking'] as const)(
+    'keeps one spacer row for %s; the spinner is drawn in the editor rule',
+    (mode) => {
+      const { spinner, getTip } = createMockSpinner('working');
+      const component = new ActivityPaneComponent({ mode, spinner, tip: 'ctrl+s: steer mid-turn' });
 
-    expect(component.render(80).map((line) => line.trimEnd())).toEqual(['', 'loading']);
-  });
+      expect(component.render(80).map((line) => line.trimEnd())).toEqual(['']);
+      expect(getTip()).toBe(' · Tip: ctrl+s: steer mid-turn');
+    },
+  );
 
-  it('renders the composing spinner after a spacer', () => {
-    const { spinner } = createMockSpinner('working');
-    const component = new ActivityPaneComponent({
-      mode: 'composing',
-      spinner,
-    });
-
-    expect(component.render(80).map((line) => line.trimEnd())).toEqual(['', 'working']);
-  });
-
-  it('renders the thinking spinner after a spacer', () => {
-    const { spinner } = createMockSpinner('thinking');
-    const component = new ActivityPaneComponent({
-      mode: 'thinking',
-      spinner,
-    });
-
-    expect(component.render(80).map((line) => line.trimEnd())).toEqual(['', 'thinking']);
-  });
-
-  it('renders the detail line under the waiting spinner', () => {
+  it('renders the detail line under the spacer', () => {
     const { spinner } = createMockSpinner('working');
     const component = new ActivityPaneComponent({
       mode: 'waiting',
@@ -68,56 +52,12 @@ describe('ActivityPaneComponent', () => {
     const lines = component
       .render(80)
       .map((line) => line.replaceAll(/\u001B\[[0-9;]*m/g, '').trimEnd());
-    expect(lines).toEqual(['', 'working', '    429 · rate limited']);
+    expect(lines).toEqual(['', '    429 · rate limited']);
   });
-
-  it.each(['waiting', 'tool', 'composing', 'thinking'] as const)(
-    'renders the %s spinner with tip after a spacer',
-    (mode) => {
-      const { spinner } = createMockSpinner('working');
-      const component = new ActivityPaneComponent({
-        mode,
-        spinner,
-        tip: 'ctrl+s: steer mid-turn',
-      });
-
-      expect(component.render(80).map((line) => line.trimEnd())).toEqual([
-        '',
-        'working · Tip: ctrl+s: steer mid-turn',
-      ]);
-    },
-  );
-
-  it.each(['waiting', 'tool', 'composing'] as const)(
-    'does not render a tip for %s when none is provided',
-    (mode) => {
-      const { spinner } = createMockSpinner('working');
-      const component = new ActivityPaneComponent({
-        mode,
-        spinner,
-      });
-
-      expect(component.render(80).map((line) => line.trimEnd())).toEqual(['', 'working']);
-    },
-  );
 
   it('renders nothing for hidden, or for thinking without a spinner', () => {
     expect(new ActivityPaneComponent({ mode: 'hidden' }).render(80)).toEqual([]);
     expect(new ActivityPaneComponent({ mode: 'thinking' }).render(80)).toEqual([]);
   });
-
-  it.each(['waiting', 'tool', 'composing'] as const)(
-    'hides the tip for %s when the terminal is too narrow',
-    (mode) => {
-      const { spinner } = createMockSpinner('working');
-      const component = new ActivityPaneComponent({
-        mode,
-        spinner,
-        tip: 'ctrl+s: steer mid-turn',
-      });
-
-      // Width 8 is exactly the width of "working" (no spinner frame in the mock).
-      expect(component.render(8).map((line) => line.trimEnd())).toEqual(['', 'working']);
-    },
-  );
 });
+
