@@ -137,7 +137,7 @@ export const DEFAULT_UPGRADE_PREFERENCES: UpgradePreferences = {
 
 export const DEFAULT_TUI_CONFIG: TuiConfig = TuiConfigSchema.parse({
   theme: 'auto',
-  tuiMode: 'regular',
+  tuiMode: 'fullscreen',
   renderLatex: true,
   disablePasteBurst: false,
   cacheExpiryHint: true,
@@ -257,7 +257,7 @@ export function normalizeTuiConfig(
     }
   }
   const tuiModeValue = config.tui_mode;
-  let tuiMode: TuiMode = 'regular';
+  let tuiMode: TuiMode = DEFAULT_TUI_CONFIG.tuiMode ?? 'fullscreen';
   if (tuiModeValue !== undefined) {
     if (tuiModeValue === 'regular' || tuiModeValue === 'fullscreen') {
       tuiMode = tuiModeValue;
@@ -310,7 +310,7 @@ export function renderTuiConfig(config: TuiConfig): string {
   if (statusCommand) {
     statusLines.push(`command = "${escapeTomlBasicString(statusCommand)}"`);
   }
-  const tuiModeLine = `tui_mode = "${config.tuiMode ?? 'regular'}" # "regular" | "fullscreen" ("fullscreen" is experimental)`;
+  const tuiModeLine = `tui_mode = "${config.tuiMode ?? 'fullscreen'}" # "fullscreen" | "regular" ("regular" keeps the chat in native terminal scrollback)`;
   const markdownSection =
     config.markdown?.mermaid === 'off'
       ? `[markdown]\nmermaid = "off" # "final" | "off"\n`

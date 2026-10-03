@@ -62,7 +62,7 @@ auto_install = false
 
     expect(config).toEqual({
       theme: 'light',
-      tuiMode: 'regular',
+      tuiMode: 'fullscreen',
       renderLatex: true,
       disablePasteBurst: false,
       cacheExpiryHint: true,
@@ -121,7 +121,7 @@ command = "   "
 
     expect(config).toEqual({
       theme: 'auto',
-      tuiMode: 'regular',
+      tuiMode: 'fullscreen',
       renderLatex: true,
       disablePasteBurst: false,
       cacheExpiryHint: true,
@@ -172,7 +172,7 @@ command = "   "
 
     expect(await loadTuiConfig(filePath)).toEqual({
       theme: 'light',
-      tuiMode: 'regular',
+      tuiMode: 'fullscreen',
       renderLatex: true,
       disablePasteBurst: false,
       cacheExpiryHint: true,
@@ -358,8 +358,12 @@ mermaid = "${value}"
 });
 
 describe('TUI config tui_mode', () => {
-  it('defaults tui_mode to regular when omitted', () => {
-    expect(parseTuiConfig(`theme = "dark"`).tuiMode).toBe('regular');
+  it('defaults tui_mode to fullscreen when omitted', () => {
+    expect(parseTuiConfig(`theme = "dark"`).tuiMode).toBe('fullscreen');
+  });
+
+  it('keeps an explicit tui_mode = "regular"', () => {
+    expect(parseTuiConfig(`tui_mode = "regular"`).tuiMode).toBe('regular');
   });
 
   it('parses tui_mode = "fullscreen"', () => {
@@ -370,7 +374,7 @@ tui_mode = "fullscreen"
     expect(config.tuiMode).toBe('fullscreen');
   });
 
-  it('warns and falls back to regular for unknown tui_mode values without failing the file', () => {
+  it('warns and falls back to the default for unknown tui_mode values without failing the file', () => {
     const warnings: string[] = [];
     const config = parseTuiConfig(
       `
@@ -380,7 +384,7 @@ tui_mode = "weird"
       (message) => warnings.push(message),
     );
 
-    expect(config.tuiMode).toBe('regular');
+    expect(config.tuiMode).toBe('fullscreen');
     expect(config.theme).toBe('dark');
     expect(warnings).toEqual(['[tui.toml] ignoring unknown tui_mode value: weird']);
   });
@@ -389,16 +393,16 @@ tui_mode = "weird"
     await saveTuiConfig(DEFAULT_TUI_CONFIG, filePath);
 
     const text = readFileSync(filePath, 'utf-8');
-    expect(text).toContain('\ntui_mode = "regular"');
+    expect(text).toContain('\ntui_mode = "fullscreen"');
     expect(text).not.toContain('# tui_mode');
   });
 
-  it('writes a live tui_mode when fullscreen and round-trips it', async () => {
-    await saveTuiConfig({ ...DEFAULT_TUI_CONFIG, tuiMode: 'fullscreen' }, filePath);
+  it('writes a live tui_mode when regular and round-trips it', async () => {
+    await saveTuiConfig({ ...DEFAULT_TUI_CONFIG, tuiMode: 'regular' }, filePath);
 
     const text = readFileSync(filePath, 'utf-8');
-    expect(text).toContain('\ntui_mode = "fullscreen"');
-    expect((await loadTuiConfig(filePath)).tuiMode).toBe('fullscreen');
+    expect(text).toContain('\ntui_mode = "regular"');
+    expect((await loadTuiConfig(filePath)).tuiMode).toBe('regular');
   });
 });
 
@@ -432,7 +436,7 @@ describe('TUI config tui_mode env migration', () => {
 
     const config = await loadTuiConfig(filePath, (message) => warnings.push(message));
 
-    expect(config.tuiMode).toBe('regular');
+    expect(config.tuiMode).toBe('fullscreen');
     expect(warnings).toEqual(['[tui.toml] ignoring unknown tui_mode value: weird']);
     expect(readFileSync(filePath, 'utf-8')).toBe('tui_mode = "weird"\n');
   });
@@ -443,7 +447,7 @@ describe('TUI config tui_mode env migration', () => {
 
     const config = await loadTuiConfig(filePath);
 
-    expect(config.tuiMode).toBe('regular');
+    expect(config.tuiMode).toBe('fullscreen');
     expect(readFileSync(filePath, 'utf-8')).toBe('theme = "dark"\n');
   });
 

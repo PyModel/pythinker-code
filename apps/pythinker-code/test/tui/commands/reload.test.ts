@@ -213,7 +213,7 @@ auto_install = false
   });
 
   it('does not notice when tui_mode matches the running UI mode', async () => {
-    await writeTuiConfig('theme = "dark"\n');
+    await writeTuiConfig('theme = "dark"\ntui_mode = "regular"\n');
     const host = makeHost();
 
     await handleReloadTuiCommand(host);
