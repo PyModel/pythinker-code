@@ -1206,7 +1206,9 @@ export class PythinkerTUI {
   // =========================================================================
 
   cycleThinkingEffort(): void {
-    void cycleThinkingEffort(this);
+    void cycleThinkingEffort(this).catch((error: unknown) => {
+      this.showError(`Failed to cycle thinking effort: ${formatErrorMessage(error)}`);
+    });
   }
 
   handleInputModeChange(mode: 'prompt' | 'bash'): void {

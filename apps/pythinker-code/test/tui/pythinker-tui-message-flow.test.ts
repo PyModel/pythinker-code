@@ -1556,6 +1556,30 @@ describe('PythinkerTUI message flow', () => {
     expect(stripSgr(renderTranscript(driver))).not.toContain('Thinking set to');
   });
 
+  it('shows an error instead of an unhandled rejection when the Shift-Tab effort cycle fails', async () => {
+    const session = makeSession();
+    const startupInput: PythinkerTUIStartupInput = {
+      ...makeStartupInput(),
+      cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
+    };
+    const { driver } = await makeDriver(
+      session,
+      { getConfig: vi.fn(async () => thinkingModelsConfig()) },
+      startupInput,
+    );
+    expect(driver.session).toBeUndefined();
+    vi.spyOn(driver, 'waitForLazyCreation').mockRejectedValueOnce(new Error('create failed'));
+
+    driver.state.editor.onShiftTab?.();
+
+    await vi.waitFor(() => {
+      expect(stripSgr(renderTranscript(driver))).toContain(
+        'Failed to cycle thinking effort: create failed',
+      );
+    });
+    expect(driver.state.appState.thinkingEffort).toBe('high');
+  });
+
   it('blocks an effort switch once the waited-out first prompt starts a turn (v2 engine)', async () => {
     const lazySession = makeSession({ id: 'ses-lazy' });
     const startupInput: PythinkerTUIStartupInput = {

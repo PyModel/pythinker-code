@@ -81,7 +81,7 @@ import {
   parseColor,
   rgbColor,
   styleText,
-} from "@earendil-works/pi-tui";
+} from "@pymodel/pi-tui";
 
 const accent = parseColor("oklch(70% 0.12 220)");
 const background = parseColor("#20242a");
@@ -117,7 +117,7 @@ import {
   ScrollView,
   Text,
   VStack,
-} from "@earendil-works/pi-tui";
+} from "@pymodel/pi-tui";
 
 const transcript = new Container();
 transcript.addChild(new Text("History"));
