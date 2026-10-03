@@ -737,9 +737,9 @@ describe('CustomEditor bash mode border label', () => {
     const editor = makeEditor();
     editor.inputMode = 'bash';
     const top = stripAnsi(editor.render(90)[0] ?? '');
-    expect(top.startsWith('╭')).toBe(true);
+    expect(top.startsWith('─')).toBe(true);
     expect(top).toContain('! shell mode');
-    expect(top.endsWith('╮')).toBe(true);
+    expect(top.endsWith('─')).toBe(true);
   });
 
   it('does not show the shell mode label in prompt mode', () => {

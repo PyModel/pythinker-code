@@ -5752,8 +5752,8 @@ command = "vim"
     expect(driver.state.btwPanelContainer.children).toHaveLength(0);
     expect(requestRender.mock.calls.at(-1)).toEqual([true]);
     const editorTopBorder = stripSgr(driver.state.editor.render(80)[0] ?? '');
-    expect(editorTopBorder.startsWith('╭')).toBe(true);
-    expect(editorTopBorder.endsWith('╮')).toBe(true);
+    expect(editorTopBorder.startsWith('─')).toBe(true);
+    expect(editorTopBorder.endsWith('─')).toBe(true);
     expect(driver.state.editor.focused).toBe(true);
   });
 

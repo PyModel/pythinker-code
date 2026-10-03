@@ -451,9 +451,10 @@ describe('fullscreen layout', () => {
     await vt.waitForRender();
 
     const rows = screenRows();
-    const promptRow = rows.findIndex((line) => /│\s*>/.test(line));
+    const promptRow = rows.findIndex((line) => /^\s*>/.test(line));
     expect(promptRow).toBeGreaterThan(0);
-    expect(rows[promptRow + 1]).toContain('╰');
+    expect(rows[promptRow - 1]).toContain('───');
+    expect(rows[promptRow + 1]).toContain('───');
 
     state.ui.stop();
   });
@@ -776,9 +777,9 @@ describe('fullscreen layout', () => {
     expect(pillLines(state)).toEqual([]);
     const rows = vt.getViewport();
     expect(rows[0]).toContain('\u957F\u6587 30');
-    expect(rows[1]).toContain('╭');
+    expect(rows[1]).toContain('───');
     expect(rows[2]).toContain('draft input');
-    expect(rows[3]).toContain('╰');
+    expect(rows[3]).toContain('───');
     if (height === 5) expect(rows[4]).toContain('test-model');
 
     state.ui.stop();

@@ -103,4 +103,17 @@ describe('wrapWithSideBorders', () => {
     expect(out[0]).toContain('↑ 5 more');
     expect(out[0]).not.toContain('shell mode');
   });
+
+  it('draws plain rules without corners or side bars when plain', () => {
+    const paint = (s: string): string => `<${s}>`;
+    const out = wrapWithSideBorders(['─────', '  x  ', '─────'], paint, { plain: true });
+    expect(out).toEqual(['<─────>', '  x  ', '<─────>']);
+  });
+
+  it('keeps the label overlay on a plain top rule', () => {
+    const top = '─'.repeat(30);
+    const out = wrapWithSideBorders([top, '   x   ', top], id, { label: ' ! shell mode ', plain: true });
+    expect(out[0]).toBe(`─ ! shell mode ${'─'.repeat(15)}`);
+    expect(out[0]).toHaveLength(top.length);
+  });
 });

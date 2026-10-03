@@ -344,6 +344,7 @@ export class CustomEditor extends Editor {
     return wrapWithSideBorders(lines, (s) => this.borderColor(s), {
       connectedAbove: this.connectedAbove && !this.borderHighlighted,
       label: isBash ? ` ${currentTheme.boldFg('shellMode', '! shell mode')} ` : undefined,
+      plain: !this.connectedAbove,
     });
   }
 
@@ -854,6 +855,9 @@ export function injectPromptSymbol(
  * only if they're literal spaces — that protects the cursor-overflow
  * case where the rightmost column is an SGR-tagged inverse cursor.
  *
+ * With `options.plain`, rule rows keep plain `─` ends and content rows get
+ * no side bars: the prompt reads as two horizontal rules, like pi.
+ *
  * When `options.label` is set, it is overlaid on the left of the top border
  * (e.g. the `! shell mode` badge), replacing the leading dashes. It is only
  * applied to a plain dash run, never to a `↑/↓ N more` scroll indicator.
@@ -861,15 +865,19 @@ export function injectPromptSymbol(
 export function wrapWithSideBorders(
   lines: string[],
   paint: (s: string) => string,
-  options: { readonly connectedAbove?: boolean; readonly label?: string } = {},
+  options: {
+    readonly connectedAbove?: boolean;
+    readonly label?: string;
+    readonly plain?: boolean;
+  } = {},
 ): string[] {
   let seenTop = false;
   return lines.map((line) => {
     const plain = stripSgr(line);
     if (plain.length > 0 && plain[0] === '─') {
       const isTop = !seenTop;
-      const leftCorner = seenTop ? '╰' : options.connectedAbove === true ? '├' : '╭';
-      const rightCorner = seenTop ? '╯' : options.connectedAbove === true ? '┤' : '╮';
+      const leftCorner = options.plain === true ? '─' : seenTop ? '╰' : options.connectedAbove === true ? '├' : '╭';
+      const rightCorner = options.plain === true ? '─' : seenTop ? '╯' : options.connectedAbove === true ? '┤' : '╮';
       seenTop = true;
       if (plain.length === 1) return paint(leftCorner);
       const middle = plain.slice(1, -1);
@@ -886,7 +894,7 @@ export function wrapWithSideBorders(
       }
       return paint(leftCorner + middle + rightCorner);
     }
-    if (line.length === 0) return line;
+    if (line.length === 0 || options.plain === true) return line;
     const firstCh = line[0];
     const lastCh = line.at(-1);
     const head = firstCh === ' ' ? paint('│') : (firstCh ?? '');
