@@ -91,9 +91,9 @@ describe('theme palettes', () => {
     }
   });
 
-  it('uses cyan actions with readable neutral text in both built-in palettes', () => {
-    expect(darkColors.primary).toBe('#5FC3E8');
-    expect(lightColors.primary).toBe('#006A88');
+  it('uses periwinkle actions with readable neutral text in both built-in palettes', () => {
+    expect(darkColors.primary).toBe('#B4B8F8');
+    expect(lightColors.primary).toBe('#4B4FC4');
 
     for (const palette of [darkColors, lightColors]) {
       expect(palette.shellMode).toBe(palette.primary);
