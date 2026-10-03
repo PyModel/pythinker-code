@@ -1,5 +1,21 @@
 # @pymodel/pythinker-code
 
+## 2.6.0
+
+### Minor Changes
+
+- [#369](https://github.com/PyModel/pythinker-code/pull/369) [`359f143`](https://github.com/PyModel/pythinker-code/commit/359f143d7c5820dbac24ca24b7c5cee76418e241) Thanks [@elkaix](https://github.com/elkaix)! - The TUI now opens in fullscreen by default with the prompt fixed at the bottom, drawn as two plain rules with the working spinner inside the top rule; set `tui_mode = "regular"` in `tui.toml` to keep the chat in native terminal scrollback (existing `tui.toml` files keep their saved mode).
+
+- [#369](https://github.com/PyModel/pythinker-code/pull/369) [`359f143`](https://github.com/PyModel/pythinker-code/commit/359f143d7c5820dbac24ca24b7c5cee76418e241) Thanks [@elkaix](https://github.com/elkaix)! - Shift-Tab now cycles the current model's thinking effort (for example low, medium, high, xhigh, max) and the prompt frame takes that effort's color; Shift-Tab no longer toggles plan mode, so use `/plan` instead.
+
+### Patch Changes
+
+- [#369](https://github.com/PyModel/pythinker-code/pull/369) [`359f143`](https://github.com/PyModel/pythinker-code/commit/359f143d7c5820dbac24ca24b7c5cee76418e241) Thanks [@elkaix](https://github.com/elkaix)! - The TUI's main color (links, inline code, selections, focus, plan and shell mode) is now periwinkle instead of cyan in both the dark and light themes, and the xhigh effort color moves to a pinker violet so it stays distinct from plan mode.
+
+- [#369](https://github.com/PyModel/pythinker-code/pull/369) [`359f143`](https://github.com/PyModel/pythinker-code/commit/359f143d7c5820dbac24ca24b7c5cee76418e241) Thanks [@elkaix](https://github.com/elkaix)! - Update the terminal UI library to upstream pi v1.0.1, which keeps WezTerm images while scrolling, converts non-PNG images for Kitty, and fixes ANSI color order when a styled line is cut.
+
+- [#369](https://github.com/PyModel/pythinker-code/pull/369) [`359f143`](https://github.com/PyModel/pythinker-code/commit/359f143d7c5820dbac24ca24b7c5cee76418e241) Thanks [@elkaix](https://github.com/elkaix)! - The TUI now shows one "Loading MCP: …" line with a blinking dot and the names of the servers still connecting, and removes it once all have loaded, instead of one line per connected server; failures and servers that need OAuth still get their own line.
+
 ## 2.5.2
 
 ### Patch Changes
