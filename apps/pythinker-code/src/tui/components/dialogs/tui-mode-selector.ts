@@ -3,14 +3,14 @@ import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
 const TUI_MODE_OPTIONS: readonly ChoiceOption[] = [
   {
+    value: 'fullscreen',
+    label: 'Fullscreen',
+    description: 'Prompt fixed at the bottom; in-app scrolling, selection, and transcript search.',
+  },
+  {
     value: 'regular',
     label: 'Regular',
     description: 'Render into the terminal\'s native scrollback.',
-  },
-  {
-    value: 'fullscreen',
-    label: 'Fullscreen (experimental)',
-    description: 'Alternate screen with in-app scrolling, selection, and transcript search.',
   },
 ];
 

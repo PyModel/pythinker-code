@@ -559,7 +559,7 @@ Alongside `config.toml`, the CLI keeps terminal-UI and client preferences in a c
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `theme` | `string` | `auto` | Color theme: `auto`, `dark`, `light`, or the name of a [custom theme](../customization/themes.md) |
-| `tui_mode` | `string` | `regular` | UI layout: `regular` renders into the terminal scrollback; `fullscreen` makes parts of the UI mouse-interactive. A layout change takes effect only after restart; `/reload-tui` does not switch the layout |
+| `tui_mode` | `string` | `fullscreen` | UI layout: `fullscreen` keeps the prompt fixed at the bottom with in-app scrolling and mouse interaction; `regular` renders into the terminal scrollback. A layout change takes effect only after restart; `/reload-tui` does not switch the layout |
 | `render_latex` | `boolean` | `true` | Render LaTeX math expressions in Markdown messages as Unicode text; `false` keeps the raw source |
 | `disable_paste_burst` | `boolean` | `false` | Disable the non-bracketed paste-burst fallback that keeps rapid multi-line pastes from submitting line by line |
 | `cache_expiry_hint` | `boolean` | `true` | On resume or when submitting after a long idle stretch, warn that the context cache may have expired and offer to compact or start a new session (v2 engine only) |
@@ -581,7 +581,7 @@ Model, cwd, git branch, permission mode, plan mode, context usage, session id, v
 ```toml
 # ~/.pythinker-code/tui.toml
 theme = "auto" # "auto" | "dark" | "light" | custom theme name
-tui_mode = "regular" # "regular" | "fullscreen"
+tui_mode = "fullscreen" # "fullscreen" | "regular"
 render_latex = true # false keeps LaTeX math in messages as raw source
 disable_paste_burst = false # true disables non-bracketed paste-burst fallback
 cache_expiry_hint = true # false disables the "cache expired" dialog on resume / idle submit

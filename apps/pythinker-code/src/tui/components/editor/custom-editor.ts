@@ -8,11 +8,13 @@ import {
   matchesKey,
   Key,
   SelectList,
+  truncateToWidth,
   visibleWidth,
   type SelectItem,
   type TUI,
 } from '@pymodel/pi-tui';
 
+import type { ActivitySpinner } from '#/tui/components/chrome/activity-spinner';
 import { currentTheme } from '#/tui/theme';
 import { createEditorTheme } from '#/tui/theme/pi-tui-theme';
 import { printableChar } from '#/tui/utils/printable-key';
@@ -154,6 +156,8 @@ export class CustomEditor extends Editor {
   public inputMode: 'prompt' | 'bash' = 'prompt';
   public onInputModeChange?: (mode: 'prompt' | 'bash') => void;
   public connectedAbove = false;
+  /** Activity spinner drawn inside the top rule while the agent works (pi style). */
+  public ruleStatus: ActivitySpinner | undefined;
   public borderHighlighted = false;
   /**
    * Called when the user triggers "paste image" (Ctrl-V on Unix,
@@ -341,10 +345,16 @@ export class CustomEditor extends Editor {
     // overwrite it (e.g. plan-mode / slash-context highlight via
     // `editor.borderColor = chalk.hex(primary)`), so we route corners and
     // side bars through the same hook to stay in sync.
-    return wrapWithSideBorders(lines, (s) => this.borderColor(s), {
+    const wrapped = wrapWithSideBorders(lines, (s) => this.borderColor(s), {
       connectedAbove: this.connectedAbove && !this.borderHighlighted,
       label: isBash ? ` ${currentTheme.boldFg('shellMode', '! shell mode')} ` : undefined,
+      plain: !this.connectedAbove,
     });
+    const top = wrapped[0];
+    if (this.ruleStatus !== undefined && !isBash && !this.connectedAbove && top !== undefined && /^─+$/.test(stripSgr(top))) {
+      wrapped[0] = ruleWithStatus(this.ruleStatus, width, (s) => this.borderColor(s));
+    }
+    return wrapped;
   }
 
   private computeArgumentHint(): string | undefined {
@@ -842,6 +852,16 @@ export function injectPromptSymbol(
   return '  ' + rendered + ' ' + line.slice(4);
 }
 
+function ruleWithStatus(
+  status: ActivitySpinner,
+  width: number,
+  paint: (s: string) => string,
+): string {
+  status.setAvailableWidth(Math.max(1, width - 4));
+  const text = truncateToWidth(status.renderLine(), Math.max(1, width - 4), '');
+  return paint('── ') + text + ' ' + paint('─'.repeat(Math.max(0, width - 4 - visibleWidth(text))));
+}
+
 /**
  * Post-process pi-tui's editor output to draw a full box around it.
  *
@@ -854,6 +874,9 @@ export function injectPromptSymbol(
  * only if they're literal spaces — that protects the cursor-overflow
  * case where the rightmost column is an SGR-tagged inverse cursor.
  *
+ * With `options.plain`, rule rows keep plain `─` ends and content rows get
+ * no side bars: the prompt reads as two horizontal rules, like pi.
+ *
  * When `options.label` is set, it is overlaid on the left of the top border
  * (e.g. the `! shell mode` badge), replacing the leading dashes. It is only
  * applied to a plain dash run, never to a `↑/↓ N more` scroll indicator.
@@ -861,15 +884,19 @@ export function injectPromptSymbol(
 export function wrapWithSideBorders(
   lines: string[],
   paint: (s: string) => string,
-  options: { readonly connectedAbove?: boolean; readonly label?: string } = {},
+  options: {
+    readonly connectedAbove?: boolean;
+    readonly label?: string;
+    readonly plain?: boolean;
+  } = {},
 ): string[] {
   let seenTop = false;
   return lines.map((line) => {
     const plain = stripSgr(line);
     if (plain.length > 0 && plain[0] === '─') {
       const isTop = !seenTop;
-      const leftCorner = seenTop ? '╰' : options.connectedAbove === true ? '├' : '╭';
-      const rightCorner = seenTop ? '╯' : options.connectedAbove === true ? '┤' : '╮';
+      const leftCorner = options.plain === true ? '─' : seenTop ? '╰' : options.connectedAbove === true ? '├' : '╭';
+      const rightCorner = options.plain === true ? '─' : seenTop ? '╯' : options.connectedAbove === true ? '┤' : '╮';
       seenTop = true;
       if (plain.length === 1) return paint(leftCorner);
       const middle = plain.slice(1, -1);
@@ -886,7 +913,7 @@ export function wrapWithSideBorders(
       }
       return paint(leftCorner + middle + rightCorner);
     }
-    if (line.length === 0) return line;
+    if (line.length === 0 || options.plain === true) return line;
     const firstCh = line[0];
     const lastCh = line.at(-1);
     const head = firstCh === ' ' ? paint('│') : (firstCh ?? '');

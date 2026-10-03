@@ -19,11 +19,8 @@ export function formatActivitySpinnerTip(tip: string | undefined): string {
 }
 
 export class ActivityPaneComponent extends Container {
-  private spinnerRef?: ActivitySpinner;
-
   constructor(options: ActivityPaneOptions) {
     super();
-    this.spinnerRef = options.spinner;
 
     if (
       (options.mode === 'waiting' ||
@@ -34,17 +31,10 @@ export class ActivityPaneComponent extends Container {
     ) {
       this.addChild(new Spacer(1));
       options.spinner.setTip(formatActivitySpinnerTip(options.tip));
-      this.addChild(options.spinner);
       if (options.detail !== undefined && options.detail.length > 0) {
         this.addChild(new Text(currentTheme.fg('textDim', options.detail), ACTIVITY_DETAIL_INDENT, 0));
       }
     }
   }
 
-  override render(width: number): string[] {
-    if (this.spinnerRef && 'setAvailableWidth' in this.spinnerRef) {
-      this.spinnerRef.setAvailableWidth(width);
-    }
-    return super.render(width);
-  }
 }

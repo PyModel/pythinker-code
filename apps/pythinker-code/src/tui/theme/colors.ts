@@ -182,11 +182,11 @@ export interface ColorPalette {
 }
 
 export const darkColors: ColorPalette = {
-  /* Clean cyan used for actions, links, menus, and focus on dark terminals. */
-  primary: '#5FC3E8',
+  /* Periwinkle used for actions, links, menus, and focus on dark terminals. */
+  primary: '#B4B8F8',
   accent: '#EE9983',
 
-  primaryShimmer: '#A5E3F7',
+  primaryShimmer: '#D6D9FF',
   accentShimmer: '#FFC4B8',
   warningShimmer: '#FFD474',
   borderShimmer: '#848CA8',
@@ -224,7 +224,7 @@ export const darkColors: ColorPalette = {
   diffRemovedDimmed: '#B55E68',
 
   roleUser: '#FFCB6B',
-  shellMode: '#5FC3E8',
+  shellMode: '#B4B8F8',
 
   workflowTitle: '#EE9983',
 
@@ -246,7 +246,7 @@ export const darkColors: ColorPalette = {
   rainbowViolet: '#C763E9',
 
   modeAutoAccept: '#66D49A',
-  modePlan: '#5FC3E8',
+  modePlan: '#B4B8F8',
   modePermission: '#D99AF0',
   modeFast: '#FFB45E',
 
@@ -255,17 +255,17 @@ export const darkColors: ColorPalette = {
   selectionBg: '#344274',
   surfaceHighlight: '#1C2238',
 
-  progressFill: '#5FC3E8',
-  progressHead: '#A5E3F7',
+  progressFill: '#B4B8F8',
+  progressHead: '#D6D9FF',
   progressEmpty: '#D9DEE8',
 };
 
 export const lightColors: ColorPalette = {
-  /* Dark cyan for WCAG AA contrast on light terminal backgrounds. */
-  primary: '#006A88',
+  /* Deep periwinkle for WCAG AA contrast on light terminal backgrounds. */
+  primary: '#4B4FC4',
   accent: '#9C261C',
 
-  primaryShimmer: '#004B63',
+  primaryShimmer: '#35388F',
   accentShimmer: '#7C1C12',
   warningShimmer: '#6F4700',
   borderShimmer: '#4F567A',
@@ -303,7 +303,7 @@ export const lightColors: ColorPalette = {
   diffRemovedDimmed: '#8D4852',
 
   roleUser: '#9A4A00',
-  shellMode: '#006A88',
+  shellMode: '#4B4FC4',
 
   workflowTitle: '#9C261C',
 
@@ -325,7 +325,7 @@ export const lightColors: ColorPalette = {
   rainbowViolet: '#7C1C9C',
 
   modeAutoAccept: '#26704C',
-  modePlan: '#006A88',
+  modePlan: '#4B4FC4',
   modePermission: '#7A3C96',
   modeFast: '#9A570F',
 
@@ -334,8 +334,8 @@ export const lightColors: ColorPalette = {
   selectionBg: '#C9D1FA',
   surfaceHighlight: '#E8EBFC',
 
-  progressFill: '#006A88',
-  progressHead: '#004B63',
+  progressFill: '#4B4FC4',
+  progressHead: '#35388F',
   progressEmpty: '#6B7280',
 };
 

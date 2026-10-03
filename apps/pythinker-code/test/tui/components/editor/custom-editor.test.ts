@@ -6,6 +6,7 @@ import type {
 } from '@pymodel/pi-tui';
 import { describe, expect, it, vi } from 'vitest';
 
+import type { ActivitySpinner } from '#/tui/components/chrome/activity-spinner';
 import { CustomEditor } from '#/tui/components/editor/custom-editor';
 import { FileMentionProvider } from '#/tui/components/editor/file-mention-provider';
 
@@ -737,9 +738,9 @@ describe('CustomEditor bash mode border label', () => {
     const editor = makeEditor();
     editor.inputMode = 'bash';
     const top = stripAnsi(editor.render(90)[0] ?? '');
-    expect(top.startsWith('╭')).toBe(true);
+    expect(top.startsWith('─')).toBe(true);
     expect(top).toContain('! shell mode');
-    expect(top.endsWith('╮')).toBe(true);
+    expect(top.endsWith('─')).toBe(true);
   });
 
   it('does not show the shell mode label in prompt mode', () => {
@@ -877,3 +878,41 @@ describe('CustomEditor bash mode file completion', () => {
     expect(calls.every((call) => call.force === true)).toBe(true);
   });
 });
+
+describe('CustomEditor activity status in the top rule', () => {
+  const strip = (s: string): string => s.replaceAll(/\u001B\[[0-9;]*m/g, '');
+  const statusSpinner = (line: string) => {
+    let width = 0;
+    return {
+      setAvailableWidth(value: number) {
+        width = value;
+      },
+      renderLine() {
+        return width > 0 && line.length > width ? line.slice(0, width) : line;
+      },
+    } as unknown as ActivitySpinner;
+  };
+
+  it('draws a plain rule when idle', () => {
+    const editor = makeEditor();
+    expect(strip(editor.render(40)[0] ?? '')).toBe('─'.repeat(40));
+  });
+
+  it('draws the spinner line inside the top rule while working', () => {
+    const editor = makeEditor();
+    editor.ruleStatus = statusSpinner('⠼ Working…');
+    const top = strip(editor.render(40)[0] ?? '');
+    expect(top.startsWith('── ⠼ Working… ─')).toBe(true);
+    expect(top).toHaveLength(40);
+  });
+
+  it('keeps the shell mode label instead of the status in bash mode', () => {
+    const editor = makeEditor();
+    editor.ruleStatus = statusSpinner('⠼ Working…');
+    editor.inputMode = 'bash';
+    const top = strip(editor.render(60)[0] ?? '');
+    expect(top).toContain('! shell mode');
+    expect(top).not.toContain('Working');
+  });
+});
+

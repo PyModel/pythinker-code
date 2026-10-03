@@ -409,15 +409,13 @@ describe('EditorKeyboardController input changes', () => {
   });
 });
 
-describe('EditorKeyboardController Shift-Tab plan toggle', () => {
-  function createShiftTabHarness(options: { sessionless?: boolean } = {}) {
+describe('EditorKeyboardController Shift-Tab effort cycle', () => {
+  it('cycles thinking effort instead of toggling plan mode', () => {
     const editor: Record<string, ((...args: never[]) => unknown) | undefined> = {
       setHistoryFilter: vi.fn() as unknown as (...args: never[]) => unknown,
     };
-    const handlePlanToggle = vi.fn();
+    const cycleThinkingEffort = vi.fn();
     const track = vi.fn();
-    const showError = vi.fn();
-    const ensureSession = vi.fn(async (): Promise<{ id: string } | undefined> => ({ id: 'ses-lazy' }));
     const host = {
       state: {
         editor,
@@ -426,53 +424,17 @@ describe('EditorKeyboardController Shift-Tab plan toggle', () => {
         footer: { setTransientHint: vi.fn() },
         ui: { requestRender: vi.fn() },
       },
-      session: options.sessionless ? undefined : { cancel: vi.fn(async () => {}) },
-      ensureSession,
-      handlePlanToggle,
+      session: { cancel: vi.fn(async () => {}) },
+      cycleThinkingEffort,
       track,
-      showError,
       btwPanelController: { cancelRunning: vi.fn(), closeOrCancel: vi.fn() },
     } as unknown as EditorKeyboardHost;
-
     new EditorKeyboardController(host, undefined as unknown as ImageAttachmentStore).install();
-    const onShiftTab = editor['onShiftTab'] as unknown as () => void;
-    return { onShiftTab, handlePlanToggle, track, showError, ensureSession };
-  }
 
-  it('toggles plan mode directly with an active session', () => {
-    const { onShiftTab, handlePlanToggle, ensureSession } = createShiftTabHarness();
+    (editor['onShiftTab'] as unknown as () => void)();
 
-    onShiftTab();
-
-    expect(ensureSession).not.toHaveBeenCalled();
-    expect(handlePlanToggle).toHaveBeenCalledWith(true);
-  });
-
-  it('lazy-creates the session before toggling on v2 when session-less', async () => {
-    const { onShiftTab, ensureSession, handlePlanToggle, track } = createShiftTabHarness({
-      sessionless: true,
-    });
-
-    onShiftTab();
-    expect(handlePlanToggle).not.toHaveBeenCalled();
-
-    await vi.waitFor(() => {
-      expect(handlePlanToggle).toHaveBeenCalledWith(true);
-    });
-    expect(ensureSession).toHaveBeenCalledOnce();
-    expect(track).toHaveBeenCalledWith('shortcut_plan_toggle', { enabled: true });
-  });
-
-  it('does not toggle when the lazy creation fails on v2', async () => {
-    const { onShiftTab, ensureSession, handlePlanToggle } = createShiftTabHarness({
-      sessionless: true,
-    });
-    ensureSession.mockResolvedValue(undefined);
-
-    onShiftTab();
-    await new Promise((resolve) => setImmediate(resolve));
-
-    expect(handlePlanToggle).not.toHaveBeenCalled();
+    expect(cycleThinkingEffort).toHaveBeenCalledOnce();
+    expect(track).toHaveBeenCalledWith('shortcut_effort_cycle');
   });
 });
 

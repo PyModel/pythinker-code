@@ -10,9 +10,9 @@ Active `/model` provider and `AskUserQuestion` tabs use `selectionBg` for the ba
 
 | Token | `dark` | `light` | What it controls |
 | --- | --- | --- | --- |
-| `primary` | `#5FC3E8` | `#006A88` | Dominant interactive/brand colour: links & inline code, the selected item in nearly every dialog, the focused editor border, plan/"running" badges, spinners. The most widely used token. |
+| `primary` | `#B4B8F8` | `#4B4FC4` | Dominant interactive/brand colour: links & inline code, the selected item in nearly every dialog, the focused editor border, plan/"running" badges, spinners. The most widely used token. |
 | `accent` | `#EE9983` | `#9C261C` | Coral secondary highlight: approval "▶" prefix, device-code box, image placeholder, BTW / queue panes, custom-registry import. |
-| `primaryShimmer` | `#A5E3F7` | `#004B63` | Bright primary pulse used by running-state animations. |
+| `primaryShimmer` | `#D6D9FF` | `#35388F` | Bright primary pulse used by running-state animations. |
 | `accentShimmer` | `#FFC4B8` | `#7C1C12` | Accent pulse used by attention animations. |
 | `warningShimmer` | `#FFD474` | `#6F4700` | Bright warning pulse used by attention animations. |
 | `borderShimmer` | `#848CA8` | `#4F567A` | Bright border pulse used by focused-panel animations. |
@@ -41,7 +41,7 @@ Active `/model` provider and `AskUserQuestion` tabs use `selectionBg` for the ba
 | `diffAddedDimmed` | `#57966F` | `#316A48` | De-emphasized added diff context. |
 | `diffRemovedDimmed` | `#B55E68` | `#8D4852` | De-emphasized removed diff context. |
 | `roleUser` | `#FFCB6B` | `#9A4A00` | User message bullet, skill-activation name, and user-specific accents. |
-| `shellMode` | `#5FC3E8` | `#006A88` | Shell mode (`!`) prompt, editor border, and echoed command line. |
+| `shellMode` | `#B4B8F8` | `#4B4FC4` | Shell mode (`!`) prompt, editor border, and echoed command line. |
 | `workflowTitle` | `#EE9983` | `#9C261C` | Coral title used by the Dynamic Workflow mission-control frame. |
 | `agentRed` | `#E2697D` | `#9D2539` | Red identity used by the first agent in Dynamic Workflow progress and grouped output. |
 | `agentOrange` | `#E2B069` | `#9D6B25` | Orange identity used by the second agent in Dynamic Workflow progress and grouped output. |
@@ -59,7 +59,7 @@ Active `/model` provider and `AskUserQuestion` tabs use `selectionBg` for the ba
 | `rainbowIndigo` | `#6E63E9` | `#261C9C` | Indigo spectrum stop for future keyword and gradient highlighting. |
 | `rainbowViolet` | `#C763E9` | `#7C1C9C` | Violet spectrum stop for future keyword and gradient highlighting. |
 | `modeAutoAccept` | `#66D49A` | `#26704C` | Auto-accept badge colour for the mode-specific status treatment. |
-| `modePlan` | `#5FC3E8` | `#006A88` | Plan badge colour for the mode-specific status treatment. |
+| `modePlan` | `#B4B8F8` | `#4B4FC4` | Plan badge colour for the mode-specific status treatment. |
 | `modePermission` | `#D99AF0` | `#7A3C96` | Permission badge colour for the mode-specific status treatment. |
 | `modeFast` | `#FFB45E` | `#9A570F` | Fast badge colour for the mode-specific status treatment. |
 | `background` | `#000000` | `#FFFFFF` | Assumed terminal background against which themed surfaces are tuned. |
@@ -69,8 +69,8 @@ Active `/model` provider and `AskUserQuestion` tabs use `selectionBg` for the ba
 | `toolPendingBg` | `#1D2129` | `#E8EEF7` | Background tint for a tool card while the call is running. |
 | `toolSuccessBg` | `#14171B` | `#F1F3F5` | Legacy custom-theme token; completed tool cards use the terminal background. |
 | `toolErrorBg` | `#291D1D` | `#F9E9E9` | Background tint for a tool card after an error result. |
-| `progressFill` | `#5FC3E8` | `#006A88` | Active Dynamic Workflow progress bars and status labels. |
-| `progressHead` | `#A5E3F7` | `#004B63` | Leading highlight for active Dynamic Workflow progress. |
+| `progressFill` | `#B4B8F8` | `#4B4FC4` | Active Dynamic Workflow progress bars and status labels. |
+| `progressHead` | `#D6D9FF` | `#35388F` | Leading highlight for active Dynamic Workflow progress. |
 | `progressEmpty` | `#D9DEE8` | `#6B7280` | Empty segment of the Dynamic Workflow aggregate progress line. |
 
 ## Use the custom-theme skill

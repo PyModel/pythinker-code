@@ -24,6 +24,7 @@ import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel'
 import { EffortSelectorComponent } from '#/tui/components/dialogs/effort-selector';
 import { pythinkerCodePluginMarketplaceUrl } from '#/constant/app';
 import { BRAILLE_SPINNER_FRAMES } from '#/tui/constant/rendering';
+import { currentTheme } from '#/tui/theme';
 import {
   AgentDynamicWorkflowProgressComponent,
   agentDynamicWorkflowGridHeightForTerminalRows,
@@ -414,7 +415,7 @@ async function confirmUndoSelection(driver: MessageDriver): Promise<void> {
 }
 
 function renderActivity(driver: MessageDriver): string {
-  return driver.state.activityContainer.render(120).join('\n');
+  return [...driver.state.activityContainer.render(120), driver.state.editor.render(120)[0] ?? ''].join('\n');
 }
 
 function renderBtwPanel(driver: MessageDriver): string {
@@ -1521,6 +1522,62 @@ describe('PythinkerTUI message flow', () => {
     },
     defaultModel: 'k2',
     thinking: { enabled: true },
+  });
+
+  it('cycles thinking effort with Shift-Tab, skipping off, and tints the prompt frame', async () => {
+    const session = makeSession();
+    const startupInput: PythinkerTUIStartupInput = {
+      ...makeStartupInput(),
+      cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
+    };
+    const { driver, harness } = await makeDriver(
+      session,
+      { getConfig: vi.fn(async () => thinkingModelsConfig()) },
+      startupInput,
+    );
+    harness.track.mockClear();
+    const press = async (expected: string) => {
+      driver.state.editor.onShiftTab?.();
+      await vi.waitFor(() => {
+        expect(driver.state.appState.thinkingEffort).toBe(expected);
+      });
+    };
+
+    expect(driver.state.appState.thinkingEffort).toBe('high');
+    await press('max');
+    await press('low');
+    await press('high');
+    await press('max');
+    await press('low');
+
+    expect(harness.track.mock.calls.map(([event]) => event)).toContain('shortcut_effort_cycle');
+    expect(session.setPlanMode).not.toHaveBeenCalled();
+    expect(driver.state.editor.borderColor('x')).toBe(currentTheme.fg('effortLow', 'x'));
+    expect(stripSgr(renderTranscript(driver))).not.toContain('Thinking set to');
+  });
+
+  it('shows an error instead of an unhandled rejection when the Shift-Tab effort cycle fails', async () => {
+    const session = makeSession();
+    const startupInput: PythinkerTUIStartupInput = {
+      ...makeStartupInput(),
+      cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
+    };
+    const { driver } = await makeDriver(
+      session,
+      { getConfig: vi.fn(async () => thinkingModelsConfig()) },
+      startupInput,
+    );
+    expect(driver.session).toBeUndefined();
+    vi.spyOn(driver, 'waitForLazyCreation').mockRejectedValueOnce(new Error('create failed'));
+
+    driver.state.editor.onShiftTab?.();
+
+    await vi.waitFor(() => {
+      expect(stripSgr(renderTranscript(driver))).toContain(
+        'Failed to cycle thinking effort: create failed',
+      );
+    });
+    expect(driver.state.appState.thinkingEffort).toBe('high');
   });
 
   it('blocks an effort switch once the waited-out first prompt starts a turn (v2 engine)', async () => {
@@ -2697,19 +2754,6 @@ command = "vim"
     expect(failedSession.onEvent).toHaveBeenCalledOnce();
   });
 
-  it('tracks Shift-Tab mode switches through the editor handler', async () => {
-    const { driver, session, harness } = await makeDriver();
-    harness.track.mockClear();
-
-    driver.state.editor.onShiftTab?.();
-
-    await vi.waitFor(() => {
-      expect(session.setPlanMode).toHaveBeenCalledWith(true);
-    });
-    expect(harness.track).toHaveBeenCalledWith('shortcut_plan_toggle', { enabled: true });
-    expect(harness.track).toHaveBeenCalledWith('shortcut_mode_switch', { to_mode: 'plan' });
-  });
-
   it('routes /yolo through session permission state without app-layer telemetry duplication', async () => {
     const { driver, session, harness } = await makeDriver();
     harness.track.mockClear();
@@ -2766,12 +2810,12 @@ command = "vim"
     }
     expect(subscribeOrder).toBeLessThan(snapshotOrder);
     const transcript = renderTranscript(driver);
-    expect(transcript).toContain('MCP server "local-tools" connected');
-    expect(transcript).toContain('2 tools (stdio)');
+    expect(transcript).not.toContain('MCP server "local-tools"');
+    expect(transcript).not.toContain('Loading MCP');
     expect(transcript).toContain('MCP server "remote-tools" failed: connection refused');
   });
 
-  it('deduplicates identical MCP status updates while allowing reconnect transitions', async () => {
+  it('shows one transient MCP loading line that disappears once servers connect', async () => {
     const eventListeners: Array<(event: Event) => void> = [];
     const connectedServer = {
       name: 'local-tools',
@@ -2797,9 +2841,7 @@ command = "vim"
       server: connectedServer,
     } as Event);
 
-    expect(countOccurrences(renderTranscript(driver), 'MCP server "local-tools" connected')).toBe(
-      1,
-    );
+    expect(renderTranscript(driver)).not.toContain('MCP server "local-tools"');
 
     eventListeners[0]?.({
       type: 'mcp.server.status',
@@ -2811,6 +2853,8 @@ command = "vim"
         toolCount: 0,
       },
     } as Event);
+    expect(countOccurrences(renderTranscript(driver), 'Loading MCP: local-tools')).toBe(1);
+
     eventListeners[0]?.({
       type: 'mcp.server.status',
       agentId: 'main',
@@ -2818,9 +2862,41 @@ command = "vim"
       server: connectedServer,
     } as Event);
 
-    expect(countOccurrences(renderTranscript(driver), 'MCP server "local-tools" connected')).toBe(
-      2,
-    );
+    const transcript = renderTranscript(driver);
+    expect(transcript).not.toContain('Loading MCP');
+    expect(transcript).not.toContain('MCP server "local-tools"');
+  });
+
+  it('lists loading MCP server names and drops each one as it connects', async () => {
+    const eventListeners: Array<(event: Event) => void> = [];
+    const server = (name: string, status: 'pending' | 'connected') => ({
+      type: 'mcp.server.status',
+      agentId: 'main',
+      sessionId: 'ses-1',
+      server: { name, transport: 'http', status, toolCount: status === 'connected' ? 1 : 0 },
+    }) as Event;
+    const session = makeSession({
+      onEvent: vi.fn((listener: (event: Event) => void) => {
+        eventListeners.push(listener);
+        return vi.fn();
+      }),
+      listMcpServers: vi.fn(async () => []),
+    });
+    const { driver } = await makeDriver(session);
+    driver.sessionEventHandler.startSubscription();
+    await Promise.resolve();
+
+    eventListeners[0]?.(server('alpha', 'pending'));
+    eventListeners[0]?.(server('beta', 'pending'));
+    expect(renderTranscript(driver)).toContain('Loading MCP: alpha, beta');
+
+    eventListeners[0]?.(server('alpha', 'connected'));
+    const partial = renderTranscript(driver);
+    expect(partial).toContain('Loading MCP: beta');
+    expect(partial).not.toContain('alpha');
+
+    eventListeners[0]?.(server('beta', 'connected'));
+    expect(renderTranscript(driver)).not.toContain('Loading MCP');
   });
 
   it('does not let a late MCP snapshot overwrite a live status event', async () => {
@@ -2870,8 +2946,8 @@ command = "vim"
     await Promise.resolve();
 
     const transcript = renderTranscript(driver);
-    expect(transcript).toContain('MCP server "local-tools" connected');
     expect(transcript).not.toContain('stale failure');
+    expect(driver.sessionEventHandler.mcpServers.get('local-tools')?.status).toBe('connected');
   });
 
   it('sends normal editor input to the active session and marks the turn as waiting', async () => {
@@ -5732,8 +5808,8 @@ command = "vim"
     expect(driver.state.btwPanelContainer.children).toHaveLength(0);
     expect(requestRender.mock.calls.at(-1)).toEqual([true]);
     const editorTopBorder = stripSgr(driver.state.editor.render(80)[0] ?? '');
-    expect(editorTopBorder.startsWith('╭')).toBe(true);
-    expect(editorTopBorder.endsWith('╮')).toBe(true);
+    expect(editorTopBorder.startsWith('─')).toBe(true);
+    expect(editorTopBorder.endsWith('─')).toBe(true);
     expect(driver.state.editor.focused).toBe(true);
   });
 

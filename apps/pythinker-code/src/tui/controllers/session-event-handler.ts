@@ -35,7 +35,6 @@ import type {
 
 import { ActivitySpinner } from '../components/chrome/activity-spinner';
 import { buildGoalMarker } from '../components/messages/goal-markers';
-import { StatusMessageComponent } from '../components/messages/status-message';
 import {
   DynamicWorkflowModeMarkerComponent,
   type DynamicWorkflowModeMarkerState,
@@ -69,7 +68,7 @@ import {
   selectMcpStartupStatusRows,
 } from '../utils/mcp-server-status';
 import { openUrl } from '#/utils/open-url';
-import { currentTheme } from '#/tui/theme';
+import { McpLoadingLine } from '../components/messages/mcp-loading-line';
 import type { ColorToken } from '#/tui/theme';
 import { errorReportHintLine } from '../constant/feedback';
 import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
@@ -165,7 +164,7 @@ export class SessionEventHandler {
   renderedSkillActivationIds: Set<string> = new Set();
   renderedPluginCommandActivationIds: Set<string> = new Set();
   renderedMcpServerStatusKeys: Map<string, string> = new Map();
-  mcpServerStatusSpinners: Map<string, ActivitySpinner> = new Map();
+  mcpLoadingLine: McpLoadingLine | undefined;
   mcpServers: Map<string, McpServerStatusSnapshot> = new Map();
   private goalCompletionAwaitingClear = false;
   private goalCompletionTurnEnded = false;
@@ -252,9 +251,10 @@ export class SessionEventHandler {
       this.renderMcpServerStatus(server);
     }
 
+    const live = new Map(this.mcpServers);
     this.mcpServers.clear();
     for (const server of servers) {
-      this.mcpServers.set(server.name, server);
+      this.mcpServers.set(server.name, live.get(server.name) ?? server);
     }
     const hidden: McpServerStatusSnapshot[] = [];
     for (const server of servers) {
@@ -263,8 +263,9 @@ export class SessionEventHandler {
       this.renderedMcpServerStatusKeys.set(server.name, mcpServerStatusKey(server));
       hidden.push(server);
     }
-    const summary = formatMcpStartupStatusSummary(servers);
+    const summary = formatMcpStartupStatusSummary([...this.mcpServers.values()]);
     host.setAppState({ mcpServersSummary: summary || null });
+    this.updateMcpLoadingRow();
   }
 
   handleEvent(event: Event, sendQueued: (item: QueuedMessage) => void): void {
@@ -321,10 +322,7 @@ export class SessionEventHandler {
   }
 
   stopAllMcpServerStatusSpinners(): void {
-    for (const spinner of this.mcpServerStatusSpinners.values()) {
-      spinner.stop();
-    }
-    this.mcpServerStatusSpinners.clear();
+    this.removeMcpLoadingRow();
   }
 
   // ---------------------------------------------------------------------------
@@ -1018,77 +1016,52 @@ export class SessionEventHandler {
     this.host.setAppState({ mcpServersSummary: summary || null });
 
     switch (server.status) {
-      case 'connected': {
-        const toolStr = `${server.toolCount} tool${server.toolCount === 1 ? '' : 's'}`;
-        const message = `MCP server "${server.name}" connected · ${toolStr} (${server.transport})`;
-        this.finalizeMcpServerStatusRow(server.name, message, 'success');
-        return;
-      }
-      case 'failed': {
-        const message = `MCP server "${server.name}" failed${server.error !== undefined ? `: ${server.error}` : ''}`;
-        this.finalizeMcpServerStatusRow(server.name, message, 'error');
-        return;
-      }
-      case 'needs-auth': {
-        const message = `MCP server "${server.name}" needs OAuth — run /mcp-config login ${server.name}`;
-        this.finalizeMcpServerStatusRow(server.name, message, 'warning');
-        return;
-      }
-      case 'disabled':
-        this.finalizeMcpServerStatusRow(
-          server.name,
-          `MCP server "${server.name}" disabled`,
-          'textMuted',
+      case 'failed':
+        this.host.showStatus(
+          `MCP server "${server.name}" failed${server.error !== undefined ? `: ${server.error}` : ''}`,
+          'error',
         );
-        return;
-      case 'removed':
-        this.finalizeMcpServerStatusRow(
-          server.name,
-          `MCP server "${server.name}" removed`,
-          'textMuted',
+        break;
+      case 'needs-auth':
+        this.host.showStatus(
+          `MCP server "${server.name}" needs OAuth — run /mcp-config login ${server.name}`,
+          'warning',
         );
-        return;
-      case 'pending':
-        this.showMcpServerStatusSpinner(server.name);
-        return;
+        break;
+      default:
+        break;
     }
+    this.updateMcpLoadingRow();
   }
 
-  private showMcpServerStatusSpinner(name: string): void {
+  // One transient row while servers connect; it leaves the transcript once none
+  // is pending. Connected servers are summarised in the welcome card instead.
+  private updateMcpLoadingRow(): void {
     const { state } = this.host;
-    const label = `MCP server "${name}" connecting…`;
-    const existing = this.mcpServerStatusSpinners.get(name);
-    if (existing !== undefined) {
-      existing.setLabel(label);
+    const pending = [...this.mcpServers.values()]
+      .filter((server) => server.status === 'pending')
+      .map((server) => server.name);
+    if (pending.length === 0) {
+      this.removeMcpLoadingRow();
       return;
     }
-    const tint = (s: string): string => currentTheme.fg('textMuted', s);
-    const spinner = new ActivitySpinner(state.ui, tint, label);
-    state.transcriptContainer.addChild(spinner);
-    this.mcpServerStatusSpinners.set(name, spinner);
+    if (this.mcpLoadingLine !== undefined) {
+      this.mcpLoadingLine.setNames(pending);
+      return;
+    }
+    this.mcpLoadingLine = new McpLoadingLine(state.ui, pending);
+    state.transcriptContainer.addChild(this.mcpLoadingLine);
     state.ui.requestRender();
   }
 
-  private finalizeMcpServerStatusRow(name: string, message: string, color: ColorToken): void {
-    const { state } = this.host;
-    const spinner = this.mcpServerStatusSpinners.get(name);
-    if (spinner === undefined) {
-      this.host.showStatus(message, color);
-      return;
-    }
+  private removeMcpLoadingRow(): void {
+    const spinner = this.mcpLoadingLine;
+    if (spinner === undefined) return;
     spinner.stop();
-    const status = new StatusMessageComponent(message, color);
-    const children = state.transcriptContainer.children;
-    const idx = children.indexOf(spinner);
-    if (idx >= 0) {
-      // In-place replacement is picked up by the container's ref-checked
-      // render cache; a tree-wide invalidate is unnecessary (and costly).
-      children[idx] = status;
-    } else {
-      state.transcriptContainer.addChild(status);
-    }
-    this.mcpServerStatusSpinners.delete(name);
-    state.ui.requestRender();
+    // oxlint-disable-next-line unicorn/prefer-dom-node-remove
+    this.host.state.transcriptContainer.removeChild(spinner);
+    this.mcpLoadingLine = undefined;
+    this.host.state.ui.requestRender();
   }
 
   private handleSkillActivated(event: SkillActivatedEvent): void {
