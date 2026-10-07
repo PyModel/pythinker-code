@@ -2415,7 +2415,7 @@ describe("Editor component", () => {
 		it("triggers and debounces symbol completion after CJK punctuation", async (t) => {
 			t.mock.timers.enable({ apis: ["setTimeout"] });
 			for (const before of [
-				"查看，",
+				"\u67e5\u770b，",
 				"\u3000",
 				..."，．：；！？（）［］｛｝“”‘’…—。、「」『』《》【】",
 				"(",
@@ -2468,27 +2468,27 @@ describe("Editor component", () => {
 			});
 			for (const text of [
 				"user@example.com",
-				"张三@example.com",
-				"查看@src",
+				"\u5f20\u4e09@example.com",
+				"\u67e5\u770b@src",
 				"あ@src",
 				"カ@src",
 				"한@src",
 				"ㄅ@src",
-				"𠮷@src",
+				"\u{20bb7}@src",
 				"か\u3099@src",
-				"禰\u{e0100}@src",
-				"々@src",
+				"\u79b0\u{e0100}@src",
+				"\\u3005@src",
 				"Ａ@src",
-				"文档@备份",
+				"\u6587\u6863@\u5907\u4efd",
 				"prefix#123",
 				"foo(@src",
-				"问题#123",
-				"查看，/path/",
-				"查看，./文档/",
+				"\u95ee\u9898#123",
+				"\u67e5\u770b，/path/",
+				"\u67e5\u770b，./\u6587\u6863/",
 				"src/index.ts",
-				"./文档/说明.md",
-				"文档/说明.md",
-				"查看src/index.ts",
+				"./\u6587\u6863/\u8bf4\u660e.md",
+				"\u6587\u6863/\u8bf4\u660e.md",
+				"\u67e5\u770bsrc/index.ts",
 			]) {
 				editor.setText("");
 				for (const char of text) editor.handleInput(char);
@@ -2509,7 +2509,7 @@ describe("Editor component", () => {
 				},
 				applyCompletion,
 			});
-			const text = "查看，/path/";
+			const text = "\u67e5\u770b，/path/";
 			for (const char of text) editor.handleInput(char);
 			t.mock.timers.tick(20);
 			await flushAutocomplete();
@@ -2522,21 +2522,21 @@ describe("Editor component", () => {
 		it("completes Chinese path prefixes after whitespace or CJK punctuation with Tab", async (t) => {
 			const baseDir = mkdtempSync(join(tmpdir(), "pi-editor-autocomplete-"));
 			t.after(() => rmSync(baseDir, { recursive: true, force: true }));
-			mkdirSync(join(baseDir, "文档"));
-			writeFileSync(join(baseDir, "文档", "说明.md"), "text");
+			mkdirSync(join(baseDir, "\u6587\u6863"));
+			writeFileSync(join(baseDir, "\u6587\u6863", "\u8bf4\u660e.md"), "text");
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 			editor.setAutocompleteProvider(new CombinedAutocompleteProvider([], baseDir));
 			for (const separator of [" ", "\t", "\u3000", "\u00a0", "，", "。"]) {
-				editor.setText(`查看${separator}`);
+				editor.setText(`\u67e5\u770b${separator}`);
 				const before = editor.getText();
-				editor.handleInput("文");
+				editor.handleInput("\u6587");
 				editor.handleInput("\t");
 				await flushAutocomplete();
-				assert.strictEqual(editor.getText(), `${before}文档/`);
-				editor.handleInput("说");
+				assert.strictEqual(editor.getText(), `${before}\u6587\u6863/`);
+				editor.handleInput("\u8bf4");
 				editor.handleInput("\t");
 				await flushAutocomplete();
-				assert.strictEqual(editor.getText(), `${before}文档/说明.md`);
+				assert.strictEqual(editor.getText(), `${before}\u6587\u6863/\u8bf4\u660e.md`);
 				assert.deepStrictEqual(editor.getCursor(), { line: 0, col: editor.getText().length });
 			}
 		});
@@ -2566,7 +2566,7 @@ describe("Editor component", () => {
 					await flushAutocomplete();
 					assert.deepStrictEqual(requests, [prefix, prefix + separator]);
 					assert.strictEqual(editor.isShowingAutocomplete(), false);
-					editor.handleInput("文");
+					editor.handleInput("\u6587");
 					t.mock.timers.tick(20);
 					await flushAutocomplete();
 					assert.deepStrictEqual(requests, [prefix, prefix + separator]);
@@ -2577,12 +2577,12 @@ describe("Editor component", () => {
 		it("re-triggers CJK path completion after accepting directories and deleting", async (t) => {
 			t.mock.timers.enable({ apis: ["setTimeout"] });
 			const provider = new CombinedAutocompleteProvider([], process.cwd());
-			for (const directory of ["文档", "我的 文档", "资料，归档"]) {
-				const quoted = directory !== "文档";
-				const initial = quoted ? `@"${directory.slice(0, 2)}` : "@文";
+			for (const directory of ["\u6587\u6863", "\u6211\u7684 \u6587\u6863", "\u8d44\u6599，\u5f52\u6863"]) {
+				const quoted = directory !== "\u6587\u6863";
+				const initial = quoted ? `@"${directory.slice(0, 2)}` : "@\u6587";
 				const directoryValue = quoted ? `@"${directory}/"` : `@${directory}/`;
-				const fileValue = quoted ? `@"${directory}/说明.md"` : `@${directory}/说明.md`;
-				const filePrefix = quoted ? `@"${directory}/说` : `@${directory}/说`;
+				const fileValue = quoted ? `@"${directory}/\u8bf4\u660e.md"` : `@${directory}/\u8bf4\u660e.md`;
+				const filePrefix = quoted ? `@"${directory}/\u8bf4` : `@${directory}/\u8bf4`;
 				const editor = new Editor(createTestTUI(), defaultEditorTheme);
 				editor.setAutocompleteProvider({
 					getSuggestions: async (lines, cursorLine, cursorCol) => {
@@ -2591,23 +2591,23 @@ describe("Editor component", () => {
 						if (prefix === initial) {
 							return { prefix, items: [{ value: directoryValue, label: `${directory}/` }] };
 						}
-						return prefix === filePrefix ? { prefix, items: [{ value: fileValue, label: "说明.md" }] } : null;
+						return prefix === filePrefix ? { prefix, items: [{ value: fileValue, label: "\u8bf4\u660e.md" }] } : null;
 					},
 					applyCompletion: (...args) => provider.applyCompletion(...args),
 				});
-				editor.setText(`查看：${initial}`);
+				editor.setText(`\u67e5\u770b：${initial}`);
 				editor.handleInput("\t");
 				await flushAutocomplete();
-				assert.strictEqual(editor.getText(), `查看：${directoryValue}`);
+				assert.strictEqual(editor.getText(), `\u67e5\u770b：${directoryValue}`);
 				assert.strictEqual(editor.isShowingAutocomplete(), false);
 
-				editor.handleInput("说");
+				editor.handleInput("\u8bf4");
 				t.mock.timers.tick(20);
 				await flushAutocomplete();
 				assert.strictEqual(editor.isShowingAutocomplete(), true);
 
 				for (const deletion of ["\x7f", "\x1b[3~"]) {
-					editor.handleInput("错");
+					editor.handleInput("\u9519");
 					t.mock.timers.tick(20);
 					await flushAutocomplete();
 					assert.strictEqual(editor.isShowingAutocomplete(), false);
@@ -2619,7 +2619,7 @@ describe("Editor component", () => {
 				}
 
 				editor.handleInput("\t");
-				assert.strictEqual(editor.getText(), `查看：${fileValue} `);
+				assert.strictEqual(editor.getText(), `\u67e5\u770b：${fileValue} `);
 				assert.deepStrictEqual(editor.getCursor(), { line: 0, col: editor.getText().length });
 			}
 		});

@@ -15,7 +15,7 @@ describe("visibleWidth", () => {
 	});
 
 	it("measures styled non-ASCII text", () => {
-		assert.strictEqual(visibleWidth("\x1b[31m日本\x1b[39m ok"), 7);
+		assert.strictEqual(visibleWidth("\x1b[31m\u65e5\u672c\x1b[39m ok"), 7);
 		assert.strictEqual(visibleWidth("\x1b[31m─→\x1b[39m"), 2);
 	});
 
