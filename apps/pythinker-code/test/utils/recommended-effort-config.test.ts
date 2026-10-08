@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   getRecommendedEffortConfig,
@@ -32,7 +32,12 @@ async function makeCacheFile(): Promise<string> {
   return join(dir, 'cache.json');
 }
 
+beforeEach(() => {
+  vi.stubEnv('CUSTOM_API_BASE_URL', 'https://api.example.test/coding/v1');
+});
+
 afterEach(async () => {
+  vi.unstubAllEnvs();
   resetRecommendedEffortConfigCache();
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });

@@ -4,13 +4,17 @@ import { z } from 'zod';
 
 import { getCacheDir } from '#/utils/paths';
 import { readJsonFile, writeJsonFile } from '#/utils/persistence';
-import { currentPythinkerProfile, currentPythinkerRegion } from '#/utils/region';
+import { currentPythinkerRegion } from '#/utils/region';
 
 /**
  * Generic client for the public client-configs endpoint:
  * `POST {baseUrl}/client_configs {"name": "<config name>"}` returns
  * `{ name, config: <payload> }`, where the payload shape is config-specific
  * and validated by the caller-supplied schema.
+ *
+ * The endpoint exists only on a custom API base (`CUSTOM_API_BASE_URL`).
+ * Without one there is nothing to ask, so no request is made and no
+ * token leaves the machine.
  *
  * Each named config is cached for a day, in two layers: an in-process map
  * (the only layer the synchronous peek can see) and a JSON file under the
@@ -25,15 +29,11 @@ const CLIENT_CONFIGS_PATH = '/client_configs';
 const CONFIG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 5000;
 
-/** The endpoint's API base: the env override keeps winning (custom/internal
-    envs); otherwise the active region profile, so a global login's token is
-    not sent to the mainland-China deployment. */
-function clientConfigsBaseUrl(): string {
+/** The endpoint's API base, or undefined when no custom base is set. */
+function clientConfigsBaseUrl(): string | undefined {
   const override = process.env['CUSTOM_API_BASE_URL']?.trim();
-  if (override !== undefined && override.length > 0) {
-    return override.replace(/\/+$/, '');
-  }
-  return currentPythinkerProfile().apiBase.replace(/\/+$/, '');
+  if (override === undefined || override.length === 0) return undefined;
+  return override.replace(/\/+$/, '');
 }
 
 /** Cache entries are partitioned by region so a login switch never serves
@@ -165,6 +165,8 @@ export async function fetchClientConfig<S extends z.ZodType>(
   schema: S,
   options: ClientConfigFetchOptions = {},
 ): Promise<z.infer<S> | undefined> {
+  const baseUrl = clientConfigsBaseUrl();
+  if (baseUrl === undefined) return undefined;
   const fetchFn = options.fetchImpl ?? fetch;
   const headers: Record<string, string> = {
     accept: 'application/json',
@@ -174,7 +176,7 @@ export async function fetchClientConfig<S extends z.ZodType>(
     headers['authorization'] = `Bearer ${options.accessToken}`;
   }
   try {
-    const response = await fetchFn(`${clientConfigsBaseUrl()}${CLIENT_CONFIGS_PATH}`, {
+    const response = await fetchFn(`${baseUrl}${CLIENT_CONFIGS_PATH}`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ name }),
