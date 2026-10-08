@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Formatting helpers for the `/usage` slash command.
  *
@@ -98,8 +97,9 @@ export function quotaUsageRows(quota: ManagedQuota): QuotaUsageRow[] {
     entry: ManagedQuotaEntry | undefined,
     breakdown?: MonthlyUsageBreakdown,
   ): void => {
-    if (entry === undefined) return;
-    rows.push({ name, usedRatio: entry.usedRatio, resetAt: entry.resetAt, breakdown });
+    if (entry?.usedRatio === undefined) return;
+    const resetAt = typeof entry.resetAt === 'string' ? entry.resetAt : undefined;
+    rows.push({ name, usedRatio: entry.usedRatio, resetAt, breakdown });
   };
   push('5h limit', quota.usages.limit5h);
   push('Weekly limit', quota.usages.limit7d);

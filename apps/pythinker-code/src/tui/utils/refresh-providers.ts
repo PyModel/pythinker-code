@@ -1,4 +1,3 @@
-export type RefreshProviderScope = string;
 import {
   refreshProviderModels,
   type ProviderChange,
@@ -12,8 +11,6 @@ import type { PythinkerConfig, PythinkerConfigPatch } from '@pymodel/pythinker-c
  * so existing TUI callers and tests keep the SDK config shape.
  */
 export interface RefreshProviderHost {
-  resolveOAuthToken?: (...args: any[]) => any;
-
   getConfig(): Promise<PythinkerConfig>;
   removeProvider(providerId: string): Promise<PythinkerConfig>;
   setConfig(patch: PythinkerConfigPatch): Promise<PythinkerConfig>;

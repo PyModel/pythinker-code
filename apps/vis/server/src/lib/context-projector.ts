@@ -1,4 +1,3 @@
-// @ts-nocheck
 import {
   COMPACT_USER_MESSAGE_MAX_TOKENS,
   COMPACTION_CONTINUATION_VARIANT,
@@ -618,6 +617,8 @@ export function projectContext(
       case 'llm.tools_snapshot':
       case 'llm.request':
       case 'mcp.tools_discovered':
+      case 'file_history.checkpoint':
+      case 'file_history.tracked':
         break;
       default: {
         const _exhaustive: never = rec;

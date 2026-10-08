@@ -1,4 +1,3 @@
-// @ts-nocheck
 import {
   OAuthAccessDeniedError,
   OPENAI_CODEX_PROVIDER_ID,
@@ -74,7 +73,9 @@ function createLoginUi(
       if (picked === undefined) return undefined;
       return { model: picked.model, effort: picked.thinking };
     },
-    refreshConfigAfterLogin: () => host.authFlow.refreshConfigAfterLogin(),
+    refreshConfigAfterLogin: async () => {
+      await host.authFlow.refreshConfigAfterLogin();
+    },
     track: (event, properties) => {
       host.track(event, properties);
     },
@@ -83,17 +84,8 @@ function createLoginUi(
 
 export async function handleLoginCommand(host: SlashCommandHost): Promise<void> {
   const selection = await promptPlatformSelection(host);
-  if (selection === undefined || selection === null) return;
-  const platformId =
-    typeof selection === 'string'
-      ? selection
-      : (selection as { readonly platformId?: string }).platformId;
-  if (platformId === undefined || platformId === null || platformId === '') return;
-  const catalog =
-    typeof selection === 'string'
-      ? {}
-      : ((selection as { readonly catalog?: Record<string, unknown> }).catalog ?? {});
-  const normalized = { platformId, catalog };
+  if (selection === undefined || selection.platformId === '') return;
+  const { platformId } = selection;
 
   if (platformId === 'pythinker-code' || platformId === PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE) {
     const region: PythinkerRegion = platformId === PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE ? 'global' : 'mainland-cn';
@@ -101,7 +93,7 @@ export async function handleLoginCommand(host: SlashCommandHost): Promise<void> 
     return;
   }
 
-  await runLogin(createLoginUi(host, normalized));
+  await runLogin(createLoginUi(host, selection));
 }
 
 async function handlePythinkerCodeOAuthLogin(

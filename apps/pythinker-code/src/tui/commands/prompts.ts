@@ -1,4 +1,3 @@
-// @ts-nocheck
 type LocalPlatformSelection = {
   readonly platformId: string;
   readonly catalog: Record<string, unknown>;

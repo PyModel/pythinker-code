@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, expect, it, vi } from 'vitest';
 
 import type {
@@ -14,9 +13,7 @@ import type { SlashCommandHost } from '#/tui/commands/dispatch';
 
 function status(pair = true): ExpertTalkStatusV1 {
   return {
-    version: 'expert_talk/v1',
     enabled: true,
-    featureSource: 'env',
     config: {
       version: 'expert_talk/v1',
       resourceVersion: 'v1',
@@ -127,7 +124,7 @@ describe('Expert Talk command', () => {
   });
 
   it('uses off as the canonical disarm command', async () => {
-    const armed = { ...status(), arm: { armId: 'arm-1', armedAt: '2026-08-29T00:00:00Z' } };
+    const armed = { ...status(), arm: { armId: 'arm-1', resourceVersion: 'v1' } };
     const { host, session } = makeHost(armed);
 
     await handleExpertTalkCommand(host, 'off');

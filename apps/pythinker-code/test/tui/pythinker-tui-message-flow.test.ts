@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -129,7 +128,10 @@ interface MessageDriver {
     notifications: import('#/tui/controllers/notify').NotifyController;
     startSubscription(): void;
     handleEvent(event: Event, sendQueued: (item: QueuedMessage) => void): void;
+    mcpServers: Map<string, { readonly status: string }>;
   };
+  session: unknown;
+  waitForLazyCreation(): Promise<void>;
   init(): Promise<boolean>;
   handleUserInput(text: string): void;
   toggleToolOutputExpansion(): void;
@@ -2291,6 +2293,20 @@ command = "vim"
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('hello before reload');
     expect(transcript).toContain('Session reloaded.');
+  });
+
+  it('opens the plain verification URL when the device flow has no complete URL', async () => {
+    const { driver } = await makeDriver(makeSession());
+    vi.mocked(openUrl).mockClear();
+
+    const spinner = (driver as unknown as PythinkerTUI).showLoginAuthorizationPrompt({
+      verificationUri: 'https://auth.example.test/device',
+      userCode: 'ABCD-1234',
+    });
+    spinner.stop({ ok: true, label: 'Signed in' });
+
+    expect(openUrl).toHaveBeenCalledWith('https://auth.example.test/device');
+    expect(stripSgr(renderTranscript(driver))).toContain('https://auth.example.test/device');
   });
 
   it('prints the sign-up page and GitHub Issues links when not signed in', async () => {

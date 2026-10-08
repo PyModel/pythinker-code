@@ -1,4 +1,3 @@
-// @ts-nocheck
 import type { ExperimentalFeatureState } from '@pymodel/pythinker-code-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -20,6 +19,8 @@ function feature(overrides: Partial<ExperimentalFeatureState> = {}): Experimenta
     defaultEnabled: true,
     enabled: true,
     source: 'default',
+    externallyControlled: false,
+    overridden: false,
     ...overrides,
   };
 }

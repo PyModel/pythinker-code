@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -18,6 +17,8 @@ vi.mock('#/utils/cache-hint-config', () => ({
   resetCacheHintConfigCache: () => undefined,
 }));
 
+const MANAGED_BASE = 'https://api.example.test/coding/v1';
+
 const CONFIG: CacheHintConfig = {
   version: 1,
   config: { 'kimi-k2': { min_tokens_to_hint: 100000, cache_duration: 600 } },
@@ -35,7 +36,7 @@ function makeHost(
     appState: {
       model: 'k2',
       availableModels: { k2: { model: 'kimi-k2', provider: 'openai' } },
-      availableProviders: { 'openai': { oauth: { key: 'pythinker-code' } } },
+      availableProviders: { 'openai': { baseUrl: MANAGED_BASE, oauth: { storage: 'file', key: 'managed' } } },
       sessionId: 's1',
       streamingPhase: 'idle',
       isCompacting: false,
@@ -101,6 +102,8 @@ function uploadedExtraction(fileId: string, byte: number): ExtractionResult {
 }
 
 beforeEach(() => {
+  vi.unstubAllEnvs();
+  vi.stubEnv('CUSTOM_API_BASE_URL', MANAGED_BASE);
   peekMock.mockReset().mockReturnValue(undefined);
   getMock.mockReset().mockResolvedValue(undefined);
   vi.useRealTimers();
@@ -126,6 +129,23 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     const { host } = makeHost({
       appState: {
         availableProviders: { 'openai': {} }, // apiKey form: no oauth
+      },
+    });
+    const controller = new CacheHintController(host);
+    controller.recordActivity();
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
+    expect(controller.maybeInterceptOnSubmit('hello')).toBe(false);
+    expect(host.mountEditorReplacement).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it('does not intercept for an OAuth provider off the managed base', () => {
+    peekMock.mockReturnValue(CONFIG);
+    const { host } = makeHost({
+      appState: {
+        availableProviders: {
+          'openai': { baseUrl: 'https://other.example.test/v1', oauth: { storage: 'file', key: 'other' } },
+        },
       },
     });
     const controller = new CacheHintController(host);
@@ -198,6 +218,8 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     await vi.waitFor(() => {
       expect(host.mountEditorReplacement).toHaveBeenCalled();
     });
+    expect(host.harness.auth.getCachedAccessToken).toHaveBeenCalledWith({ storage: 'file', key: 'managed' });
+    expect(getMock).toHaveBeenCalledWith({ accessToken: 'tok' });
     expect(host.track).toHaveBeenCalledWith(
       'cache_hint_shown',
       expect.objectContaining({ scene: 'idle' }),

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { visibleWidth } from '@pymodel/pi-tui';
 import { Markdown } from '#/tui/components/markdown/markdown';
 import chalk from 'chalk';

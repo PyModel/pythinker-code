@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -33,6 +32,7 @@ import {
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_USER_AGENT_PRODUCT } from '#/constant/app';
 
+import type { CLIOptions } from '#/cli/options';
 import { runV2Print } from '../../src/cli/v2/run-v2-print';
 
 const mocks = vi.hoisted(() => ({
@@ -137,7 +137,7 @@ function writer() {
   };
 }
 
-function opts(overrides: Record<string, unknown> = {}) {
+function opts(overrides: Partial<CLIOptions> = {}): CLIOptions {
   return {
     session: undefined,
     continue: false,
@@ -152,7 +152,7 @@ function opts(overrides: Record<string, unknown> = {}) {
     agentFiles: [],
     addDirs: [],
     ...overrides,
-  } as const;
+  };
 }
 
 function makeFakeHarness() {
@@ -290,7 +290,6 @@ function makeFakeHarness() {
         getEnv: () => undefined,
       },
     ],
-    [ { getCachedAccessToken: vi.fn(async () => undefined) }],
     [IFileSystemStorageService, {}],
     [IHostFileSystem, {}],
     [
@@ -368,7 +367,7 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
-    await runV2Print(opts({ skillsDirs: ['/skills'] }) as any, '1.2.3-test', {
+    await runV2Print(opts({ skillsDirs: ['/skills'] }), '1.2.3-test', {
       stdout,
       stderr,
     });
@@ -400,7 +399,7 @@ describe('runV2Print', () => {
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await runV2Print(
-      opts({ agent: 'reviewer', agentFiles: ['/agents/reviewer.md'] }) as any,
+      opts({ agent: 'reviewer', agentFiles: ['/agents/reviewer.md'] }),
       '1.2.3-test',
       { stdout, stderr },
     );
@@ -432,7 +431,7 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
-    await runV2Print(opts({ agentFiles: [agentFile] }) as any, '1.2.3-test', {
+    await runV2Print(opts({ agentFiles: [agentFile] }), '1.2.3-test', {
       stdout,
       stderr,
     });
@@ -459,7 +458,7 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
 
     await expect(
-      runV2Print(opts({ agent: 'missing' }) as any, '1.2.3-test', { stdout, stderr }),
+      runV2Print(opts({ agent: 'missing' }), '1.2.3-test', { stdout, stderr }),
     ).rejects.toThrow('Unknown agent profile');
 
     expect(mocks.ensureMainAgent).not.toHaveBeenCalled();
@@ -477,7 +476,7 @@ describe('runV2Print', () => {
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await expect(
-      runV2Print(opts({ agentFiles: [agentFile] }) as any, '1.2.3-test', { stdout, stderr }),
+      runV2Print(opts({ agentFiles: [agentFile] }), '1.2.3-test', { stdout, stderr }),
     ).rejects.toThrow(/Invalid agent file/);
 
     const profile = agentServices.get(IAgentProfileService) as {
@@ -509,7 +508,7 @@ describe('runV2Print', () => {
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await runV2Print(
-      opts({ agent: 'reviewer', agentFiles: ['~/agents/reviewer.md'] }) as any,
+      opts({ agent: 'reviewer', agentFiles: ['~/agents/reviewer.md'] }),
       '1.2.3-test',
       { stdout, stderr },
     );
@@ -530,7 +529,7 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
-    await runV2Print(opts({ session: 'ses_1', agent: 'reviewer' }) as any, '1.2.3-test', {
+    await runV2Print(opts({ session: 'ses_1', agent: 'reviewer' }), '1.2.3-test', {
       stdout,
       stderr,
     });
@@ -556,7 +555,7 @@ describe('runV2Print', () => {
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await runV2Print(
-      opts({ session: 'ses_1', agent: 'reviewer', model: 'new-model' }) as any,
+      opts({ session: 'ses_1', agent: 'reviewer', model: 'new-model' }),
       '1.2.3-test',
       { stdout, stderr },
     );
@@ -642,7 +641,7 @@ describe('runV2Print', () => {
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
-    await runV2Print(opts({ session: 'ses_1' }) as any, '1.2.3-test', { stdout, stderr });
+    await runV2Print(opts({ session: 'ses_1' }), '1.2.3-test', { stdout, stderr });
 
     // The v1 pipeline was initialized up front with the best-known model, so
     // crash events during session resolution still reach a sink...

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * CacheHintController — drives the "cache expired" dialog for the two trigger
  * scenarios: resuming a long-idle session (fires right after the resume
@@ -8,9 +7,11 @@
  */
 
 import type { Component, Focusable } from '@pymodel/pi-tui';
+import { isManagedPythinkerCodeBaseUrl } from '@pymodel/pythinker-code-oauth';
 import type { PythinkerHarness, Session, TokenUsage } from '@pymodel/pythinker-code-sdk';
 
 import { getCacheHintConfig, peekCacheHintConfig } from '#/utils/cache-hint-config';
+import { managedAccessToken } from '#/utils/managed-access-token';
 import { currentTuiConfig } from '../commands/config';
 import {
   CacheHintDialogComponent,
@@ -402,21 +403,28 @@ export class CacheHintController {
     const alias = availableModels[model];
     if (alias === undefined) return undefined;
     // The cache rules describe the managed service's server-side cache, so
-    // they only apply to OAuth-managed providers — apiKey or self-hosted
-    // providers never hint.
-    if (availableProviders[alias.provider]?.oauth === undefined) return undefined;
+    // they only apply to OAuth providers on the managed base — apiKey, other
+    // OAuth, or self-hosted providers never hint.
+    const provider = availableProviders[alias.provider];
+    if (provider?.oauth === undefined) return undefined;
+    if (!isManagedPythinkerCodeBaseUrl(alias.baseUrl ?? provider.baseUrl)) return undefined;
     return alias.model;
   }
 
   private async resolveConfig() {
+    const { model, availableModels, availableProviders } = this.host.state.appState;
     let accessToken: string | undefined;
     try {
-      accessToken = await this.host.harness.auth.getCachedAccessToken();
+      accessToken = await managedAccessToken(
+        this.host.harness.auth,
+        model,
+        availableModels,
+        availableProviders,
+      );
     } catch {
       // Facade unavailable (test doubles) — never fetch.
       return undefined;
     }
-    // The endpoint is public: apiKey-only users fetch anonymously.
     return getCacheHintConfig({ accessToken });
   }
 
@@ -432,7 +440,7 @@ export class CacheHintController {
       idle_seconds: decision.idleSeconds,
       total_tokens: decision.totalTokens,
     });
-    const action = await new Promise<CacheHintAction>((resolve) => {
+    const action = await new Promise<CacheHintAction | 'dismiss'>((resolve) => {
       host.state.activeDialog = 'cache-hint';
       host.mountEditorReplacement(
         new CacheHintDialogComponent({
@@ -454,7 +462,7 @@ export class CacheHintController {
   }
 
   private async runAction(
-    action: CacheHintAction,
+    action: CacheHintAction | 'dismiss',
     stashed: StashedSubmit | undefined,
   ): Promise<void> {
     const { host } = this;
