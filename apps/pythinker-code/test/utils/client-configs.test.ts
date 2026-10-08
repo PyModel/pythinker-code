@@ -32,7 +32,12 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+beforeEach(() => {
+  vi.stubEnv('CUSTOM_API_BASE_URL', 'https://api.example.test/coding/v1');
+});
+
 afterEach(() => {
+  vi.unstubAllEnvs();
   resetClientConfigCache();
 });
 
@@ -367,7 +372,21 @@ describe('region awareness', () => {
     refreshPythinkerRegion();
   });
 
-  it('fetches from the active region profile and partitions the cache by region', async () => {
+  it('makes no request and sends no token without a custom API base', async () => {
+    vi.stubEnv('CUSTOM_API_BASE_URL', '');
+    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+
+    const data = await getClientConfig('estimated_cache_duration', configSchema, {
+      accessToken: 'secret-token',
+      fetchImpl: fetchImpl as typeof fetch,
+      cacheFile: null,
+    });
+
+    expect(data).toBeUndefined();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('partitions the cache by region', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
 
     const data = await getClientConfig('estimated_cache_duration', configSchema, {
@@ -377,7 +396,7 @@ describe('region awareness', () => {
 
     expect(data).toEqual(CONFIG);
     expect(fetchImpl).toHaveBeenCalledWith(
-      expect.stringContaining('https://api.example.ai/coding/v1/client_configs'),
+      expect.stringContaining('https://api.example.test/coding/v1/client_configs'),
       expect.anything(),
     );
     expect(peekClientConfig('estimated_cache_duration', configSchema)).toEqual(CONFIG);
