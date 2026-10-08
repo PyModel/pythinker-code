@@ -1,5 +1,25 @@
 # @pymodel/pythinker-desktop
 
+## 1.7.1
+
+### Patch Changes
+
+- [#376](https://github.com/PyModel/pythinker-code/pull/376) [`118d5ce`](https://github.com/PyModel/pythinker-code/commit/118d5ce0646599631aea27deaa607452cafac138) Thanks [@elkaix](https://github.com/elkaix)! - Show the cache-expiry hint only for OAuth providers on `CUSTOM_API_BASE_URL`.
+
+- [#374](https://github.com/PyModel/pythinker-code/pull/374) [`3f49d9a`](https://github.com/PyModel/pythinker-code/commit/3f49d9ae009477494db9dcc2a8f1fcf2953bb2fa) Thanks [@elkaix](https://github.com/elkaix)! - Make no remote client configuration request unless `CUSTOM_API_BASE_URL` is set.
+
+- [#376](https://github.com/PyModel/pythinker-code/pull/376) [`118d5ce`](https://github.com/PyModel/pythinker-code/commit/118d5ce0646599631aea27deaa607452cafac138) Thanks [@elkaix](https://github.com/elkaix)! - Open the plain verification URL when a device-code sign-in gives no complete URL.
+
+- [#374](https://github.com/PyModel/pythinker-code/pull/374) [`3f49d9a`](https://github.com/PyModel/pythinker-code/commit/3f49d9ae009477494db9dcc2a8f1fcf2953bb2fa) Thanks [@elkaix](https://github.com/elkaix)! - Show the long-context feedback survey at most once per session, and make both survey kinds share one cooldown.
+
+- [#374](https://github.com/PyModel/pythinker-code/pull/374) [`3f49d9a`](https://github.com/PyModel/pythinker-code/commit/3f49d9ae009477494db9dcc2a8f1fcf2953bb2fa) Thanks [@elkaix](https://github.com/elkaix)! - Glob filters on the server file endpoints now follow standard glob syntax: `**/` matches whole path segments (so `a/**/b` no longer matches `a/xxb`), and brace sets and character classes are expanded instead of matched literally.
+
+- [#374](https://github.com/PyModel/pythinker-code/pull/374) [`3f49d9a`](https://github.com/PyModel/pythinker-code/commit/3f49d9ae009477494db9dcc2a8f1fcf2953bb2fa) Thanks [@elkaix](https://github.com/elkaix)! - Add `allow_ignored_globs` to the `fs:list` server endpoint to list named gitignored paths while the rest of gitignore still applies.
+
+- [#376](https://github.com/PyModel/pythinker-code/pull/376) [`118d5ce`](https://github.com/PyModel/pythinker-code/commit/118d5ce0646599631aea27deaa607452cafac138) Thanks [@elkaix](https://github.com/elkaix)! - Load survey, cache-hint and recommended-effort settings with the sign-in token of the current provider when that provider is on `CUSTOM_API_BASE_URL`.
+
+- [#374](https://github.com/PyModel/pythinker-code/pull/374) [`3f49d9a`](https://github.com/PyModel/pythinker-code/commit/3f49d9ae009477494db9dcc2a8f1fcf2953bb2fa) Thanks [@elkaix](https://github.com/elkaix)! - Strip terminal escape sequences from foreground Bash tool output so they no longer change the terminal state.
+
 ## 1.7.0
 
 ### Minor Changes
