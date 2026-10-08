@@ -65,6 +65,24 @@ describe('ShellExecutionComponent', () => {
     expect(output).toContain('step20');
   });
 
+  it('strips terminal control sequences from captured output', () => {
+    const component = new ShellExecutionComponent({
+      result: {
+        tool_call_id: 'call_shell',
+        output: 'before\u001B]0;pwned\u0007\u001B[2Jafter\u001B[?1049h',
+        is_error: false,
+      },
+      expanded: true,
+    });
+
+    const output = component.render(100).map(strip).join('\n');
+    expect(output).toContain('beforeafter');
+    expect(output).not.toContain('\u001B]0;');
+    expect(output).not.toContain('\u001B[2J');
+    expect(output).not.toContain('\u001B[?1049h');
+    expect(output).not.toContain('\u0007');
+  });
+
   it('does not count trailing empty lines toward the preview cap', () => {
     const component = new ShellExecutionComponent({
       result: {
