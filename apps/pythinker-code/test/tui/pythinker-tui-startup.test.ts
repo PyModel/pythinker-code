@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -421,7 +420,7 @@ describe('PythinkerTUI startup', () => {
       planMode: false,
     });
 
-    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
+    vi.mocked(promptPlatformSelection).mockResolvedValue({ platformId: 'pythinker-code', catalog: {} });
     await handleLoginCommand(driver as any);
 
     expect(harness.createSession).not.toHaveBeenCalled();
@@ -458,7 +457,7 @@ describe('PythinkerTUI startup', () => {
 
     await expect(driver.init()).resolves.toBe(false);
 
-    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
+    vi.mocked(promptPlatformSelection).mockResolvedValue({ platformId: 'pythinker-code', catalog: {} });
     await handleLoginCommand(driver as any);
 
     expect(harness.createSession).not.toHaveBeenCalled();
@@ -2045,7 +2044,7 @@ describe('PythinkerTUI startup', () => {
       planMode: true,
     });
 
-    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
+    vi.mocked(promptPlatformSelection).mockResolvedValue({ platformId: 'pythinker-code', catalog: {} });
     await handleLoginCommand(driver as any);
 
     expect(createSession).not.toHaveBeenCalled();
@@ -2075,7 +2074,7 @@ describe('PythinkerTUI startup', () => {
     await driver.syncRuntimeState(session);
     expect(driver.state.appState.thinkingEffort).toBe('off');
 
-    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
+    vi.mocked(promptPlatformSelection).mockResolvedValue({ platformId: 'pythinker-code', catalog: {} });
     await handleLoginCommand(driver as any);
 
     expect(session.setModel).toHaveBeenCalledWith('k2');
@@ -2109,7 +2108,7 @@ describe('PythinkerTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
     harness.track.mockClear();
 
-    vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
+    vi.mocked(promptPlatformSelection).mockResolvedValue({ platformId: 'pythinker-code', catalog: {} });
     await handleLoginCommand(driver as any);
 
     expect(harness.auth.login).toHaveBeenCalledWith(
@@ -2147,7 +2146,7 @@ describe('PythinkerTUI startup', () => {
       await driver.setSession(session);
       await driver.syncRuntimeState(session);
 
-      vi.mocked(promptPlatformSelection).mockResolvedValue('pythinker-code');
+      vi.mocked(promptPlatformSelection).mockResolvedValue({ platformId: 'pythinker-code', catalog: {} });
       await handleLoginCommand(driver as any);
 
       expect(harness.auth.login).toHaveBeenCalledWith(

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, expect, it, vi } from 'vitest';
 
 import type { PluginUpdateNotifier } from '#/tui/controllers/plugin-update-notifier';
@@ -68,9 +67,10 @@ const sendQueued = (): void => {};
 
 describe('SessionEventHandler plugin update notices', () => {
   it('reports plugin MCP usage only when the turn ends', () => {
-    const { host, streamingUI } = makeSessionEventHandlerHost();
+    const { host } = makeSessionEventHandlerHost({
+      streamingUI: { completeToolResult: vi.fn(() => ({ name: DATASOURCE_TOOL, args: {} })) },
+    });
     const notifier = makeNotifier();
-    streamingUI.completeToolResult.mockReturnValue({ name: DATASOURCE_TOOL, args: {} });
     const handler = new SessionEventHandler(host, notifier as unknown as PluginUpdateNotifier);
 
     handler.handleEvent(toolCallStarted(DATASOURCE_TOOL), sendQueued);
@@ -84,9 +84,10 @@ describe('SessionEventHandler plugin update notices', () => {
   });
 
   it('skips the notice for a cancelled turn and clears the buffer', () => {
-    const { host, streamingUI } = makeSessionEventHandlerHost();
+    const { host } = makeSessionEventHandlerHost({
+      streamingUI: { completeToolResult: vi.fn(() => ({ name: DATASOURCE_TOOL, args: {} })) },
+    });
     const notifier = makeNotifier();
-    streamingUI.completeToolResult.mockReturnValue({ name: DATASOURCE_TOOL, args: {} });
     const handler = new SessionEventHandler(host, notifier as unknown as PluginUpdateNotifier);
 
     handler.handleEvent(toolCallStarted(DATASOURCE_TOOL), sendQueued);
@@ -100,9 +101,10 @@ describe('SessionEventHandler plugin update notices', () => {
   });
 
   it('ignores non-plugin tools', () => {
-    const { host, streamingUI } = makeSessionEventHandlerHost();
+    const { host } = makeSessionEventHandlerHost({
+      streamingUI: { completeToolResult: vi.fn(() => ({ name: 'Bash', args: {} })) },
+    });
     const notifier = makeNotifier();
-    streamingUI.completeToolResult.mockReturnValue({ name: 'Bash', args: {} });
     const handler = new SessionEventHandler(host, notifier as unknown as PluginUpdateNotifier);
 
     handler.handleEvent(toolCallStarted('Bash'), sendQueued);

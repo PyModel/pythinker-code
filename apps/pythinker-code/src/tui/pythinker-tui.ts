@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
@@ -44,6 +43,7 @@ import { openUrl } from '#/utils/open-url';
 import { getInputHistoryFile } from '#/utils/paths';
 import { applyRecommendedEffort } from '#/utils/recommended-effort';
 import { getRecommendedEffortConfig } from '#/utils/recommended-effort-config';
+import { managedAccessToken } from '#/utils/managed-access-token';
 import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { quoteShellArg } from '#/utils/shell-quote';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
@@ -506,7 +506,10 @@ export class PythinkerTUI {
     this.sessionReplay = new SessionReplayRenderer(this);
     this.tasksBrowserController = new TasksBrowserController(this);
     this.surveyController = new SurveyController(this, {
-      accessToken: () => this.harness.auth.getCachedAccessToken(),
+      accessToken: () => {
+        const { model, availableModels, availableProviders } = this.state.appState;
+        return managedAccessToken(this.harness.auth, model, availableModels, availableProviders);
+      },
       telemetryDisabled: () => isTelemetryDisabledByEnv() || this.telemetryDisabled,
     });
     this.editorKeyboard = new EditorKeyboardController(this, this.imageStore);
@@ -806,10 +809,17 @@ export class PythinkerTUI {
   private applyRecommendedEffortInBackground(): void {
     void this.backgroundRefreshPromise?.then(async () => {
       await applyRecommendedEffort({
-        fetchConfig: async () =>
-          getRecommendedEffortConfig({
-            accessToken: await this.harness.auth.getCachedAccessToken(),
-          }),
+        fetchConfig: async () => {
+          const config = await this.harness.getConfig();
+          return getRecommendedEffortConfig({
+            accessToken: await managedAccessToken(
+              this.harness.auth,
+              config.defaultModel,
+              config.models,
+              config.providers,
+            ),
+          });
+        },
         getConfig: () => this.harness.getConfig(),
         setConfig: (patch) => this.harness.setConfig(patch),
         track: (event, properties) => {
@@ -3417,11 +3427,12 @@ export class PythinkerTUI {
   }
 
   showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle {
-    void openUrl(auth.verificationUriComplete);
+    const url = auth.verificationUriComplete ?? auth.verificationUri;
+    void openUrl(url);
     this.state.transcriptContainer.addChild(
       new DeviceCodeBoxComponent({
         title: 'Sign in to Pythinker Code',
-        url: auth.verificationUriComplete,
+        url,
         code: auth.userCode,
         hint: 'Press Ctrl-C to cancel',
       }),

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import {
   SECONDARY_DERIVED_MODEL_ALIAS,
   effectiveModelAlias,
@@ -119,6 +118,11 @@ export async function handleExpertTalkPromptAccepted(
   startWatcher(host, session, run.runId, panel);
 }
 
+function isRetryableRun(run: ExpertTalkStatusV1['latestRun']): boolean {
+  const error = run?.error;
+  return typeof error === 'object' && error.retryable === true;
+}
+
 function showExpertTalkMenu(
   host: SlashCommandHost,
   session: Session,
@@ -139,7 +143,7 @@ function showExpertTalkMenu(
       value: 'configure',
       label: status.config.pair === undefined ? 'Select model pair' : 'Change model pair',
     });
-    if (status.latestRun?.error?.retryable === true) {
+    if (isRetryableRun(status.latestRun)) {
       options.push({ value: 'retry', label: 'Retry last run' });
     }
   }
@@ -347,7 +351,7 @@ async function retryExpertTalk(
   disclosed = false,
 ): Promise<void> {
   const run = status.latestRun;
-  if (run === undefined || run.error?.retryable !== true) {
+  if (run === undefined || !isRetryableRun(run)) {
     host.showStatus('No retryable Discussion run is available.');
     return;
   }

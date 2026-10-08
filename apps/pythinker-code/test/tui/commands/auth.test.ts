@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { PythinkerConfig } from '@pymodel/pythinker-code-sdk';

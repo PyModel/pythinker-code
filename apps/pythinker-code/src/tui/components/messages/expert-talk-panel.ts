@@ -1,5 +1,3 @@
-/* expert-talk-panel loose */
-// @ts-nocheck
 import type {
   ExpertTalkStageArtifactV1,
   ExpertTalkStageProgressV1,
@@ -73,8 +71,8 @@ export function buildExpertTalkStatusLines(
   const accent = (text: string) => currentTheme.boldFg('primary', text);
   const run = status.activeRun ?? status.latestRun;
   const configured = status.config.pair;
-  const leadId = run?.bindings[0].effectiveModelId ?? configured?.fusionLeadModelId;
-  const peerId = run?.bindings[1].effectiveModelId ?? configured?.peerModelId;
+  const leadId = run?.bindings?.[0]?.effectiveModelId ?? configured?.fusionLeadModelId;
+  const peerId = run?.bindings?.[1]?.effectiveModelId ?? configured?.peerModelId;
   const lines: string[] = [];
 
   if (leadId !== undefined && peerId !== undefined) {
@@ -97,8 +95,8 @@ export function buildExpertTalkStatusLines(
         'Independent opinions',
         phaseState(
           [
-            artifactState(run, 'opening', (run.artifacts as any).leadOpening),
-            artifactState(run, 'opening', (run.artifacts as any).peerOpening),
+            artifactState(run, 'opening', (run.artifacts ?? {}).leadOpening),
+            artifactState(run, 'opening', (run.artifacts ?? {}).peerOpening),
           ],
           run.status === 'OPENING',
         ),
@@ -107,8 +105,8 @@ export function buildExpertTalkStatusLines(
         'Reciprocal reviews',
         phaseState(
           [
-            artifactState(run, 'review', (run.artifacts as any).leadReview),
-            artifactState(run, 'review', (run.artifacts as any).peerReview),
+            artifactState(run, 'review', (run.artifacts ?? {}).leadReview),
+            artifactState(run, 'review', (run.artifacts ?? {}).peerReview),
           ],
           run.status === 'REVIEWING',
         ),
@@ -116,15 +114,18 @@ export function buildExpertTalkStatusLines(
       phaseLine(
         'Fusion',
         phaseState(
-          [artifactState(run, 'fusion', (run.artifacts as any).fusion)],
+          [artifactState(run, 'fusion', (run.artifacts ?? {}).fusion)],
           run.status === 'FUSING',
         ),
       ),
     );
     if (run.error !== undefined) {
-      lines.push('', currentTheme.fg('error', (typeof run.error === "string" ? run.error : run.error?.message)), muted(run.error.action));
+      const message = typeof run.error === 'string' ? run.error : run.error.message;
+      const action = typeof run.error === 'string' ? undefined : run.error.action;
+      lines.push('', currentTheme.fg('error', message ?? 'Discussion run failed.'));
+      if (action !== undefined) lines.push(muted(action));
     }
-    const artifacts = Object.values(run.artifacts);
+    const artifacts: readonly ExpertTalkStageArtifactV1[] = Object.values(run.artifacts ?? {});
     const requestCount = sumArtifactMetric(artifacts, 'requestCount');
     const providerAttemptCount = sumArtifactMetric(artifacts, 'providerAttemptCount');
     lines.push('', muted(
@@ -155,7 +156,7 @@ function artifactState(
   stage: 'opening' | 'review' | 'fusion',
   artifact: ExpertTalkStageArtifactV1 | undefined,
 ): ArtifactState {
-  if (artifact !== undefined) return artifact.status;
+  if (artifact !== undefined) return isArtifactState(artifact.status) ? artifact.status : 'unavailable';
   const current = run.status === 'OPENING'
       ? 1
       : run.status === 'REVIEWING'
@@ -167,6 +168,22 @@ function artifactState(
   if (current < target) return 'pending';
   if (current === target) return 'running';
   return 'unavailable';
+}
+
+const ARTIFACT_STATES: ReadonlySet<string> = new Set<ArtifactState>([
+  'pending',
+  'running',
+  'completed',
+  'failed',
+  'unavailable',
+]);
+
+function isArtifactState(state: string | undefined): state is ArtifactState {
+  return state !== undefined && ARTIFACT_STATES.has(state);
+}
+
+function toEpochMs(value: number | string): number {
+  return typeof value === 'number' ? value : Date.parse(value);
 }
 
 function stateLabel(label: string, state: ArtifactState): string {
@@ -185,8 +202,8 @@ function usageInput(artifact: ExpertTalkStageArtifactV1): number {
 
 function elapsedSeconds(artifact: ExpertTalkStageArtifactV1): number | undefined {
   if (artifact.startedAt === undefined || artifact.endedAt === undefined) return undefined;
-  const startedAt = Date.parse(artifact.startedAt);
-  const endedAt = Date.parse(artifact.endedAt);
+  const startedAt = toEpochMs(artifact.startedAt);
+  const endedAt = toEpochMs(artifact.endedAt);
   if (!Number.isFinite(startedAt) || !Number.isFinite(endedAt) || endedAt < startedAt) {
     return undefined;
   }
@@ -272,9 +289,9 @@ function renderModelColumn(
 ): string[] {
   const model1 = role === 'Fusion Lead';
   const symbol = currentTheme.fg(model1 ? 'primary' : 'warning', model1 ? '◆' : '▲');
-  const opening = model1 ? (run.artifacts as any).leadOpening : (run.artifacts as any).peerOpening;
+  const opening = model1 ? (run.artifacts ?? {}).leadOpening : (run.artifacts ?? {}).peerOpening;
   const openingProgress = model1 ? run.progress?.leadOpening : run.progress?.peerOpening;
-  const review = model1 ? (run.artifacts as any).leadReview : (run.artifacts as any).peerReview;
+  const review = model1 ? (run.artifacts ?? {}).leadReview : (run.artifacts ?? {}).peerReview;
   const reviewProgress = model1 ? run.progress?.leadReview : run.progress?.peerReview;
   return [
     `${symbol} ${currentTheme.boldFg('text', role)} ${currentTheme.fg('textDim', `| ${model}`)}`,
@@ -336,7 +353,7 @@ export function buildExpertTalkExchangeLines(
         renderModelColumn(run, 'Peer Expert', peer, columnWidth),
         safeWidth,
       );
-  const fusion = (run.artifacts as any).fusion;
+  const fusion = (run.artifacts ?? {}).fusion;
   const showFusion = fusion !== undefined || run.status === 'FUSING' || isExpertTalkRunTerminal(run);
   const lines = [
     currentTheme.boldFg('primary', '◆ OPINIONS — SELECTED MODELS'),

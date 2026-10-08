@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { truncateToWidth, visibleWidth, type Component } from '@pymodel/pi-tui';
 import chalk from 'chalk';
 

@@ -1,4 +1,3 @@
-// @ts-nocheck
 // apps/vis/server/src/lib/agent-record-types.ts
 // Single source of truth: engine shapes come from agent-core-v2 directly.
 // Do NOT add local interfaces that duplicate engine shapes — the only
@@ -78,7 +77,7 @@ import type {
 } from '@pymodel/agent-core-v2/agent/contextMemory/contextEvents';
 import type { TurnCancel, TurnEnded, TurnPrompt, TurnSteer } from '@pymodel/agent-core-v2/agent/loop/turnOps';
 import type { TurnStepInterrupted } from '@pymodel/agent-core-v2/agent/loop/turnEvents';
-import type { TurnStepRetrying } from '@pymodel/agent-core-v2/agent/stepRetry/stepRetryService';
+import type { TurnStepRetrying } from '@pymodel/agent-core-v2/agent/loop/turnEvents';
 import type { UsageRecord } from '@pymodel/agent-core-v2/agent/usage/usageOps';
 import type {
   ConfigUpdate,
@@ -133,6 +132,16 @@ export interface StaleGuardRecordedRecord {
  *  wires still contain it. */
 export interface StaleGuardClearedRecord {
   readonly type: 'staleGuard.cleared';
+  readonly time?: number;
+}
+
+/** v2-dropped durable record: removed with the loop-side prompt admission
+ *  facility, but old wires still contain it. */
+export interface PromptAcceptedRecord {
+  readonly type: 'prompt.accepted';
+  readonly agentId: string;
+  readonly promptId: string;
+  readonly content?: unknown;
   readonly time?: number;
 }
 

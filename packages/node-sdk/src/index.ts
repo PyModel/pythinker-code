@@ -132,5 +132,6 @@ export { CatalogProviderError, importCatalogProvider } from '#/catalog';
 
 
 export { runLogin } from '#/login/flows';
+export type { LoginUi } from '#/login/types';
 export { createPythinkerHarness as createPythinkerHarnessV2 } from '#/sdk-rpc-client-v2';
 export { formatErrorMessage } from '#/error-format';
