@@ -471,7 +471,7 @@ On success the server answers 204 with no body — the status line itself report
 
 #### `POST /api/v1/providers/{provider_id}:refresh`
 
-Re-discovers one provider's model metadata from its upstream source and rewrites the provider's aliases. Providers with a static model source are reported `unchanged` without any network call. When at least one provider's aliases or managed model metadata changes, the server broadcasts the global `event.model_catalog.changed` event.
+Re-discovers one provider's model metadata from its upstream source and rewrites the provider's aliases. Providers with a static model source are reported `unchanged` without any network call. When at least one provider's aliases or registry model metadata change, the server broadcasts the global `event.model_catalog.changed` event.
 
 | Parameter | In | Type | Description |
 | --- | --- | --- | --- |

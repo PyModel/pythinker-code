@@ -154,7 +154,7 @@ Each entry in the `models` table defines a model alias (the name used in `defaul
 | `support_efforts` | `array<string>` | No | Thinking effort levels the model accepts; unsupported values fall back to `default_effort`, out-of-list values fail; managed refreshes may rewrite it (pin via overrides) |
 | `default_effort` | `string` | No | Default thinking effort for the model; managed and open-platform refreshes may rewrite it. Pin via [model overrides](#model-overrides) |
 | `off_effort` | `string` | No | Effort value sent on the wire to disable thinking (e.g. `none` for xai grok); the only way to actually stop reasoning on models that reason by default |
-| `upgrade` | `object` | No | Custom-registry upgrade declaration (`model`, `migration_markdown`, and optional `retirement_at`); managed refreshes rewrite it |
+| `upgrade` | `object` | No | Custom-registry upgrade declaration (`model`, `migration_markdown`, and optional `retirement_at`); registry refreshes rewrite it |
 | `base_url` | `string` | No | Per-model endpoint override (written by catalog imports); takes precedence over the provider's `base_url`, only effective together with `protocol` |
 | `display_name` | `string` | No | Name shown in the UI; falls back to `model` when unset |
 | `reasoning_key` | `string` | No | `openai` provider only; set when the gateway returns reasoning content under a non-standard field name (`reasoning_content` and friends are auto-detected) |
