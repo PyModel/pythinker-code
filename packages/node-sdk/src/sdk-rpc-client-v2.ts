@@ -119,7 +119,8 @@
  *   `ISessionBtwService`; `setDynamicWorkflowMode` / `dynamic_workflow` → the agent scope's
  *   `IAgentDynamicWorkflowService` (the v2 port of v1's `DynamicWorkflowMode`), with `dynamic_workflow()`
  *   recomposed over the `setDynamicWorkflowMode` + `prompt` overrides; `setTowerMode` →
- *   the agent scope's `IAgentTowerService` (v2-only — the base class throws
+ *   the agent scope's `IAgentTowerService`; `getTowerStatus` → the shared
+ *   tower status summary reader (v2-only — the base class throws
  *   `not_implemented`).
  *   `createSessionWithPyaos` / `resumeSessionWithPyaos` deliberately keep the
  *   base class's pyaos-ignoring degradation (the v2 engine has no pyaos
@@ -132,6 +133,8 @@ import { join } from 'node:path';
 
 import { encodeWorkDirKey } from '@pymodel/agent-core-v2/_base/utils/workdir-slug';
 import { McpConnectionManager } from '@pymodel/agent-core-v2/mcpCore/connection-manager';
+import { ITowerRateLimitService } from '@pymodel/agent-core-v2/features/tower/towerRateLimit';
+import { readTowerStatusSummary } from '@pymodel/agent-core-v2/features/tower/tools/status/statusReader';
 import { loadMcpServers } from '@pymodel/agent-core-v2/app/mcpConfig/configLoader';
 import { fsSuggestRequestSchema } from '@pymodel/agent-core-v2/workspace/workspaceFs/fs';
 import { IAppendLogStore } from '@pymodel/agent-core-v2/persistence/interface/appendLogStore';
@@ -2220,6 +2223,18 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       await tower.exit();
     }
     await agent.accessor.get(IAgentReminderService).reconcileWhenIdle('tower_mode');
+  }
+
+  /** Reads the shared tower status summary; the main agent's tower service is authoritative. */
+  override async getTowerStatus(input: SessionIdRpcInput): Promise<string> {
+    const agent = await this.materializeMainAgent(this.requireLiveSession(input.sessionId));
+    return readTowerStatusSummary({
+      active: agent.accessor.get(IAgentTowerService).isActive,
+      cwd: agent.accessor.get(ISessionContext).cwd,
+      agentId: MAIN_AGENT_ID,
+      tasks: agent.accessor.get(IAgentTaskService),
+      concurrency: () => agent.accessor.get(ITowerRateLimitService).snapshot(),
+    });
   }
 
   // -----------------------------------------------------------------------

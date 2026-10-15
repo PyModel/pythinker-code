@@ -4544,7 +4544,7 @@ capabilities = ["image_in", "video_in"]
       expect(driver.state.livePane.mode).toBe('idle');
       expect(driver.state.activitySpinner).toBeNull();
     } finally {
-      driver?.state.activitySpinner?.instance.stop();
+      driver?.state.activitySpinner?.stop();
       await driver?.closeSession('test').catch(() => {});
       await harness?.close();
       server.closeAllConnections();
@@ -6487,6 +6487,62 @@ capabilities = ["image_in", "video_in"]
       vi.fn(),
     );
     expect(driver.state.appState.towerMode).toBe(false);
+  });
+
+  it('renders a marker when tower mode exits because a goal was activated', async () => {
+    const { driver } = await makeDriver();
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        towerMode: true,
+      } as Event,
+      vi.fn(),
+    );
+    expect(driver.state.appState.towerMode).toBe(true);
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        towerMode: false,
+        towerExitReason: 'mode-mutex',
+      } as Event,
+      vi.fn(),
+    );
+
+    expect(driver.state.appState.towerMode).toBe(false);
+    const transcript = stripSgr(renderTranscript(driver));
+    expect(countOccurrences(transcript, 'Tower mode ended — a goal was activated')).toBe(1);
+  });
+
+  it('does not render the goal-exit marker for a reasonless tower exit', async () => {
+    const { driver } = await makeDriver();
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        towerMode: true,
+      } as Event,
+      vi.fn(),
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        towerMode: false,
+      } as Event,
+      vi.fn(),
+    );
+
+    expect(driver.state.appState.towerMode).toBe(false);
+    expect(stripSgr(renderTranscript(driver))).not.toContain('Tower mode ended');
   });
 
   it('renders dynamic_workflow mode markers from /dynamic_workflow commands, not tool-triggered status updates', async () => {

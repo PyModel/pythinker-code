@@ -69,6 +69,7 @@ import {
 } from '../utils/mcp-server-status';
 import { openUrl } from '#/utils/open-url';
 import { McpLoadingLine } from '../components/messages/mcp-loading-line';
+import { StatusMessageComponent } from '../components/messages/status-message';
 import type { ColorToken } from '#/tui/theme';
 import { errorReportHintLine } from '../constant/feedback';
 import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
@@ -727,6 +728,10 @@ export class SessionEventHandler {
       event.dynamicWorkflowMode === false &&
       this.host.state.appState.dynamicWorkflowMode &&
       this.host.state.dynamicWorkflowModeEntry === 'task';
+    const shouldRenderTowerGoalExit =
+      event.towerMode === false &&
+      this.host.state.appState.towerMode &&
+      event.towerExitReason === 'mode-mutex';
     const patch: Partial<AppState> = {};
     if (event.contextTokens !== undefined) patch.contextTokens = event.contextTokens;
     if (event.maxContextTokens !== undefined) patch.maxContextTokens = event.maxContextTokens;
@@ -759,6 +764,12 @@ export class SessionEventHandler {
       if (shouldRenderDynamicWorkflowEnded) {
         this.renderDynamicWorkflowModeMarker('ended');
       }
+    }
+    if (shouldRenderTowerGoalExit) {
+      this.host.state.transcriptContainer.addChild(
+        new StatusMessageComponent('Tower mode ended — a goal was activated'),
+      );
+      this.host.state.ui.requestRender();
     }
   }
 

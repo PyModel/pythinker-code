@@ -4,7 +4,7 @@ import type { DynamicWorkflowModeTrigger } from '@pymodel/agent-core-v2/features
 import type { Pyaos } from '@pymodel/pyaos';
 
 import type { AgentContextData } from '#/context';
-import { ErrorCodes, makeErrorPayload } from '#/errors';
+import { ErrorCodes, PythinkerError, makeErrorPayload } from '#/errors';
 import type {
   ApprovalHandler,
   Event,
@@ -364,6 +364,13 @@ export abstract class SDKRpcClientBase {
   abstract dynamic_workflow(input: SessionPromptRpcInput): Promise<void>;
 
   abstract setTowerMode(input: SetSessionTowerModeRpcInput): Promise<void>;
+
+  async getTowerStatus(_input: SessionIdRpcInput): Promise<string> {
+    throw new PythinkerError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      'Tower status is not implemented for this engine',
+    );
+  }
 
   abstract getPlan(input: SessionIdRpcInput): Promise<SessionPlan>;
 
