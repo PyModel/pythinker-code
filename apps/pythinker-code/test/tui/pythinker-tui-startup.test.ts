@@ -327,6 +327,22 @@ describe('PythinkerTUI startup', () => {
     expect(transcript).toContain('No session yet — one will be created on your first message.');
   });
 
+  it('shows the startup update notice in the fullscreen transcript', async () => {
+    const harness = makeHarness(makeSession());
+    const driver = makeDriver(harness, {
+      ...makeStartupInput({}, { tuiMode: 'fullscreen' }),
+      startupNotice: 'Pythinker Code updated to v9.9.9',
+    });
+
+    await expect(driver.init()).resolves.toBe(false);
+    await (
+      driver as unknown as { finishStartup(shouldReplayHistory: boolean): Promise<void> }
+    ).finishStartup(false);
+
+    const transcript = driver.state.transcriptContainer.render(160).join('\n');
+    expect(transcript).toContain('Pythinker Code updated to v9.9.9');
+  });
+
   it('shows config defaults in appState before the lazy session exists (v2)', async () => {
     const harness = makeHarness(makeSession(), {
       getConfig: vi.fn(async () => ({
