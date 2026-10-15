@@ -3521,7 +3521,7 @@ export class PythinkerTUI {
         break;
       }
       case 'thinking': {
-        const spinner = this.ensureActivitySpinner('Thinking…', (s) =>
+        const spinner = this.ensureActivitySpinner('Working…', (s) =>
           currentTheme.fg('primary', s),
         );
         this.syncAgentDynamicWorkflowActivitySpinner(undefined);
