@@ -176,7 +176,7 @@ export function buildRemoteControlUrl(
   relayOrigin = resolveRemoteControlRelayOrigin(),
 ): string {
   const url = new URL(relayOrigin);
-  const relayPath = url.pathname.replace(/\/+$/, '');
+  const relayPath = trimTrailingSlashes(url.pathname);
   const devicePath = `${relayPath}/devices/${encodeURIComponent(deviceId)}`;
   url.pathname =
     sessionId === undefined
@@ -263,18 +263,16 @@ export function rewriteRemoteControlResponse(
   publicPrefix: string,
 ): Buffer {
   if (!rewritesContentType(contentType)) return body;
-  const normalizedPrefix = publicPrefix.replace(/\/+$/, '');
+  const normalizedPrefix = trimTrailingSlashes(publicPrefix);
   if (contentType.toLowerCase().includes('text/html')) {
-    const prefixLiteral = JSON.stringify(normalizedPrefix);
+    const prefixLiteral = JSON.stringify(normalizedPrefix).replaceAll(
+      /[<>/\u2028\u2029]/g,
+      (char) => `\\u${char.codePointAt(0)?.toString(16).padStart(4, '0')}`,
+    );
     const injected = `<script>(function(){var p=${prefixLiteral};try{sessionStorage.setItem('pythinker-desktop-server-origin',location.origin+p)}catch(e){}var w=function(f){return function(s,t,u){if(typeof u==='string'&&u.charAt(0)==='/'&&u.indexOf(p)!==0)u=p+u;return f.apply(this,[s,t,u])}};history.pushState=w(history.pushState);history.replaceState=w(history.replaceState)})();</script>`;
     let text = body.toString('utf8');
-    const headMatch = /<head(?:\s[^>]*)?>/i.exec(text);
-    text =
-      headMatch === null
-        ? injected + text
-        : text.slice(0, headMatch.index + headMatch[0].length) +
-          injected +
-          text.slice(headMatch.index + headMatch[0].length);
+    const headEnd = findHeadOpenTagEnd(text);
+    text = text.slice(0, headEnd) + injected + text.slice(headEnd);
     text = text.replaceAll(/\bsrc="\//g, `src="${normalizedPrefix}/`);
     text = text.replaceAll(/\bhref="\//g, `href="${normalizedPrefix}/`);
     return Buffer.from(text);
@@ -286,6 +284,22 @@ export function rewriteRemoteControlResponse(
   text = text.replaceAll('"/sessions/"', `"${normalizedPrefix}/sessions/"`);
   text = text.replaceAll('return"/"+', `return"${normalizedPrefix}/"+`);
   return Buffer.from(text);
+}
+
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
+}
+
+function findHeadOpenTagEnd(html: string): number {
+  const headTag = /<head/gi;
+  for (let match = headTag.exec(html); match !== null; match = headTag.exec(html)) {
+    const next = html.charAt(match.index + 5);
+    if (next === '>') return match.index + 6;
+    if (/\s/.test(next)) return html.indexOf('>', match.index + 5) + 1;
+  }
+  return 0;
 }
 
 function rewritesContentType(contentType: string): boolean {
@@ -356,7 +370,7 @@ export async function startRemoteControl(
   const deviceName = hostname();
   const url = buildRemoteControlUrl(deviceId, undefined, relayOrigin);
   const lock = await acquireRemoteControlLock(options.homeDir, {
-    localOrigin: options.localOrigin.replace(/\/+$/, ''),
+    localOrigin: trimTrailingSlashes(options.localOrigin),
     deviceId,
     url,
   });
@@ -426,7 +440,7 @@ class RemoteControlClient {
       readonly relayToken: string;
     },
   ) {
-    this.localOrigin = options.localOrigin.replace(/\/+$/, '');
+    this.localOrigin = trimTrailingSlashes(options.localOrigin);
     this.localServerToken = options.localServerToken;
     this.clientVersion = options.clientVersion;
     this.relayOrigin = options.relayOrigin;
@@ -730,7 +744,7 @@ class RemoteControlClient {
   }
 
   private publicPrefix(): string {
-    const relayPath = new URL(this.relayOrigin).pathname.replace(/\/+$/, '');
+    const relayPath = trimTrailingSlashes(new URL(this.relayOrigin).pathname);
     return `${relayPath}/devices/${encodeURIComponent(this.deviceId)}`;
   }
 
@@ -1248,7 +1262,7 @@ function isValidCloseCode(code: number): boolean {
 function relayWebSocketUrl(origin: string, path: string): string {
   const url = new URL(origin);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  const relayPath = url.pathname.replace(/\/+$/, '');
+  const relayPath = trimTrailingSlashes(url.pathname);
   const [pathname, query] = path.split('?', 2);
   url.pathname = `${relayPath}${pathname}`;
   url.search = query === undefined ? '' : query;

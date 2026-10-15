@@ -256,7 +256,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         if (req.body.default_model !== undefined) {
           provider.defaultModel = `${id}/${req.body.default_model}`;
         }
-        await config.set(PROVIDERS_SECTION, { [id]: provider });
+        await config.set(PROVIDERS_SECTION, Object.fromEntries([[id, provider]]));
 
         const aliases: Record<string, ModelRecord> = {};
         for (const entry of req.body.models) {
@@ -318,7 +318,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         const config = await loadConfig(core);
         const { provider_id } = req.params;
         const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
-        const target = providers[provider_id];
+        const target = Object.hasOwn(providers, provider_id) ? providers[provider_id] : undefined;
         if (target === undefined) {
           reply.send(
             errEnvelope(
@@ -361,12 +361,10 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
               `${newId}/${req.body.default_model}`
             : undefined;
         const nextProviders = Object.fromEntries(
-          Object.entries(providers).map(([key, value]) => [
-            key === provider_id ? newId : key,
-            value,
-          ]),
+          Object.entries(providers).map(([key, value]): [string, ProviderConfig] =>
+            key === provider_id ? [newId, provider] : [key, value],
+          ),
         );
-        nextProviders[newId] = provider;
 
         const models = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
         const newAliasKeys = new Set(req.body.models.map((entry) => `${newId}/${entry.model}`));
@@ -608,7 +606,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         const config = await loadConfig(core);
         const { provider_id } = req.params;
         const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
-        const target = providers[provider_id];
+        const target = Object.hasOwn(providers, provider_id) ? providers[provider_id] : undefined;
         if (target === undefined) {
           reply.send(
             errEnvelope(
@@ -631,8 +629,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         }
 
         const models = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
-        const restProviders = { ...providers };
-        delete restProviders[provider_id];
+        const restProviders = Object.fromEntries(
+          Object.entries(providers).filter(([key]) => key !== provider_id),
+        );
         await config.replace(PROVIDERS_SECTION, restProviders);
         const restModels = Object.fromEntries(
           Object.entries(models).filter(([, record]) => record.provider !== provider_id),

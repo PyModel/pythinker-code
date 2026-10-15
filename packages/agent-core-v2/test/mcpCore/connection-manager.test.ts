@@ -84,8 +84,11 @@ async function writeDelayedImportRunner(target: string): Promise<string> {
   const { join } = await import('node:path');
   const dir = await mkdtemp(join(tmpdir(), 'mcp-delayed-'));
   const runner = join(dir, 'delayed-import.mjs');
-  const href = pathToFileURL(target).href;
-  await writeFile(runner, `setTimeout(() => import(${JSON.stringify(href)}), 250);\n`, 'utf8');
+  const href = JSON.stringify(pathToFileURL(target).href).replaceAll(
+    /[<>/\u2028\u2029]/g,
+    (char) => `\\u${char.codePointAt(0)?.toString(16).padStart(4, '0')}`,
+  );
+  await writeFile(runner, `setTimeout(() => import(${href}), 250);\n`, 'utf8');
   return runner;
 }
 

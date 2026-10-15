@@ -135,6 +135,33 @@ describe('Remote Control HTTP forwarding', () => {
     ).toString();
     expect(css).toBe(`.x{background:url(${prefix}/assets/x.png)}`);
   });
+
+  it('injects the prefix script after the real head tag and keeps the prefix inert in it', () => {
+    const html = rewriteRemoteControlResponse(
+      'text/html',
+      Buffer.from('<html><header></header><HEAD lang="en"><title>t</title></HEAD></html>'),
+      '/devices/</script><b>\u2028///',
+    ).toString();
+    expect(html.indexOf('<script>')).toBe(html.indexOf('<HEAD lang="en">') + '<HEAD lang="en">'.length);
+    expect(html.startsWith('<html><header></header>')).toBe(true);
+    expect(html.match(/<\/script>/g)).toHaveLength(1);
+    expect(html).toContain('var p="\\u002fdevices\\u002f\\u003c\\u002fscript\\u003e\\u003cb\\u003e\\u2028";');
+
+    const noHead = rewriteRemoteControlResponse('text/html', Buffer.from('<p>x</p>'), '/d').toString();
+    expect(noHead.startsWith('<script>')).toBe(true);
+    expect(noHead.endsWith('<p>x</p>')).toBe(true);
+  });
+
+  it('rewrites hostile bodies and prefixes in linear time', () => {
+    const started = performance.now();
+    const html = rewriteRemoteControlResponse(
+      'text/html',
+      Buffer.from('<head '.repeat(50_000)),
+      `/d${'/'.repeat(50_000)}x`,
+    ).toString();
+    expect(html.startsWith('<script>')).toBe(true);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
 });
 
 describe('Remote Control tunnel', () => {

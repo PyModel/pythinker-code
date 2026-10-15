@@ -501,6 +501,15 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     expect(body?.code).toBe(40412);
   });
 
+  it('maps an inherited object property name to 40412 on delete', async () => {
+    await boot(KEEP_DEFAULT_TOML);
+    for (const id of ['constructor', '__proto__']) {
+      const { body } = await deleteJson<unknown>(`/api/v1/providers/${id}`);
+      expect(body?.code).toBe(40412);
+    }
+    expect(Object.keys((await readConfigToml())['providers'] as object)).toEqual(['pythinker', 'openai']);
+  });
+
   it('replaces a provider, keeping the stored api_key and rebuilding its aliases', async () => {
     await boot(KEEP_DEFAULT_TOML);
     const { status, body } = await putJson<{
@@ -882,6 +891,15 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     const { body } = await putJson<unknown>('/api/v1/providers/missing', REPLACE_BODY);
     expect(body.code).toBe(40412);
     expect(body.data).toBeNull();
+  });
+
+  it('maps an inherited object property name to 40412 on replace', async () => {
+    await boot(KEEP_DEFAULT_TOML);
+    for (const id of ['constructor', '__proto__']) {
+      const { body } = await putJson<unknown>(`/api/v1/providers/${id}`, REPLACE_BODY);
+      expect(body.code).toBe(40412);
+    }
+    expect(Object.keys((await readConfigToml())['providers'] as object)).toEqual(['pythinker', 'openai']);
   });
 
   it('clears omitted provider fields (base_url/default_model) from config.toml for real', async () => {
