@@ -1,19 +1,11 @@
 import {
-  removeProviderFromConfig,
-  type PythinkerConfig,
   type PythinkerHarness,
+  type RefreshProviderModelsResponse,
   type Session,
   type ThinkingEffort,
 } from '@pymodel/pythinker-code-sdk';
 
-import { createPythinkerCodeUserAgent } from '#/cli/version';
-
 import { OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE } from '../constant/pythinker-tui';
-import {
-  refreshAllProviderModels,
-  type RefreshProviderHost,
-  type RefreshResult,
-} from '../utils/refresh-providers';
 import { thinkingEffortFromConfig } from '../utils/thinking-config';
 import type { AppState, PythinkerTUIOptions } from '../types';
 
@@ -161,8 +153,8 @@ export class AuthFlowController {
    * config.  Runs best-effort: individual provider failures are collected
    * and returned instead of thrown.
    */
-  async refreshProviderModels(): Promise<RefreshResult> {
-    const result = await refreshAllProviderModels(this.buildRefreshHost());
+  async refreshProviderModels(): Promise<RefreshProviderModelsResponse> {
+    const result = await this.host.harness.refreshProviderModels();
     if (result.changed.length > 0) {
       await this.refreshAvailableModels();
     }
@@ -171,59 +163,7 @@ export class AuthFlowController {
 
   /** The model picker's refresh. No provider is OAuth-only to refresh, so it
       refreshes every provider, like `refreshProviderModels`. */
-  async refreshOAuthProviderModels(): Promise<RefreshResult> {
+  async refreshOAuthProviderModels(): Promise<RefreshProviderModelsResponse> {
     return this.refreshProviderModels();
-  }
-
-  /**
-   * Build the refresh orchestrator's persistence host. When the harness can
-   * persist several config sections as ONE atomic write (the v2 engine's
-   * `replaceSections`), the orchestrator's two-phase contract (removeProvider
-   * then setConfig) is absorbed the same way the v2 engine's own refresh path
-   * does it: the removal is staged in memory only, and the following
-   * setConfig persists the complete records in a single write — so a process
-   * exit mid-refresh can never leave config.toml in a "provider removed, not
-   * yet restored" state. The v1 harness keeps the legacy host (two
-   * whole-document writes, each atomic on its own).
-   */
-  private buildRefreshHost(): RefreshProviderHost {
-    const { host } = this;
-    const userAgent = createPythinkerCodeUserAgent();
-    if (!host.harness.supportsAtomicSectionReplace()) {
-      return {
-        getConfig: () => host.harness.getConfig({ reload: true }),
-        removeProvider: (id) => host.harness.removeProvider(id),
-        setConfig: (patch) => host.harness.setConfig(patch),
-        userAgent,
-      };
-    }
-    let staged: PythinkerConfig | undefined;
-    const requireStaged = (): PythinkerConfig => {
-      if (staged === undefined) {
-        throw new Error('refresh host: getConfig must be called before writes');
-      }
-      return staged;
-    };
-    return {
-      getConfig: async () => {
-        staged = await host.harness.getConfig({ reload: true });
-        return staged;
-      },
-      removeProvider: (id) => {
-        staged = removeProviderFromConfig(requireStaged(), id);
-        return Promise.resolve(staged);
-      },
-      setConfig: async (patch) => {
-        // The orchestrator always passes complete records (built from a full
-        // clone), so the Partial-shaped patch is a full PythinkerConfig overlay.
-        staged = { ...requireStaged(), ...patch } as PythinkerConfig;
-        // Object.entries keeps keys whose value is `undefined`, so a cleared
-        // section (e.g. a dangling defaultModel) is expressed as a removal in
-        // the atomic write; sections absent from the patch stay untouched.
-        await host.harness.replaceConfigSections(Object.fromEntries(Object.entries(patch)));
-        return staged;
-      },
-      userAgent,
-    };
   }
 }

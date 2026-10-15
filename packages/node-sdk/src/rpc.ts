@@ -1,10 +1,9 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import type { DynamicWorkflowModeTrigger } from '@pymodel/agent-core-v2/features/dynamic_workflow/agent/dynamic_workflow';
-import type { Pyaos } from '@pymodel/pyaos';
 
 import type { AgentContextData } from '#/context';
-import { ErrorCodes, makeErrorPayload } from '#/errors';
+import { ErrorCodes, PythinkerError, makeErrorPayload } from '#/errors';
 import type {
   ApprovalHandler,
   Event,
@@ -64,6 +63,8 @@ import type {
   RenameSessionInput,
   ResumeSessionInput,
   ResumedSessionSummary,
+  RefreshProviderModelsOptions,
+  RefreshProviderModelsResponse,
   SessionSummary,
   SessionSummaryPage,
   SkillSummary,
@@ -86,6 +87,7 @@ export interface SessionPromptRpcInput {
 
 export interface SessionPromptWithSkillsRpcInput extends SessionPromptRpcInput {
   readonly skills: readonly PromptSkillActivation[];
+  readonly steerIfActive?: boolean;
 }
 
 export interface SessionIdRpcInput {
@@ -182,27 +184,7 @@ export abstract class SDKRpcClientBase {
 
   abstract createSession(input: CreateSessionOptions): Promise<SessionSummary>;
 
-  async createSessionWithPyaos(
-    input: CreateSessionOptions,
-    pyaos: Pyaos,
-    persistencePyaos?: Pyaos,
-  ): Promise<SessionSummary> {
-    void pyaos;
-    void persistencePyaos;
-    return this.createSession(input);
-  }
-
   abstract resumeSession(input: ResumeSessionInput): Promise<ResumedSessionSummary>;
-
-  async resumeSessionWithPyaos(
-    input: ResumeSessionInput,
-    pyaos: Pyaos,
-    persistencePyaos?: Pyaos,
-  ): Promise<ResumedSessionSummary> {
-    void pyaos;
-    void persistencePyaos;
-    return this.resumeSession(input);
-  }
 
   abstract reloadSession(input: ReloadSessionRpcInput): Promise<ResumedSessionSummary>;
 
@@ -241,6 +223,10 @@ export abstract class SDKRpcClientBase {
   abstract supportsAtomicSectionReplace(): boolean;
 
   abstract replaceConfigSections(sections: Record<string, unknown>): Promise<void>;
+
+  abstract refreshProviderModels(
+    options?: RefreshProviderModelsOptions,
+  ): Promise<RefreshProviderModelsResponse>;
 
   abstract uploadFile(data: Uint8Array, options: UploadFileOptions): Promise<FileMeta>;
 
@@ -364,6 +350,13 @@ export abstract class SDKRpcClientBase {
   abstract dynamic_workflow(input: SessionPromptRpcInput): Promise<void>;
 
   abstract setTowerMode(input: SetSessionTowerModeRpcInput): Promise<void>;
+
+  async getTowerStatus(_input: SessionIdRpcInput): Promise<string> {
+    throw new PythinkerError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      'Tower status is not implemented for this engine',
+    );
+  }
 
   abstract getPlan(input: SessionIdRpcInput): Promise<SessionPlan>;
 

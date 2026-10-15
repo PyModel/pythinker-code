@@ -20,7 +20,7 @@ import { userToolKey } from '#/agent/userTool/userToolOps';
 import { fileHistoryKey } from '#/features/fileHistory/fileHistoryOps';
 import { planKey } from '#/features/plan/planOps';
 import { dynamicWorkflowKey } from '#/features/dynamic_workflow/dynamicWorkflowOps';
-import { towerBaseKey, towerKey, towerOwnerKey } from '#/features/tower/towerOps';
+import { towerKey, towerOwnerKey } from '#/features/tower/towerOps';
 
 export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] = [
   contextMemoryKey,
@@ -45,5 +45,4 @@ export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] =
   dynamicWorkflowKey,
   towerKey,
   towerOwnerKey,
-  towerBaseKey,
 ];

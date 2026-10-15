@@ -1,3 +1,5 @@
+import type { TowerExitReason } from '#/features/tower/tower';
+
 import type { TelemetryPrimitive } from './telemetry';
 
 export interface TelemetryEventMeta {
@@ -100,6 +102,10 @@ export interface PromptCacheProbeEvent {
   input_cache_read: number;
   input_cache_creation: number;
   output_tokens: number;
+  tools_match?: boolean;
+  system_prompt_match?: boolean;
+  parent_input_tokens?: number;
+  parent_request_gap_ms?: number;
 }
 
 export type ToolCallOutcome = 'success' | 'error' | 'cancelled';
@@ -213,7 +219,7 @@ export interface TowerModeEnterEvent {
 }
 
 export interface TowerModeExitEvent {
-  reason: 'user' | 'takeover' | 'foreign-reconcile';
+  reason: TowerExitReason;
 }
 
 export interface DynamicWorkflowModeTransitionEvent {
@@ -391,6 +397,44 @@ export interface AgentsMdReminderShownEvent {
   tool_name: string;
   reminded_count: number;
   trace_id?: string;
+}
+
+export interface NotifyUserNudgeShownEvent {
+  turn_id?: number;
+  rounds_since_notify: number;
+  nudge_index: number;
+}
+
+export interface NotifyUserSentEvent {
+  turn_id: number;
+  rounds_since_notify: number;
+  after_nudge: boolean;
+  title_chars: number;
+  message_chars: number;
+  displayed: boolean;
+}
+
+export interface TodoListWrittenEvent {
+  turn_id: number;
+  item_count: number;
+  open_count: number;
+  steps_since_write?: number;
+  after_reminder: boolean;
+}
+
+export interface TodoReminderShownEvent {
+  turn_id?: number;
+  steps_since_write: number;
+  item_count: number;
+  open_count: number;
+}
+
+export interface TodoTurnEndedEvent {
+  turn_id: number;
+  reason: 'completed' | 'cancelled' | 'failed' | 'blocked';
+  item_count: number;
+  open_count: number;
+  updated_in_turn: boolean;
 }
 
 export interface GrepToolRgFallbackEvent {
@@ -671,7 +715,7 @@ export const telemetryEventDefinitions = {
   prompt_cache_probe: defineAgentTelemetryEvent<PromptCacheProbeEvent>({
     owner: 'pythinker-code',
     comment:
-      'An agent whose first request is expected to hit the prompt cache reports that request\'s cache usage.',
+      'An agent whose first request is expected to hit the prompt cache reports that request\'s cache usage and how its prefix compares with the last turn request the parent agent completed before the fork.',
     properties: {
       source: 'Why a cache hit was expected for this request',
       turn_id: 'Per-agent turn index of the probed request',
@@ -681,6 +725,14 @@ export const telemetryEventDefinitions = {
       input_cache_read: 'Cache-read input tokens of the probed request',
       input_cache_creation: 'Cache-creation input tokens of the probed request',
       output_tokens: 'Output tokens of the probed request',
+      tools_match:
+        "Whether the provider-visible tool table hash equals the parent's; absent when the parent completed no turn request before the fork, or its context was rewritten (undo, compaction) after the last one",
+      system_prompt_match:
+        "Whether the system prompt hash equals the parent's; absent when the parent completed no turn request before the fork, or its context was rewritten (undo, compaction) after the last one",
+      parent_input_tokens:
+        "Total input tokens of the parent's last completed turn request before the fork, i.e. the prefix this request could read from the cache; absent when there is none, or the parent's context was rewritten (undo, compaction) after it",
+      parent_request_gap_ms:
+        "Milliseconds from the parent's last completed turn request finishing to the probed request starting; absent when the parent completed no turn request before the fork, or its context was rewritten (undo, compaction) after the last one",
     },
   }),
   tool_call: defineAgentTelemetryEvent<ToolCallEvent>({
@@ -1089,6 +1141,59 @@ export const telemetryEventDefinitions = {
       reminded_count: 'Number of AGENTS.md paths listed in the reminder',
       trace_id:
         'Trace id of the LLM request that produced the tool call; absent for non-Pythinker protocols',
+    },
+  }),
+  notify_user_nudge_shown: defineAgentTelemetryEvent<NotifyUserNudgeShownEvent>({
+    owner: 'pythinker-code',
+    comment: 'A reminder asking the agent to post a NotifyUser update is queued for context injection.',
+    properties: {
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
+      rounds_since_notify: 'Tool-call rounds (assistant steps with tool calls) since the turn started or the last NotifyUser call',
+      nudge_index: 'Position of this reminder within the current silent stretch; 1 for the first, higher when earlier reminders went unanswered',
+    },
+  }),
+  notify_user_sent: defineAgentTelemetryEvent<NotifyUserSentEvent>({
+    owner: 'pythinker-code',
+    comment: 'The agent posted a NotifyUser progress update.',
+    properties: {
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      rounds_since_notify: 'Tool-call rounds (assistant steps with tool calls) before this update since the turn started or the previous NotifyUser call',
+      after_nudge: 'Whether a NotifyUser reminder was injected since the turn started or the previous NotifyUser call',
+      title_chars: 'Length of the update title in UTF-16 code units; the title text itself is not recorded',
+      message_chars: 'Length of the update message in UTF-16 code units; the message text itself is not recorded',
+      displayed: 'Whether the update was shown to the user; false when the feature was turned off mid-session or the host cannot display updates',
+    },
+  }),
+  todo_list_written: defineAgentTelemetryEvent<TodoListWrittenEvent>({
+    owner: 'pythinker-code',
+    comment: 'The agent replaced or cleared its todo list through the TodoList tool.',
+    properties: {
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      item_count: 'Number of items in the list after the write; 0 when the list was cleared',
+      open_count: 'Number of items still pending or in_progress after the write',
+      steps_since_write: 'Assistant steps between the previous TodoList write in context and this one; omitted when no earlier write is in context',
+      after_reminder: 'Whether a stale todo list reminder was injected since the previous TodoList write',
+    },
+  }),
+  todo_reminder_shown: defineAgentTelemetryEvent<TodoReminderShownEvent>({
+    owner: 'pythinker-code',
+    comment: 'A reminder that the todo list still has open items and has not been updated recently is queued for context injection.',
+    properties: {
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
+      steps_since_write: 'Assistant steps since the last TodoList write in context',
+      item_count: 'Number of items in the list',
+      open_count: 'Number of items still pending or in_progress',
+    },
+  }),
+  todo_turn_ended: defineAgentTelemetryEvent<TodoTurnEndedEvent>({
+    owner: 'pythinker-code',
+    comment: 'A main-agent turn ended while the todo list was non-empty or had changed during the turn.',
+    properties: {
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      reason: 'How the turn ended',
+      item_count: 'Number of items in the list when the turn ended; 0 when the list was cleared during the turn',
+      open_count: 'Number of items still pending or in_progress when the turn ended',
+      updated_in_turn: 'Whether the list changed during this turn',
     },
   }),
   grep_tool_rg_fallback: defineAgentTelemetryEvent<GrepToolRgFallbackEvent>({

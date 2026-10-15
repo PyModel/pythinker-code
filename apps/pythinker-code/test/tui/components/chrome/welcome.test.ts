@@ -118,6 +118,8 @@ describe('WelcomeComponent', () => {
         diffDeleted: 1,
         pullRequest: null,
       }),
+      refresh: () => {},
+      dispose: () => {},
     };
     const plain = renderWelcomeBanner({
       width: 120,

@@ -69,6 +69,7 @@ export const PYTHINKER_CODE_BANNER_DIR_NAME = 'banner';
 export const PYTHINKER_CODE_BANNER_STATE_FILE_NAME = 'state.json';
 export const PYTHINKER_CODE_SURVEY_STATE_FILE_NAME = 'feedback-survey-state.json';
 export const PYTHINKER_CODE_RECOMMENDED_EFFORT_STATE_FILE_NAME = 'recommended-effort-state.json';
+export const PYTHINKER_CODE_MODEL_MIGRATION_STATE_FILE_NAME = 'model-migrations.json';
 
 // Managed Pythinker auth provider key shared with OAuth/SDK config.
 export const DEFAULT_OAUTH_PROVIDER_NAME = 'openai';

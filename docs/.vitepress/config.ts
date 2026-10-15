@@ -54,6 +54,7 @@ const config = withMermaid(defineConfig({
             { text: 'Use in a Browser', link: '/guides/web' },
             { text: 'Remote Control', link: '/guides/remote-control' },
             { text: 'Common Use Cases', link: '/guides/use-cases' },
+            { text: 'Tower multi-agent collaboration', link: '/guides/tower' },
             { text: 'Interaction and Input', link: '/guides/interaction' },
             { text: 'Sessions and Context', link: '/guides/sessions' },
             { text: 'Using Goals', link: '/guides/goals' },

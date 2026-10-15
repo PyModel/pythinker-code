@@ -1,5 +1,6 @@
 import {
   applyCustomRegistryProvider,
+  declaredUpgradeTarget,
   fetchCustomRegistry,
   removeCustomRegistryProvider,
   type CustomRegistrySource,
@@ -52,6 +53,16 @@ export interface RefreshResult {
   /** Providers whose model list stayed identical after refresh. */
   readonly unchanged: readonly string[];
   readonly failed: ReadonlyArray<{ readonly provider: string; readonly reason: string }>;
+  /**
+   * Set when a registry dropped the default model and the default moved to the
+   * replacement that model had declared through `upgrade`.
+   */
+  readonly retiredDefault?: {
+    readonly from: string;
+    readonly to: string;
+    /** The dropped model's record as it was before this refresh. */
+    readonly fromModel: ModelAlias;
+  };
 }
 
 export interface RefreshProviderOptions {
@@ -285,6 +296,25 @@ function restoreDefaultSelection(
   }
 }
 
+// A registry retires a model by dropping it after declaring its replacement
+// through `upgrade`, which an earlier refresh persisted on the alias. Follow
+// that declaration instead of leaving the user without a default, carrying the
+// user's thinking selection over the same way a surviving default keeps it.
+function followRetiredDefault(
+  previous: PythinkerConfigShape,
+  next: PythinkerConfigShape,
+): RefreshResult['retiredDefault'] {
+  const from = previous.defaultModel;
+  if (from === undefined || readModel(next, from) !== undefined) return undefined;
+  const fromModel = readModel(previous, from);
+  const to = declaredUpgradeTarget(previous, from);
+  if (fromModel === undefined || to === undefined || readModel(next, to) === undefined) {
+    return undefined;
+  }
+  restoreDefaultSelection(next, to, previous.thinking?.enabled);
+  return { from, to, fromModel };
+}
+
 // `apply*` may leave `defaultModel` pointing at an alias that no longer exists
 // (e.g. the previously-selected model was dropped from the registry). The host's
 // `setConfig` deep-merge cannot clear a key, so the matching `removeProvider`
@@ -366,6 +396,7 @@ export async function refreshProviderModels(
   const changed: ProviderChange[] = [];
   const unchanged: string[] = [];
   const failed: Array<{ provider: string; reason: string }> = [];
+  let retiredDefault: RefreshResult['retiredDefault'];
   const targetId = options.providerId;
 
   let config = await host.getConfig();
@@ -556,6 +587,7 @@ export async function refreshProviderModels(
 
       if (changedProviders.length > 0 || hasUnreportedConfigChange) {
         restoreDefaultSelection(next, config.defaultModel, config.thinking?.enabled);
+        const retired = followRetiredDefault(config, next);
         clampDanglingDefault(next);
         clearDefaultThinkingWhenDefaultRemoved(next, config.defaultModel);
         for (const providerId of providersToRemoveBeforeSet) {
@@ -567,6 +599,7 @@ export async function refreshProviderModels(
           defaultModel: next.defaultModel,
           thinking: next.thinking,
         });
+        retiredDefault = retired ?? retiredDefault;
         for (const change of changedProviders) {
           changed.push({
             providerId: change.providerId,
@@ -690,5 +723,5 @@ export async function refreshProviderModels(
     }
   }
 
-  return { changed, unchanged, failed };
+  return { changed, unchanged, failed, retiredDefault };
 }

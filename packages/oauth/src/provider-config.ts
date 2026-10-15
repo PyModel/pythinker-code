@@ -95,6 +95,12 @@ export interface ModelAliasOverrides {
   readonly [key: string]: unknown;
 }
 
+export interface ModelUpgrade {
+  model: string;
+  migrationMarkdown: string;
+  retirementAt?: string | undefined;
+}
+
 export interface ModelAlias {
   provider: string;
   model: string;
@@ -112,6 +118,7 @@ export interface ModelAlias {
   betaApi?: boolean;
   adaptiveThinking?: boolean | undefined;
   overrides?: ModelAliasOverrides | undefined;
+  upgrade?: ModelUpgrade | undefined;
   readonly [key: string]: unknown;
 }
 

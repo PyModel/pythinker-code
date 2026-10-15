@@ -60,7 +60,7 @@ function makeHost() {
     setExitOpenUrl: vi.fn(),
     setExitForegroundTask: vi.fn(),
     stop: vi.fn(async () => {}),
-    waitForLazyCreation: vi.fn(async () => {}),
+    waitForSessionAssembly: vi.fn(async () => {}),
   } as unknown as SlashCommandHost & {
     showStatus: ReturnType<typeof vi.fn>;
     showError: ReturnType<typeof vi.fn>;
@@ -69,7 +69,7 @@ function makeHost() {
     setExitOpenUrl: ReturnType<typeof vi.fn>;
     setExitForegroundTask: ReturnType<typeof vi.fn>;
     stop: ReturnType<typeof vi.fn>;
-    waitForLazyCreation: ReturnType<typeof vi.fn>;
+    waitForSessionAssembly: ReturnType<typeof vi.fn>;
   };
   return host;
 }
@@ -220,6 +220,7 @@ describe('handleRemoteControlCommand', () => {
       deviceId: 'device-1',
       deviceName: 'example-device',
       url: entryUrl,
+      closed: new Promise(() => {}),
       close,
     });
     mocks.startServerForeground.mockImplementation(
@@ -289,6 +290,7 @@ describe('handleRemoteControlCommand', () => {
       deviceId: 'device-1',
       deviceName: 'example-device',
       url: entryUrl,
+      closed: new Promise(() => {}),
       close,
     });
     mocks.startServerForeground.mockImplementation(
@@ -310,7 +312,7 @@ describe('handleRemoteControlCommand', () => {
     try {
       await handleRemoteControlCommand(host);
 
-      expect(host.waitForLazyCreation).toHaveBeenCalledOnce();
+      expect(host.waitForSessionAssembly).toHaveBeenCalledOnce();
       expect(host.showError).not.toHaveBeenCalled();
       expect(host.setExitForegroundTask).toHaveBeenCalledOnce();
       expect(host.stop).toHaveBeenCalledOnce();

@@ -37,6 +37,7 @@ function makeDynamicWorkflowHandler() {
   const handler = new SubAgentEventHandler(host as never, {
     backgroundTasks: new Map(),
     backgroundTaskTranscriptedTerminal: new Set(),
+    backgroundTaskTerminalEntries: new Map(),
     syncBackgroundAgentBadge: vi.fn(),
   });
   return { handler, host, requestRender, transcriptContainer, dockChild };
@@ -47,7 +48,7 @@ function dynamicWorkflowComponentOf(transcriptContainer: { addChild: ReturnType<
 }
 
 function lifecycleEvent(
-  type: 'subagent.spawned' | 'subagent.started' | 'subagent.completed',
+  type: 'subagent.spawned' | 'subagent.started' | 'subagent.completed' | 'subagent.cancelled',
   subagentId: string,
   parentToolCallId: string,
 ): SubagentLifecycleEvent {
@@ -130,6 +131,37 @@ describe('SubAgentEventHandler — dynamic_workflow render batching', () => {
 
     vi.advanceTimersByTime(80);
     expect(requestRender).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SubAgentEventHandler — subagent.cancelled', () => {
+  it('marks a running dynamic_workflow member cancelled instead of leaving it running', () => {
+    const { handler, transcriptContainer } = makeDynamicWorkflowHandler();
+    startDynamicWorkflowWithChild(handler);
+    const component = dynamicWorkflowComponentOf(transcriptContainer);
+
+    handler.handleLifecycleEvent(lifecycleEvent('subagent.cancelled', 'child-1', 'tc-1'));
+
+    const output = component.render(120).join('\n');
+    expect(output).toContain('⊘');
+  });
+
+  it('keeps the batch-level cancelled label when a member cancel event follows', () => {
+    const { handler, transcriptContainer } = makeDynamicWorkflowHandler();
+    startDynamicWorkflowWithChild(handler);
+    handler.routeChildAgentEvent(childEvent('assistant.delta', 'child-1'));
+
+    handler.handleAgentDynamicWorkflowToolResult(
+      'tc-1',
+      { output: 'The user manually interrupted this subagent batch.' } as never,
+      true,
+    );
+    handler.handleLifecycleEvent(lifecycleEvent('subagent.cancelled', 'child-1', 'tc-1'));
+
+    const component = dynamicWorkflowComponentOf(transcriptContainer);
+    const output = component.render(120).join('\n');
+    expect(output).toContain('⊘');
+    expect(output).toContain('hello');
   });
 });
 

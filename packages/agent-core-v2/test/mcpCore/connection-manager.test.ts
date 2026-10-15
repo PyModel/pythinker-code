@@ -84,8 +84,11 @@ async function writeDelayedImportRunner(target: string): Promise<string> {
   const { join } = await import('node:path');
   const dir = await mkdtemp(join(tmpdir(), 'mcp-delayed-'));
   const runner = join(dir, 'delayed-import.mjs');
-  const href = pathToFileURL(target).href;
-  await writeFile(runner, `setTimeout(() => import(${JSON.stringify(href)}), 250);\n`, 'utf8');
+  const href = JSON.stringify(pathToFileURL(target).href).replaceAll(
+    /[<>/\u2028\u2029]/g,
+    (char) => `\\u${char.codePointAt(0)?.toString(16).padStart(4, '0')}`,
+  );
+  await writeFile(runner, `setTimeout(() => import(${href}), 250);\n`, 'utf8');
   return runner;
 }
 
@@ -235,7 +238,7 @@ describe('McpConnectionManager', () => {
     }
   }, 15000);
 
-  it('reflects the deferred config field in the resolved view', async () => {
+  it('reflects the per-server deferred field and the resolved default in the resolved view', async () => {
     const cm = createManager();
     try {
       await cm.connectAll({
@@ -246,6 +249,37 @@ describe('McpConnectionManager', () => {
       expect(cm.resolved('pinned')?.deferred).toBe(true);
     } finally {
       await cm.shutdown();
+    }
+
+    const defaulted = createManager({
+      resolveDefaults: () => ({ defaultDeferred: true }),
+    });
+    try {
+      await defaulted.connectAll({
+        plain: stdioConfig(),
+        optedOut: { ...stdioConfig(), deferred: false },
+      });
+      expect(defaulted.resolved('plain')?.deferred).toBe(true);
+      expect(defaulted.resolved('optedOut')?.deferred).toBe(false);
+      expect(defaulted.deferredOf('plain')).toBe(true);
+      expect(defaulted.deferredOf('optedOut')).toBe(false);
+    } finally {
+      await defaulted.shutdown();
+    }
+
+    let liveDefault = true;
+    const captured = createManager({
+      resolveDefaults: () => ({ defaultDeferred: liveDefault }),
+    });
+    try {
+      await captured.connectAll({ plain: stdioConfig() });
+      expect(captured.resolved('plain')?.deferred).toBe(true);
+      liveDefault = false;
+      expect(captured.resolved('plain')?.deferred).toBe(true);
+      await captured.reconnect('plain');
+      expect(captured.resolved('plain')?.deferred).toBe(false);
+    } finally {
+      await captured.shutdown();
     }
   }, 15000);
 
@@ -519,7 +553,7 @@ describe('McpConnectionManager', () => {
 
   it('applies the resolved default startup timeout when the server entry omits startupTimeoutMs', async () => {
     const cm = createManager({
-      resolveDefaultTimeouts: () => ({ startupTimeoutMs: 100 }),
+      resolveDefaults: () => ({ startupTimeoutMs: 100 }),
     });
     try {
       await cm.connectAll({
@@ -547,7 +581,7 @@ describe('McpConnectionManager', () => {
       const connect = vi.spyOn(Client.prototype, 'connect').mockResolvedValue();
       const listTools = vi.spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] });
       const cm = createManager({
-        resolveDefaultTimeouts: () => ({ startupTimeoutMs: 120_000 }),
+        resolveDefaults: () => ({ startupTimeoutMs: 120_000 }),
       });
       try {
         await cm.connectAll({ server: config });
@@ -577,7 +611,7 @@ describe('McpConnectionManager', () => {
       const connect = vi.spyOn(Client.prototype, 'connect').mockResolvedValue();
       const listTools = vi.spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] });
       const cm = createManager({
-        resolveDefaultTimeouts: () => ({ startupTimeoutMs: 120_000 }),
+        resolveDefaults: () => ({ startupTimeoutMs: 120_000 }),
       });
       try {
         await cm.connectAll({
@@ -601,7 +635,7 @@ describe('McpConnectionManager', () => {
 
   it('applies the resolved default tool timeout when the server entry omits toolTimeoutMs', async () => {
     const cm = createManager({
-      resolveDefaultTimeouts: () => ({ toolTimeoutMs: 100 }),
+      resolveDefaults: () => ({ toolTimeoutMs: 100 }),
     });
     try {
       await cm.connectAll({
@@ -621,7 +655,7 @@ describe('McpConnectionManager', () => {
 
   it('lets a per-server toolTimeoutMs override the resolved default tool timeout', async () => {
     const cm = createManager({
-      resolveDefaultTimeouts: () => ({ toolTimeoutMs: 100 }),
+      resolveDefaults: () => ({ toolTimeoutMs: 100 }),
     });
     try {
       await cm.connectAll({

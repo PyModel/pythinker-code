@@ -55,28 +55,6 @@ function isPostCloseTransportError(error: unknown): boolean {
 }
 
 describe('StdioMcpClient', () => {
-  it('rejects unsupported executor at construction time', () => {
-    expect(
-      () =>
-        createClient({
-          transport: 'stdio',
-          command: 'true',
-          executor: 'pyaos',
-        }),
-    ).toThrow(
-      expect.objectContaining({ name: 'Error2', code: 'not_implemented' }) as unknown as Error,
-    );
-
-    let thrown: unknown;
-    try {
-      const client = createClient({ transport: 'stdio', command: 'true', executor: 'pyaos' });
-      void client;
-    } catch (error) {
-      thrown = error;
-    }
-    expect(thrown).toBeInstanceOf(Error2);
-  });
-
   it('uses defaultCwd when config.cwd is omitted', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'pythinker-mcp-default-cwd-'));
     const client = createClient(
@@ -398,13 +376,8 @@ describe('mergeStdioEnv', () => {
   });
 });
 
-describe('mcp executor legacy alias', () => {
-  it('normalizes the deprecated executor value "kaos" to "pyaos"', () => {
-    const parsed = McpServerStdioConfigSchema.parse({
-      transport: 'stdio',
-      command: 'echo',
-      executor: 'kaos',
-    });
-    expect(parsed.executor).toBe('pyaos');
+describe('mcp executor option', () => {
+  it.each(['pyaos', 'kaos'])('rejects the removed executor value %s', (executor) => {
+    expect(McpServerStdioConfigSchema.safeParse({ transport: 'stdio', command: 'echo', executor }).success).toBe(false);
   });
 });

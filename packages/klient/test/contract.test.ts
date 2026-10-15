@@ -116,15 +116,14 @@ describe('prompt contract validation', () => {
 
 
 
-describe('mcp executor legacy alias', () => {
-  it('normalizes the deprecated executor value "kaos" to "pyaos"', () => {
+describe('mcp executor option', () => {
+  it.each(['pyaos', 'kaos'])('rejects the removed executor value %s', (executor) => {
     const parsed = createSessionOptionsSchema.safeParse({
       workDir: '/tmp/example',
       mcpServers: {
-        stdioExample: { transport: 'stdio', command: 'node', executor: 'kaos' },
+        stdioExample: { transport: 'stdio', command: 'node', executor },
       },
     });
-    expect(parsed.success).toBe(true);
-    expect(parsed.data?.mcpServers?.['stdioExample']).toMatchObject({ executor: 'pyaos' });
+    expect(parsed.success).toBe(false);
   });
 });

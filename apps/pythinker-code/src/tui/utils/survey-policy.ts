@@ -356,7 +356,7 @@ export interface SurveyEventEnvironmentFields {
   readonly current_model: string;
   readonly pfc_model_id?: string;
   readonly pfc_trace_id?: string;
-  readonly user_turn_count: number;
+  readonly user_turn_count?: number;
   readonly cumulative_tokens: number;
   readonly virtual_context_tokens: number;
   readonly tool_call_count: number;

@@ -119,11 +119,9 @@
  *   `ISessionBtwService`; `setDynamicWorkflowMode` / `dynamic_workflow` → the agent scope's
  *   `IAgentDynamicWorkflowService` (the v2 port of v1's `DynamicWorkflowMode`), with `dynamic_workflow()`
  *   recomposed over the `setDynamicWorkflowMode` + `prompt` overrides; `setTowerMode` →
- *   the agent scope's `IAgentTowerService` (v2-only — the base class throws
+ *   the agent scope's `IAgentTowerService`; `getTowerStatus` → the shared
+ *   tower status summary reader (v2-only — the base class throws
  *   `not_implemented`).
- *   `createSessionWithPyaos` / `resumeSessionWithPyaos` deliberately keep the
- *   base class's pyaos-ignoring degradation (the v2 engine has no pyaos
- *   injection point — see the session-lifecycle section header), and
  *   `toolCall` keeps the base class's "not supported" answer, which the
  *   interaction bridge already relies on.
  */
@@ -132,6 +130,8 @@ import { join } from 'node:path';
 
 import { encodeWorkDirKey } from '@pymodel/agent-core-v2/_base/utils/workdir-slug';
 import { McpConnectionManager } from '@pymodel/agent-core-v2/mcpCore/connection-manager';
+import { ITowerRateLimitService } from '@pymodel/agent-core-v2/features/tower/towerRateLimit';
+import { readTowerStatusSummary } from '@pymodel/agent-core-v2/features/tower/tools/status/statusReader';
 import { loadMcpServers } from '@pymodel/agent-core-v2/app/mcpConfig/configLoader';
 import { fsSuggestRequestSchema } from '@pymodel/agent-core-v2/workspace/workspaceFs/fs';
 import { IAppendLogStore } from '@pymodel/agent-core-v2/persistence/interface/appendLogStore';
@@ -224,7 +224,12 @@ import {
   type ServicesAccessor,
   type SessionSummary as V2SessionSummary,
 } from '@pymodel/agent-core-v2';
-import type { AgentHandle, Klient } from '@pymodel/klient';
+import type {
+  AgentHandle,
+  Klient,
+  RefreshProviderModelsOptions,
+  RefreshProviderModelsResponse,
+} from '@pymodel/klient';
 import { createKlient } from '@pymodel/klient/memory';
 import { assertPythinkerHostIdentity, createPythinkerDefaultHeaders } from '@pymodel/pythinker-code-oauth';
 
@@ -805,6 +810,13 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     await this.klient.global.config.replaceSections({ sections });
   }
 
+  override async refreshProviderModels(
+    options?: RefreshProviderModelsOptions,
+  ): Promise<RefreshProviderModelsResponse> {
+    await this.configReady;
+    return this.klient.global.kosong.refreshProviders(options);
+  }
+
   override async listPlugins(): Promise<readonly PluginSummary[]> {
     return this.klient.global.plugins.list();
   }
@@ -903,15 +915,6 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   // metadata mutations of a LIVE session; everything that needs an explicit
   // session id, a resume, or a workspace command goes through the
   // `engineAccessor` escape hatch (named per method below).
-  //
-  // `createSessionWithPyaos` / `resumeSessionWithPyaos` are deliberately NOT
-  // overridden: agent-core-v2 has no pyaos injection point (its fs/process
-  // abstraction is the engine-internal hostFs domain, resolved at bootstrap),
-  // so the base class's degradation — ignore the pyaos arguments and run a
-  // plain local create/resume — is the honest behavior, the same one every
-  // daemon-transport client settles for. Failing loudly instead would break
-  // hosts that pass pyaos opportunistically (the harness forwards it whenever
-  // the host supplies one).
   // -----------------------------------------------------------------------
 
   private liveSession(sessionId: string): ISessionScopeHandle | undefined {
@@ -1182,6 +1185,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       },
       context: context as AgentContextData,
       replay: folded.replay,
+      userTurnCount: type === 'main' ? folded.userTurnCount : undefined,
       permission: {
         mode: agent.accessor.get(IAgentPermissionModeService).mode,
         rules: [...agent.accessor.get(IAgentPermissionRulesService).rules],
@@ -2027,13 +2031,13 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * the engine renders every skill activation into the prompt's own user
    * message, so the bundle launches as one turn and undoes as a single
    * anchor. v2-only: the base class rejects this method on the v1 engine.
-   * The launch result is dropped like `prompt` (v1's RPC shape returns void).
    */
   override async promptWithSkills(input: SessionPromptWithSkillsRpcInput): Promise<void> {
     const agent = await this.agentFacade(input.sessionId);
     await agent.promptWithSkills({
       input: input.input,
       skills: input.skills,
+      steerIfActive: input.steerIfActive,
     });
   }
 
@@ -2219,6 +2223,18 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       await tower.exit();
     }
     await agent.accessor.get(IAgentReminderService).reconcileWhenIdle('tower_mode');
+  }
+
+  /** Reads the shared tower status summary; the main agent's tower service is authoritative. */
+  override async getTowerStatus(input: SessionIdRpcInput): Promise<string> {
+    const agent = await this.materializeMainAgent(this.requireLiveSession(input.sessionId));
+    return readTowerStatusSummary({
+      active: agent.accessor.get(IAgentTowerService).isActive,
+      cwd: agent.accessor.get(ISessionContext).cwd,
+      agentId: MAIN_AGENT_ID,
+      tasks: agent.accessor.get(IAgentTaskService),
+      concurrency: () => agent.accessor.get(ITowerRateLimitService).snapshot(),
+    });
   }
 
   // -----------------------------------------------------------------------

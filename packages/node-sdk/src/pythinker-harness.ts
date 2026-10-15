@@ -1,5 +1,3 @@
-import type { Pyaos } from '@pymodel/pyaos';
-
 import { ErrorCodes, PythinkerError } from '#/errors';
 import type { ExperimentalFeatureState } from '#/flag';
 import type { ImageLimits } from '#/image';
@@ -37,6 +35,8 @@ import type {
   RenameSessionInput,
   ResumeSessionInput,
   ReloadSessionInput,
+  RefreshProviderModelsOptions,
+  RefreshProviderModelsResponse,
   SessionSummary,
   SessionSummaryPage,
   SkillSummary,
@@ -138,11 +138,8 @@ export class PythinkerHarness {
   }
 
   async createSession(options: CreateSessionOptions): Promise<Session> {
-    const { planMode, pyaos, persistencePyaos, sessionStartedProperties, ...coreOptions } = options;
-    const summary =
-      pyaos === undefined && persistencePyaos === undefined
-        ? await this.rpc.createSession(coreOptions)
-        : await this.rpc.createSessionWithPyaos(coreOptions, pyaos ?? persistencePyaos as Pyaos, persistencePyaos);
+    const { planMode, sessionStartedProperties, ...coreOptions } = stripLegacyPyaosOptions(options);
+    const summary = await this.rpc.createSession(coreOptions);
     const session = new Session({
       id: summary.id,
       workDir: summary.workDir,
@@ -167,18 +164,14 @@ export class PythinkerHarness {
     const id = normalizeSessionId(input.id);
     const active = this.activeSessions.get(id);
     const {
-      pyaos,
-      persistencePyaos,
       sessionStartedProperties: _sessionStartedProperties,
       ...resumeInput
-    } = input;
+    } = stripLegacyPyaosOptions(input);
     // A session whose close is in flight (`isClosed` but not yet unmapped)
     // is not a valid resume target — fall through and re-resume fresh, which
     // the engine serializes behind that close.
     if (active !== undefined && !active.isClosed) {
-      if (pyaos !== undefined || persistencePyaos !== undefined) {
-        await this.rpc.resumeSessionWithPyaos({ ...resumeInput, id }, pyaos ?? persistencePyaos as Pyaos, persistencePyaos);
-      } else if (input.agentProfile !== undefined) {
+      if (input.agentProfile !== undefined) {
         await this.rpc.resumeSession({ ...resumeInput, id });
       }
       return active;
@@ -186,7 +179,7 @@ export class PythinkerHarness {
 
     // Coalesce concurrent resumes of the same id onto one facade, keyed by
     // the full input so a caller with different options (dirs, replay,
-    // profile, pyaos) never has them silently dropped; without this,
+    // profile) never has them silently dropped; without this,
     // parallel identical callers each build their own Session over the
     // shared engine handle, and one facade's close kills the engine handle
     // under the other.
@@ -203,11 +196,8 @@ export class PythinkerHarness {
   }
 
   private async doResumeSession(input: ResumeSessionInput, id: string): Promise<Session> {
-    const { pyaos, persistencePyaos, sessionStartedProperties, ...resumeInput } = input;
-    const summary =
-      pyaos === undefined && persistencePyaos === undefined
-        ? await this.rpc.resumeSession({ ...resumeInput, id })
-        : await this.rpc.resumeSessionWithPyaos({ ...resumeInput, id }, pyaos ?? persistencePyaos as Pyaos, persistencePyaos);
+    const { sessionStartedProperties, ...resumeInput } = stripLegacyPyaosOptions(input);
+    const summary = await this.rpc.resumeSession({ ...resumeInput, id });
     const session = new Session({
       id: summary.id,
       workDir: summary.workDir,
@@ -488,6 +478,12 @@ export class PythinkerHarness {
     return this.rpc.replaceConfigSections(sections);
   }
 
+  async refreshProviderModels(
+    options?: RefreshProviderModelsOptions,
+  ): Promise<RefreshProviderModelsResponse> {
+    return this.rpc.refreshProviderModels(options);
+  }
+
   /**
    * The unified MCP management view: user-level `<PYTHINKER_CODE_HOME>/mcp.json`
    * entries (mutable), plus read-only project-layer entries when `cwd` is
@@ -663,13 +659,20 @@ export class PythinkerHarness {
 const DEFAULT_SESSION_STARTED_UI_MODE = 'shell';
 
 function resumeCoalesceKey(id: string, input: ResumeSessionInput): string {
-  const { pyaos, persistencePyaos, ...rest } = input;
-  return JSON.stringify({
-    ...rest,
-    id,
-    pyaos: pyaos !== undefined,
-    persistencePyaos: persistencePyaos !== undefined,
-  });
+  return JSON.stringify({ ...stripLegacyPyaosOptions(input), id });
+}
+
+function stripLegacyPyaosOptions<T extends object>(input: T): T {
+  // JavaScript hosts may still pass the removed pyaos options; keep them out of
+  // forwarded RPC inputs and serialized keys — custom implementations can hold
+  // circular runtime handles.
+  const { pyaos, persistencePyaos, ...rest } = input as T & {
+    pyaos?: unknown;
+    persistencePyaos?: unknown;
+  };
+  void pyaos;
+  void persistencePyaos;
+  return rest as T;
 }
 
 function normalizeSessionId(value: string): string {

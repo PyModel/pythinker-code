@@ -3,7 +3,6 @@ import type {
   ExportSessionManifest,
   ShellEnvironment,
 } from '@pymodel/agent-core-v2/app/sessionExport/sessionExport';
-import type { Pyaos } from '@pymodel/pyaos';
 import type { PythinkerHostIdentity, OAuthRefreshOutcome } from '@pymodel/pythinker-code-oauth';
 import type { ContentPart } from '@pymodel/kosong';
 
@@ -18,6 +17,11 @@ import type {
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
 export type JsonObject = { readonly [key: string]: JsonValue };
+
+export type {
+  RefreshProviderModelsOptions,
+  RefreshProviderModelsResponse,
+} from '@pymodel/klient';
 
 export type Unsubscribe = () => void;
 
@@ -243,8 +247,6 @@ export interface CreateSessionOptions {
   readonly permission?: PermissionMode | undefined;
   readonly planMode?: boolean;
   readonly metadata?: JsonObject | undefined;
-  readonly pyaos?: Pyaos | undefined;
-  readonly persistencePyaos?: Pyaos | undefined;
   readonly additionalDirs?: readonly string[];
   /**
    * Main-agent profile name (`--agent`): a builtin profile or one defined by
@@ -282,8 +284,6 @@ export interface GenerateSessionTitleInput {
 
 export interface ResumeSessionInput {
   readonly id: string;
-  readonly pyaos?: Pyaos | undefined;
-  readonly persistencePyaos?: Pyaos | undefined;
   readonly additionalDirs?: readonly string[];
   /** Re-select the session's already-bound main profile; a different name fails. */
   readonly agentProfile?: string;

@@ -188,9 +188,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         }
         const result = await (await loadCatalog(core)).setDefaultModel(parsed.id);
         reply.send(okEnvelope(result, req.id));
-      } catch (err) {
-        if (sendMappedError(reply, req.id, err)) return;
-        throw err;
+      } catch (error) {
+        if (sendMappedError(reply, req.id, error)) return;
+        throw error;
       }
     },
   );
@@ -256,7 +256,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         if (req.body.default_model !== undefined) {
           provider.defaultModel = `${id}/${req.body.default_model}`;
         }
-        await config.set(PROVIDERS_SECTION, { [id]: provider });
+        await config.set(PROVIDERS_SECTION, Object.fromEntries([[id, provider]]));
 
         const aliases: Record<string, ModelRecord> = {};
         for (const entry of req.body.models) {
@@ -318,7 +318,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         const config = await loadConfig(core);
         const { provider_id } = req.params;
         const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
-        const target = providers[provider_id];
+        const target = Object.hasOwn(providers, provider_id) ? providers[provider_id] : undefined;
         if (target === undefined) {
           reply.send(
             errEnvelope(
@@ -361,12 +361,10 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
               `${newId}/${req.body.default_model}`
             : undefined;
         const nextProviders = Object.fromEntries(
-          Object.entries(providers).map(([key, value]) => [
-            key === provider_id ? newId : key,
-            value,
-          ]),
+          Object.entries(providers).map(([key, value]): [string, ProviderConfig] =>
+            key === provider_id ? [newId, provider] : [key, value],
+          ),
         );
-        nextProviders[newId] = provider;
 
         const models = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
         const newAliasKeys = new Set(req.body.models.map((entry) => `${newId}/${entry.model}`));
@@ -401,11 +399,22 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
             .map((record) => [record.model as string, record] as const),
         );
         for (const entry of req.body.models) {
+          const previous = previousByModel.get(entry.model);
+          let upgrade = previous?.upgrade;
+          if (upgrade !== undefined) {
+            const targetModel = models[upgrade.model]?.model;
+            const target = targetModel === undefined ? undefined : `${newId}/${targetModel}`;
+            upgrade =
+              target !== undefined && newAliasKeys.has(target)
+                ? { ...upgrade, model: target }
+                : undefined;
+          }
           const alias: ModelRecord = {
-            ...previousByModel.get(entry.model),
+            ...previous,
             provider: newId,
             model: entry.model,
             maxContextSize: entry.max_context_size,
+            upgrade,
           };
           alias.displayName = entry.display_name !== undefined ? entry.display_name : undefined;
           alias.capabilities =
@@ -523,9 +532,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
           providerId: parsed.id,
         });
         reply.send(okEnvelope(result, req.id));
-      } catch (err) {
-        if (sendMappedError(reply, req.id, err)) return;
-        throw err;
+      } catch (error) {
+        if (sendMappedError(reply, req.id, error)) return;
+        throw error;
       }
     },
   );
@@ -562,9 +571,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
             req.id,
           ),
         );
-      } catch (err) {
-        if (sendMappedError(reply, req.id, err)) return;
-        throw err;
+      } catch (error) {
+        if (sendMappedError(reply, req.id, error)) return;
+        throw error;
       }
     },
   );
@@ -597,7 +606,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         const config = await loadConfig(core);
         const { provider_id } = req.params;
         const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
-        const target = providers[provider_id];
+        const target = Object.hasOwn(providers, provider_id) ? providers[provider_id] : undefined;
         if (target === undefined) {
           reply.send(
             errEnvelope(
@@ -620,8 +629,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         }
 
         const models = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
-        const restProviders = { ...providers };
-        delete restProviders[provider_id];
+        const restProviders = Object.fromEntries(
+          Object.entries(providers).filter(([key]) => key !== provider_id),
+        );
         await config.replace(PROVIDERS_SECTION, restProviders);
         const restModels = Object.fromEntries(
           Object.entries(models).filter(([, record]) => record.provider !== provider_id),
@@ -654,9 +664,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
       try {
         const items = await core.accessor.get(IModelsDevImportService).listModelsDevProviders();
         reply.send(okEnvelope({ items }, req.id));
-      } catch (err) {
-        if (sendModelsDevImportError(reply, req.id, err)) return;
-        throw err;
+      } catch (error) {
+        if (sendModelsDevImportError(reply, req.id, error)) return;
+        throw error;
       }
     },
   );
@@ -685,9 +695,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         const { catalog_id } = req.params;
         const item = await core.accessor.get(IModelsDevImportService).getModelsDevProvider(catalog_id);
         reply.send(okEnvelope(item, req.id));
-      } catch (err) {
-        if (sendModelsDevImportError(reply, req.id, err)) return;
-        throw err;
+      } catch (error) {
+        if (sendModelsDevImportError(reply, req.id, error)) return;
+        throw error;
       }
     },
   );
@@ -766,9 +776,9 @@ async function handleImportCatalog(
           req.id,
         ),
       );
-  } catch (err) {
-    if (sendModelsDevImportError(reply, req.id, err)) return;
-    throw err;
+  } catch (error) {
+    if (sendModelsDevImportError(reply, req.id, error)) return;
+    throw error;
   }
 }
 
@@ -797,9 +807,9 @@ async function handleImportRegistry(
           req.id,
         ),
       );
-  } catch (err) {
-    if (sendModelsDevImportError(reply, req.id, err)) return;
-    throw err;
+  } catch (error) {
+    if (sendModelsDevImportError(reply, req.id, error)) return;
+    throw error;
   }
 }
 
