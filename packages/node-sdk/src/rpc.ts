@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import type { DynamicWorkflowModeTrigger } from '@pymodel/agent-core-v2/features/dynamic_workflow/agent/dynamic_workflow';
-import type { Pyaos } from '@pymodel/pyaos';
 
 import type { AgentContextData } from '#/context';
 import { ErrorCodes, PythinkerError, makeErrorPayload } from '#/errors';
@@ -185,27 +184,7 @@ export abstract class SDKRpcClientBase {
 
   abstract createSession(input: CreateSessionOptions): Promise<SessionSummary>;
 
-  async createSessionWithPyaos(
-    input: CreateSessionOptions,
-    pyaos: Pyaos,
-    persistencePyaos?: Pyaos,
-  ): Promise<SessionSummary> {
-    void pyaos;
-    void persistencePyaos;
-    return this.createSession(input);
-  }
-
   abstract resumeSession(input: ResumeSessionInput): Promise<ResumedSessionSummary>;
-
-  async resumeSessionWithPyaos(
-    input: ResumeSessionInput,
-    pyaos: Pyaos,
-    persistencePyaos?: Pyaos,
-  ): Promise<ResumedSessionSummary> {
-    void pyaos;
-    void persistencePyaos;
-    return this.resumeSession(input);
-  }
 
   abstract reloadSession(input: ReloadSessionRpcInput): Promise<ResumedSessionSummary>;
 

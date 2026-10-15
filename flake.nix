@@ -65,7 +65,6 @@
         ./packages/acp-server
         ./packages/agent-core-v2
         ./packages/agent-gateway
-        ./packages/pyaos
         ./packages/klient
         ./packages/kosong
         ./packages/migration-legacy
@@ -93,7 +92,6 @@
         "@pymodel/acp-server"
         "@pymodel/agent-core-v2"
         "@pymodel/agent-gateway"
-        "@pymodel/pyaos"
         "@pymodel/kosong"
         "@pymodel/migration-legacy"
         "@pymodel/minidb"
@@ -165,7 +163,7 @@
               inherit (finalAttrs) pname version src pnpmWorkspaces;
               inherit pnpm;
               fetcherVersion = 3;
-              hash = "sha256-4Ir1NPSd55ar49ytuFnkWGujYL2ck47PB3y9FBBjULU=";
+              hash = "sha256-eJbD4kulXSmaiykbwv4NNmYx+2YTolJ2OkwDSibhS7c=";
             };
 
             nativeBuildInputs = [

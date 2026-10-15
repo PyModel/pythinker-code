@@ -122,9 +122,6 @@
  *   the agent scope's `IAgentTowerService`; `getTowerStatus` → the shared
  *   tower status summary reader (v2-only — the base class throws
  *   `not_implemented`).
- *   `createSessionWithPyaos` / `resumeSessionWithPyaos` deliberately keep the
- *   base class's pyaos-ignoring degradation (the v2 engine has no pyaos
- *   injection point — see the session-lifecycle section header), and
  *   `toolCall` keeps the base class's "not supported" answer, which the
  *   interaction bridge already relies on.
  */
@@ -918,15 +915,6 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   // metadata mutations of a LIVE session; everything that needs an explicit
   // session id, a resume, or a workspace command goes through the
   // `engineAccessor` escape hatch (named per method below).
-  //
-  // `createSessionWithPyaos` / `resumeSessionWithPyaos` are deliberately NOT
-  // overridden: agent-core-v2 has no pyaos injection point (its fs/process
-  // abstraction is the engine-internal hostFs domain, resolved at bootstrap),
-  // so the base class's degradation — ignore the pyaos arguments and run a
-  // plain local create/resume — is the honest behavior, the same one every
-  // daemon-transport client settles for. Failing loudly instead would break
-  // hosts that pass pyaos opportunistically (the harness forwards it whenever
-  // the host supplies one).
   // -----------------------------------------------------------------------
 
   private liveSession(sessionId: string): ISessionScopeHandle | undefined {

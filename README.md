@@ -164,7 +164,6 @@ Pythinker Code is a pnpm monorepo. The desktop app and the CLI both talk to the 
 | `apps/pythinker-web` | Browser interface that the desktop app renders |
 | `packages/agent-core` | Agent engine: sessions, tools, skills, permissions, plans |
 | `packages/kosong` | LLM and provider abstraction |
-| `packages/pyaos` | Execution environment, file and process abstractions |
 | `packages/server` | REST and WebSocket session host (`/api/v1`) |
 | `packages/node-sdk` | Public TypeScript SDK |
 

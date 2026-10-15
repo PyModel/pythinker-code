@@ -40,9 +40,6 @@ modules:
   - id: kosong
     roots: [packages/kosong/src]
     managed: false
-  - id: pyaos
-    roots: [packages/pyaos/src]
-    managed: false
   - id: klient
     roots: [packages/klient/src]
     managed: false

@@ -184,7 +184,7 @@ describe('check-import-boundaries', () => {
 
   it('allows sibling-package imports outside kosong', () => {
     const violations = checkSource(
-      `import { something } from '@pymodel/pyaos';`,
+      `import { something } from '@pymodel/minidb';`,
       at('log', 'log.ts'),
     );
     expect(violations).toHaveLength(0);

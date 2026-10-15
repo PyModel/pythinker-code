@@ -22,7 +22,6 @@ export default defineConfig({
     '@pymodel/pythinker-code-sdk': resolve(root, '../../packages/node-sdk/src/index.ts'),
     '@pymodel/pythinker-telemetry': resolve(root, '../../packages/telemetry/src/index.ts'),
     '@pymodel/migration-legacy': resolve(root, '../../packages/migration-legacy/src/index.ts'),
-    '@pymodel/pyaos': resolve(root, '../../packages/pyaos/src/index.ts'),
     '@pymodel/pythinker-code-oauth': resolve(root, '../../packages/oauth/src/index.ts'),
     '@pymodel/kosong': resolve(root, '../../packages/kosong/src/index.ts'),
   },
