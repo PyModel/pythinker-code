@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.9
+
+### Patch Changes
+
+- [#377](https://github.com/PyModel/pythinker-code/pull/377) [`9e30eed`](https://github.com/PyModel/pythinker-code/commit/9e30eed970cdafb3c7dd4b2a44e87e8b10c708e7) Thanks [@elkaix](https://github.com/elkaix)! - Add Back navigation to multi-question prompts and keep earlier answers while moving between questions.
+
 ## 0.9.8
 
 ### Patch Changes
