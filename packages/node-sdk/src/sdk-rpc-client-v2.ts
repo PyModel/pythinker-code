@@ -227,7 +227,12 @@ import {
   type ServicesAccessor,
   type SessionSummary as V2SessionSummary,
 } from '@pymodel/agent-core-v2';
-import type { AgentHandle, Klient } from '@pymodel/klient';
+import type {
+  AgentHandle,
+  Klient,
+  RefreshProviderModelsOptions,
+  RefreshProviderModelsResponse,
+} from '@pymodel/klient';
 import { createKlient } from '@pymodel/klient/memory';
 import { assertPythinkerHostIdentity, createPythinkerDefaultHeaders } from '@pymodel/pythinker-code-oauth';
 
@@ -806,6 +811,13 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   override async replaceConfigSections(sections: Record<string, unknown>): Promise<void> {
     await this.configReady;
     await this.klient.global.config.replaceSections({ sections });
+  }
+
+  override async refreshProviderModels(
+    options?: RefreshProviderModelsOptions,
+  ): Promise<RefreshProviderModelsResponse> {
+    await this.configReady;
+    return this.klient.global.kosong.refreshProviders(options);
   }
 
   override async listPlugins(): Promise<readonly PluginSummary[]> {

@@ -18,6 +18,7 @@ import {
   PYTHINKER_CODE_HOME_ENV,
   PYTHINKER_CODE_INPUT_HISTORY_DIR_NAME,
   PYTHINKER_CODE_LOG_DIR_NAME,
+  PYTHINKER_CODE_MODEL_MIGRATION_STATE_FILE_NAME,
   PYTHINKER_CODE_NATIVE_STAGED_STATE_FILE_NAME,
   PYTHINKER_CODE_NATIVE_STAGING_DIR_NAME,
   PYTHINKER_CODE_PLUGIN_UPDATE_NOTICE_STATE_FILE_NAME,
@@ -134,6 +135,10 @@ export function getSurveyStateFile(): string {
 
 export function getRecommendedEffortStateFile(): string {
   return join(getDataDir(), PYTHINKER_CODE_RECOMMENDED_EFFORT_STATE_FILE_NAME);
+}
+
+export function getModelMigrationStateFile(): string {
+  return join(getDataDir(), PYTHINKER_CODE_MODEL_MIGRATION_STATE_FILE_NAME);
 }
 
 /**

@@ -23,6 +23,7 @@ import {
   type ThinkingConfig,
 } from '#/llm-adapter/model/thinking';
 import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
+import { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
 import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
 import { ErrorCodes, Error2 } from "#/errors";
@@ -176,6 +177,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     @IAgentAgentsMdReminderService private readonly agentsMdReminder: IAgentAgentsMdReminderService,
     @IModelService private readonly models: IModelService,
     @IProviderService private readonly providers: IProviderService,
+    @IProviderDiscoveryService private readonly discovery: IProviderDiscoveryService,
   ) {
     super();
     this.states.contributeState(profileKey);
@@ -188,6 +190,11 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     this.configure({});
     this._register(
       this.dispatcher.hooks.onDidRestore.register('profile', async (_ctx, next) => {
+        const replacement =
+          this.modelAlias === undefined
+            ? undefined
+            : this.discovery.retiredModelReplacement(this.modelAlias);
+        if (replacement !== undefined) await this.setModel(replacement).catch(() => {});
         this.syncTelemetryModelContext(this.modelAlias);
         if (this.scopeContext.agentId === MAIN_AGENT_ID && this.profileName !== undefined) {
           await this.catalog.ready;
@@ -208,6 +215,11 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
         if (domain === TOOLS_SECTION) {
           this.publishToolPatternWarnings();
         }
+      }),
+    );
+    this._register(
+      this.discovery.onDidRetireModel(({ from, to }) => {
+        if (this.modelAlias === from) void this.setModel(to).catch(() => {});
       }),
     );
   }

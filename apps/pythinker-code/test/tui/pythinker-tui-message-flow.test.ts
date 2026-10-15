@@ -138,7 +138,7 @@ interface MessageDriver {
     mcpServers: Map<string, { readonly status: string }>;
   };
   session: unknown;
-  waitForLazyCreation(): Promise<void>;
+  waitForSessionAssembly(): Promise<void>;
   init(): Promise<boolean>;
   handleUserInput(text: string): void;
   toggleToolOutputExpansion(): void;
@@ -1669,7 +1669,7 @@ describe('PythinkerTUI message flow', () => {
       startupInput,
     );
     expect(driver.session).toBeUndefined();
-    vi.spyOn(driver, 'waitForLazyCreation').mockRejectedValueOnce(new Error('create failed'));
+    vi.spyOn(driver, 'waitForSessionAssembly').mockRejectedValueOnce(new Error('create failed'));
 
     driver.state.editor.onShiftTab?.();
 

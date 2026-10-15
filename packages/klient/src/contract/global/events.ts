@@ -34,7 +34,7 @@ export interface SessionMetaUpdatedPayload {
   };
 }
 
-/** Payload of `event.model_catalog.changed`. */
+/** Payload of `event.model_catalog.changed` — same shape as a provider-discovery refresh result. */
 export type CatalogChangedPayload = Awaited<
   ReturnType<IProviderDiscoveryService['refreshProviderModels']>
 >;
@@ -88,6 +88,13 @@ export const catalogChangedSchema = z.object({
   ),
   unchanged: z.array(z.string()),
   failed: z.array(z.object({ provider: z.string(), reason: z.string() })),
+  retired_default: z
+    .object({
+      from: z.string(),
+      to: z.string(),
+      from_display_name: z.string(),
+    })
+    .optional(),
 });
 
 /** Public event name → source binding + payload schema. */

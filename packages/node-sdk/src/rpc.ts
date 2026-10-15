@@ -64,6 +64,8 @@ import type {
   RenameSessionInput,
   ResumeSessionInput,
   ResumedSessionSummary,
+  RefreshProviderModelsOptions,
+  RefreshProviderModelsResponse,
   SessionSummary,
   SessionSummaryPage,
   SkillSummary,
@@ -242,6 +244,10 @@ export abstract class SDKRpcClientBase {
   abstract supportsAtomicSectionReplace(): boolean;
 
   abstract replaceConfigSections(sections: Record<string, unknown>): Promise<void>;
+
+  abstract refreshProviderModels(
+    options?: RefreshProviderModelsOptions,
+  ): Promise<RefreshProviderModelsResponse>;
 
   abstract uploadFile(data: Uint8Array, options: UploadFileOptions): Promise<FileMeta>;
 

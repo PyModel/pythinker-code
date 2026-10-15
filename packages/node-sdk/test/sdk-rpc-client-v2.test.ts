@@ -28,13 +28,11 @@ import {
   isPythinkerError,
   PythinkerHarness,
   limitAgentReplayByTurns,
-  removeProviderFromConfig,
   SDKRpcClientBase,
   SDKRpcClientV2,
   Session,
   toPythinkerErrorPayload,
   type Event,
-  type PythinkerConfig,
 } from '#/index';
 import { foldAgentWireReplay } from '#/v2/resume-replay';
 import {
@@ -876,6 +874,74 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       expect(next.providers['a']).toBeDefined();
       expect(next.models?.['a/m1']).toBeDefined();
     } finally {
+      await harness.close();
+    }
+  });
+
+  it('refreshes provider models through the harness and moves sessions off a retired default', async () => {
+    vi.stubGlobal('fetch', async () =>
+      Response.json({
+        acme: {
+          id: 'acme',
+          name: 'Acme',
+          type: 'openai',
+          api: 'https://acme.example.test/v1',
+          models: { next: { id: 'next', default_effort: 'high' } },
+        },
+      }),
+    );
+    const { harness } = await makeHarness();
+    try {
+      await harness.setConfig({
+        providers: {
+          acme: {
+            type: 'openai',
+            apiKey: 'sk-acme',
+            source: { kind: 'apiJson', url: 'https://registry.example.test/api.json', apiKey: 'sk-registry' },
+          },
+        },
+        models: {
+          'acme/current': {
+            provider: 'acme',
+            model: 'current',
+            maxContextSize: 131072,
+            capabilities: ['tool_use'],
+            displayName: 'Current',
+            supportEfforts: ['low', 'high'],
+            defaultEffort: 'high',
+            upgrade: { model: 'acme/next', migrationMarkdown: 'Use next' },
+          },
+          'acme/next': {
+            provider: 'acme',
+            model: 'next',
+            maxContextSize: 131072,
+            capabilities: ['tool_use'],
+            defaultEffort: 'high',
+          },
+        },
+        defaultModel: 'acme/current',
+        thinking: { enabled: true },
+      });
+      const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+      tempDirs.push(workDir);
+      const session = await harness.createSession({
+        id: 'ses_retired_default',
+        workDir,
+        model: 'acme/current',
+      });
+
+      const result = await harness.refreshProviderModels();
+      expect(result).toEqual({
+        changed: [{ provider_id: 'acme', provider_name: 'Acme', added: 0, removed: 1 }],
+        unchanged: [],
+        failed: [],
+        retired_default: { from: 'acme/current', to: 'acme/next', from_display_name: 'Current' },
+      });
+      const config = await harness.getConfig({ reload: true });
+      expect(config.defaultModel).toBe('acme/next');
+      expect((await session.getStatus()).model).toBe('acme/next');
+    } finally {
+      vi.unstubAllGlobals();
       await harness.close();
     }
   });
@@ -2241,122 +2307,6 @@ describe('SDKRpcClientV2 engine telemetry', () => {
     } finally {
       await client.close();
     }
-  });
-});
-
-describe('removeProviderFromConfig', () => {
-  it('drops the provider, its models and dangling default pointers without mutating the input', () => {
-    const config = {
-      providers: {
-        a: { type: 'openai', baseUrl: 'https://a.example.test/v1' },
-        b: { type: 'openai', baseUrl: 'https://b.example.test/v1' },
-      },
-      models: {
-        'a/m1': { provider: 'a', model: 'm1', maxContextSize: 100 },
-        'b/m1': { provider: 'b', model: 'm1', maxContextSize: 100 },
-        'my-b': { provider: 'b', model: 'm1', maxContextSize: 100 },
-      },
-      defaultModel: 'my-b',
-      defaultProvider: 'b',
-    } as unknown as PythinkerConfig;
-
-    const next = removeProviderFromConfig(config, 'b');
-
-    expect(Object.keys(next.providers)).toEqual(['a']);
-    expect(Object.keys(next.models ?? {})).toEqual(['a/m1']);
-    expect(next.defaultModel).toBeUndefined();
-    expect(next.defaultProvider).toBeUndefined();
-    // The input config is left untouched (the staging host threads the copy).
-    expect(config.providers['b']).toBeDefined();
-    expect(config.models?.['b/m1']).toBeDefined();
-    expect(config.defaultModel).toBe('my-b');
-  });
-
-  it('keeps the default pointers when they do not dangle', () => {
-    const config = {
-      providers: {
-        a: { type: 'openai' },
-        b: { type: 'openai' },
-      },
-      models: {
-        'a/m1': { provider: 'a', model: 'm1', maxContextSize: 100 },
-        'b/m1': { provider: 'b', model: 'm1', maxContextSize: 100 },
-      },
-      defaultModel: 'a/m1',
-      defaultProvider: 'a',
-    } as unknown as PythinkerConfig;
-
-    const next = removeProviderFromConfig(config, 'b');
-
-    expect(Object.keys(next.providers)).toEqual(['a']);
-    expect(Object.keys(next.models ?? {})).toEqual(['a/m1']);
-    expect(next.defaultModel).toBe('a/m1');
-    expect(next.defaultProvider).toBe('a');
-  });
-
-  it('leaves secondary_model pool entries alone when their model alias was removed', () => {
-    const config = {
-      providers: { a: { type: 'openai' }, b: { type: 'openai' } },
-      models: {
-        'a/m1': { provider: 'a', model: 'm1', maxContextSize: 100 },
-        'b/m1': { provider: 'b', model: 'm1', maxContextSize: 100 },
-      },
-      secondaryModel: {
-        defaultModel: 'a/m1',
-        models: { 'a/m1': 'fast', 'b/m1': 'smart' },
-      },
-    } as unknown as PythinkerConfig;
-
-    const next = removeProviderFromConfig(config, 'b');
-
-    expect(next.secondaryModel).toEqual({
-      defaultModel: 'a/m1',
-      models: { 'a/m1': 'fast', 'b/m1': 'smart' },
-    });
-  });
-
-  it('keeps the secondary_model section even when its default model dangles', () => {
-    const config = {
-      providers: { a: { type: 'openai' }, b: { type: 'openai' } },
-      models: {
-        'a/m1': { provider: 'a', model: 'm1', maxContextSize: 100 },
-        'b/m1': { provider: 'b', model: 'm1', maxContextSize: 100 },
-      },
-      secondaryModel: {
-        defaultModel: 'b/m1',
-        models: { 'a/m1': 'fast', 'b/m1': 'smart' },
-      },
-    } as unknown as PythinkerConfig;
-
-    expect(removeProviderFromConfig(config, 'b').secondaryModel).toEqual({
-      defaultModel: 'b/m1',
-      models: { 'a/m1': 'fast', 'b/m1': 'smart' },
-    });
-
-    // The legacy recipe's `model` key is left alone the same way.
-    const legacy = {
-      ...config,
-      secondaryModel: { model: 'b/m1', default_effort: 'low' },
-    } as unknown as PythinkerConfig;
-    expect(removeProviderFromConfig(legacy, 'b').secondaryModel).toEqual({
-      model: 'b/m1',
-      default_effort: 'low',
-    });
-  });
-
-  it('leaves the secondary_model section untouched when nothing dangles', () => {
-    const config = {
-      providers: { a: { type: 'openai' }, b: { type: 'openai' } },
-      models: {
-        'a/m1': { provider: 'a', model: 'm1', maxContextSize: 100 },
-        'b/m1': { provider: 'b', model: 'm1', maxContextSize: 100 },
-      },
-      secondaryModel: { defaultModel: 'a/m1' },
-    } as unknown as PythinkerConfig;
-
-    const next = removeProviderFromConfig(config, 'b');
-
-    expect(next.secondaryModel).toEqual({ defaultModel: 'a/m1' });
   });
 });
 

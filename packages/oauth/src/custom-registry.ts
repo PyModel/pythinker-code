@@ -35,6 +35,12 @@ export type CustomRegistryProviderType =
   | 'openai_responses'
   | 'pythinker';
 
+export interface CustomRegistryModelUpgrade {
+  readonly model: string;
+  readonly migration_markdown: string;
+  readonly retirement_at?: string | null;
+}
+
 export interface CustomRegistryModelEntry {
   readonly id: string;
   readonly name?: string;
@@ -47,6 +53,7 @@ export interface CustomRegistryModelEntry {
   };
   readonly support_efforts?: readonly string[];
   readonly default_effort?: string;
+  readonly upgrade?: CustomRegistryModelUpgrade;
 }
 
 export interface CustomRegistryProviderEntry {
@@ -98,6 +105,22 @@ function toStringArrayOrUndefined(value: unknown): readonly string[] | undefined
   return out;
 }
 
+function nonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+const RFC3339_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/i;
+
+function isValidRetirementAt(value: unknown): value is string | null | undefined {
+  return (
+    value === undefined ||
+    value === null ||
+    (typeof value === 'string' && RFC3339_PATTERN.test(value) && Number.isFinite(Date.parse(value)))
+  );
+}
+
 function toModelEntry(value: unknown): CustomRegistryModelEntry | undefined {
   if (!isRecord(value)) return undefined;
   const id = value['id'];
@@ -112,6 +135,7 @@ function toModelEntry(value: unknown): CustomRegistryModelEntry | undefined {
     modalities?: { input?: readonly string[]; output?: readonly string[] };
     support_efforts?: readonly string[];
     default_effort?: string;
+    upgrade?: CustomRegistryModelUpgrade;
   } = { id };
 
   const name = value['name'];
@@ -153,6 +177,30 @@ function toModelEntry(value: unknown): CustomRegistryModelEntry | undefined {
         ...(output !== undefined ? { output } : {}),
       };
     }
+  }
+
+  const rawUpgrade = value['upgrade'];
+  if (rawUpgrade !== undefined && rawUpgrade !== null) {
+    if (!isRecord(rawUpgrade)) {
+      throw new Error(`Invalid upgrade for model "${id}": expected an object.`);
+    }
+    const targetModel = nonEmptyString(rawUpgrade['model']);
+    if (targetModel === undefined) {
+      throw new Error(`Invalid upgrade for model "${id}": expected a non-empty target model.`);
+    }
+    const migrationMarkdown = rawUpgrade['migration_markdown'];
+    if (typeof migrationMarkdown !== 'string') {
+      throw new TypeError(`Invalid upgrade for model "${id}": migration_markdown must be a string.`);
+    }
+    const retirementAt = rawUpgrade['retirement_at'];
+    if (!isValidRetirementAt(retirementAt)) {
+      throw new Error(`Invalid upgrade for model "${id}": retirement_at must be an RFC3339 timestamp or null.`);
+    }
+    entry.upgrade = {
+      model: targetModel,
+      migration_markdown: migrationMarkdown,
+      retirement_at: retirementAt,
+    };
   }
 
   return entry;
@@ -337,13 +385,21 @@ export function applyCustomRegistryProvider(
     }
   }
 
-  for (const [modelKey, model] of Object.entries(entry.models)) {
+  const modelEntries = Object.entries(entry.models);
+  for (const [modelKey, model] of modelEntries) {
     const aliasKey = `${providerKey}/${modelKey}`;
     const maxContextSize = resolveMaxContextSize(model);
     const capabilities = resolveCapabilities(model);
     const displayName =
       typeof model.name === 'string' && model.name.length > 0 ? model.name : model.id;
     const existing = isRecord(existingModels[aliasKey]) ? existingModels[aliasKey] : {};
+    const upgrade = model.upgrade;
+    const target =
+      upgrade === undefined
+        ? undefined
+        : modelEntries.find(([, candidate]) => candidate.id === upgrade.model);
+    const targetAlias =
+      target === undefined || target[1].id === model.id ? undefined : `${providerKey}/${target[0]}`;
 
     const remoteAlias: ModelAlias = {
       provider: providerKey,
@@ -353,6 +409,16 @@ export function applyCustomRegistryProvider(
       displayName,
       ...(model.support_efforts !== undefined ? { supportEfforts: model.support_efforts } : {}),
       ...(model.default_effort !== undefined ? { defaultEffort: model.default_effort } : {}),
+      upgrade:
+        targetAlias === undefined || upgrade === undefined
+          ? undefined
+          : {
+              model: targetAlias,
+              migrationMarkdown: upgrade.migration_markdown
+                .replaceAll('{model_from}', model.id)
+                .replaceAll('{model_to}', upgrade.model),
+              retirementAt: upgrade.retirement_at ?? undefined,
+            },
     };
     existingModels[aliasKey] = mergeRefreshedModelAlias(
       existing,
@@ -394,6 +460,21 @@ export function removeCustomRegistryProvider(
 }
 
 /**
+ * The replacement alias that a stored model alias declared through registry
+ * `upgrade` metadata. Registries retire a model by dropping it after declaring
+ * this, so callers follow it when the alias it belongs to disappears.
+ */
+export function declaredUpgradeTarget(
+  config: PythinkerConfigShape,
+  alias: string | undefined,
+): string | undefined {
+  const model = alias === undefined ? undefined : config.models?.[alias];
+  return isRecord(model) && isRecord(model['upgrade'])
+    ? nonEmptyString(model['upgrade']['model'])
+    : undefined;
+}
+
+/**
  * Applies every entry from a single api.json import in memory. Mirrors the
  * "remove if present, then apply" sequence the Add Platform flow used to do
  * via the `removeProvider` RPC, but stays purely in-memory so callers can
@@ -412,12 +493,21 @@ export function removeCustomRegistryProvider(
  * model aliases behind. Matching is by `source.url` only — the apiKey commonly
  * rotates between imports, but the URL is the stable identity of "the same
  * registry".
+ *
+ * Defaults (`defaultModel`/`defaultProvider`) that still resolve after the
+ * rebuild are restored; a `defaultModel` left dangling moves to the replacement
+ * it declared through `upgrade` when that still resolves, keeping `thinking`,
+ * and is cleared together with `thinking` otherwise (mirroring the refresh
+ * path).
  */
 export function applyCustomRegistryEntries(
   config: PythinkerConfigShape,
   entries: Record<string, CustomRegistryProviderEntry>,
   source: CustomRegistrySource,
 ): void {
+  const previousDefault = config.defaultModel;
+  const previousDefaultUpgrade = declaredUpgradeTarget(config, previousDefault);
+  const previousDefaultProvider = config['defaultProvider'] as string | undefined;
   const surviving = new Set(Object.values(entries).map((entry) => entry.id));
   for (const [providerId, provider] of Object.entries(config.providers)) {
     if (surviving.has(providerId)) continue;
@@ -437,5 +527,16 @@ export function applyCustomRegistryEntries(
       removeCustomRegistryProvider(config, entry.id);
     }
     applyCustomRegistryProvider(config, entry, source);
+  }
+
+  config.defaultModel = [previousDefault, previousDefaultUpgrade].find(
+    (alias) => alias !== undefined && config.models?.[alias] !== undefined,
+  );
+  config['defaultProvider'] =
+    previousDefaultProvider !== undefined && config.providers[previousDefaultProvider] !== undefined
+      ? previousDefaultProvider
+      : undefined;
+  if (previousDefault !== undefined && config.defaultModel === undefined) {
+    config.thinking = undefined;
   }
 }

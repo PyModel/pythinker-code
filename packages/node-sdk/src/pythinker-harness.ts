@@ -37,6 +37,8 @@ import type {
   RenameSessionInput,
   ResumeSessionInput,
   ReloadSessionInput,
+  RefreshProviderModelsOptions,
+  RefreshProviderModelsResponse,
   SessionSummary,
   SessionSummaryPage,
   SkillSummary,
@@ -486,6 +488,12 @@ export class PythinkerHarness {
    */
   async replaceConfigSections(sections: Record<string, unknown>): Promise<void> {
     return this.rpc.replaceConfigSections(sections);
+  }
+
+  async refreshProviderModels(
+    options?: RefreshProviderModelsOptions,
+  ): Promise<RefreshProviderModelsResponse> {
+    return this.rpc.refreshProviderModels(options);
   }
 
   /**
