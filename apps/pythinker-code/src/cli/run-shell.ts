@@ -25,6 +25,7 @@ import type { TuiConfig } from '#/tui/config';
 import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
 import { PythinkerTUI } from '#/tui/index';
+import { combineStartupNotice } from '#/tui/utils/startup';
 import { startupTrace } from '#/utils/startup-trace';
 import { currentTheme, getColorPalette } from '#/tui/theme';
 import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
@@ -39,7 +40,7 @@ import { createPythinkerCodeHostIdentity } from './version';
 export async function runShell(
   opts: CLIOptions,
   version: string,
-  runOptions: { readonly migrateOnly?: boolean } = {},
+  runOptions: { readonly migrateOnly?: boolean; readonly updateNotice?: string } = {},
 ): Promise<void> {
   const startedAt = Date.now();
   const configStartedAt = startedAt;
@@ -139,7 +140,7 @@ export async function runShell(
     tuiConfig,
     version,
     workDir,
-    startupNotice: configWarning,
+    startupNotice: combineStartupNotice(runOptions.updateNotice, configWarning),
     migrationPlan,
     migrateOnly: runOptions.migrateOnly,
     telemetryDisabled: config.telemetry === false,
