@@ -86,6 +86,7 @@ export async function handleMainCommand(
   );
   startupTrace('preflight:end');
   if (preflightResult === 'exit') {
+    if (updateNotice !== undefined) process.stdout.write(`${updateNotice}\n`);
     process.exit(0);
   }
 

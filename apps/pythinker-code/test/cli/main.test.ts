@@ -455,6 +455,27 @@ describe('main entry command handling', () => {
     expect(runShell).not.toHaveBeenCalled();
   });
 
+  it('prints the update notice to stdout when preflight requests process exit', async () => {
+    const opts = defaultOpts();
+    mocks.validateOptions.mockReturnValue({ options: opts, uiMode: 'shell' });
+    mocks.runUpdatePreflight.mockImplementation(
+      async (_version: string, options: { onUpdateNotice?: (notice: string) => void }) => {
+        options.onUpdateNotice?.('Pythinker Code updated to v0.0.2\n');
+        return 'exit';
+      },
+    );
+    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      const exitCode = await runHandleMainCommand(opts);
+
+      expect(exitCode).toBe(0);
+      expect(writeSpy).toHaveBeenCalledWith('Pythinker Code updated to v0.0.2\n');
+      expect(runShell).not.toHaveBeenCalled();
+    } finally {
+      writeSpy.mockRestore();
+    }
+  });
+
   it('initializes and flushes telemetry around the upgrade command', async () => {
     const exitCode = await runHandleUpgradeCommand();
 
