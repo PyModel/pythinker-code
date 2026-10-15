@@ -468,7 +468,7 @@ export class AgentDynamicWorkflowProgressComponent implements Component {
 
   markCancelled(agentId: string): void {
     const member = this.findMemberByAgentId(agentId);
-    if (member === undefined) return;
+    if (member === undefined || isTerminalPhase(member.phase)) return;
     this.cancelMember(member, Date.now());
     this.markDirty();
   }
