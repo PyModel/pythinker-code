@@ -319,6 +319,12 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		return this.copyTextToClipboard(text);
 	}
 
+	/** Drop the text selection and multi-click history, e.g. before the host replaces the transcript. */
+	resetTextSelection(): void {
+		this.clearTextSelection();
+		this.lastClick = undefined;
+	}
+
 	/** The lines of the last rendered frame, one per terminal row, as written to the terminal. */
 	getScreenLines(): string[] {
 		return [...this.previousScreen];
@@ -427,7 +433,9 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 			this.terminal.write(`${BEGIN_SYNCHRONIZED_OUTPUT}${EXIT_ALT_SCREEN}\x1b[?25h${END_SYNCHRONIZED_OUTPUT}`);
 		} else {
 			const width = Math.max(1, this.terminal.columns);
-			const documentLines = this.render(width).map((line) => line.replace(OSC133_ZONE_PREFIX, ""));
+			const documentLines = this.resolveFakeCursors(this.render(width)).map((line) =>
+				line.replace(OSC133_ZONE_PREFIX, ""),
+			);
 			this.lastDocument = this.applyLineResets(documentLines.map((line) => line.replaceAll(CURSOR_MARKER, ""))).map(
 				(line) => (isImageLine(line) || visibleWidth(line) <= width ? line : sliceByColumn(line, 0, width, true)),
 			);
@@ -741,7 +749,6 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 				if (this.applyMouseDispatchResult(event, result)) this.requestRender();
 				return { consume: true };
 			}
-			if (this.shouldDeferViewportInputToOverlay()) return undefined;
 			this.routeWheel(wheelEvent, wheelDelta);
 			return { consume: true };
 		}
@@ -1767,7 +1774,8 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 				throw new Error(`Layout effects did not stabilize after ${MAX_LAYOUT_EFFECT_PASSES} passes`);
 			}
 		}
-		let screen = nextLayout.lines.map((line) => line.replace(OSC133_ZONE_PREFIX, ""));
+		// Resolve fake cursors before highlighting and compositing, which only track SGR codes
+		let screen = this.resolveFakeCursors(nextLayout.lines.map((line) => line.replace(OSC133_ZONE_PREFIX, "")));
 		screen = this.applySearchHighlights(screen, nextLayout);
 		screen = this.compositeScrollToEndIndicator(screen, nextLayout, width);
 		screen = this.compositeOverlays(screen, width, height);
