@@ -936,7 +936,9 @@ describe('AgentTowerService', () => {
       );
       publishAsMain(ix, new SubagentStarted({ subagentId: 'agent-w2' }));
 
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await vi.waitFor(() => {
+        expect(infos.filter((entry) => entry.msg.includes('skipping'))).toHaveLength(2);
+      });
       const state = await store.load();
       expect(state.roster.agents[0]?.diedAt).toBeUndefined();
       expect(state.roster.agents[1]?.diedAt).toBeDefined();
