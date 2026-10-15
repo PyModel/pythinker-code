@@ -653,6 +653,38 @@ describe('runShell', () => {
     });
   });
 
+  it('passes the update notice to the TUI as a startup notice', async () => {
+    mocks.loadTuiConfig.mockResolvedValue({
+      theme: 'dark',
+      editorCommand: null,
+      notifications: { enabled: true, condition: 'unfocused' },
+    });
+    mocks.tuiStart.mockResolvedValue(undefined);
+
+    await runShell(
+      {
+        session: '',
+        continue: false,
+        yolo: false,
+        auto: false,
+        plan: false,
+        model: undefined,
+        outputFormat: undefined,
+        prompt: undefined,
+        skillsDirs: [],
+        agent: undefined,
+        agentFiles: [],
+      },
+      '1.2.3-test',
+      { updateNotice: 'Pythinker Code updated to v1.2.3-test' },
+    );
+
+    const [, , startupInput] = mocks.pythinkerTuiConstructor.mock.calls[0]!;
+    expect(startupInput).toMatchObject({
+      startupNotice: 'Pythinker Code updated to v1.2.3-test',
+    });
+  });
+
   it('flushes diagnostic logs synchronously before exiting on a runtime crash', async () => {
     mocks.loadTuiConfig.mockResolvedValue({
       theme: 'dark',

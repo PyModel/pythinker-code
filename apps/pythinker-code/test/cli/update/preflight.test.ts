@@ -975,6 +975,32 @@ describe('runUpdatePreflight', () => {
     expect(detectInstallSource).not.toHaveBeenCalled();
   });
 
+  it('hands the background update success notice to onUpdateNotice instead of stdout', async () => {
+    mocks.readUpdateCache.mockResolvedValue(emptyUpdateCache());
+    mocks.readUpdateInstallState.mockResolvedValue(installState({
+      lastSuccess: {
+        version: '0.5.0',
+        installedAt: '2026-04-23T08:00:00.000Z',
+        notifiedAt: null,
+      },
+    }));
+    mocks.refreshUpdateCache.mockResolvedValue(emptyUpdateCache());
+    const { stdout, options } = captureOutput();
+    const notices: string[] = [];
+
+    await expect(runUpdatePreflight('0.5.0', {
+      ...options,
+      onUpdateNotice: (notice) => { notices.push(notice); },
+    })).resolves.toBe('continue');
+
+    expect(stdout.join('')).toBe('');
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain('Pythinker Code updated to v0.5.0');
+    expect(writeUpdateInstallState).toHaveBeenCalledWith(expect.objectContaining({
+      lastSuccess: expect.objectContaining({ notifiedAt: expect.any(String) }),
+    }));
+  });
+
   it('infers a background update success notice when the active install version is now running', async () => {
     mocks.readUpdateCache.mockResolvedValue(emptyUpdateCache());
     mocks.readUpdateInstallState.mockResolvedValue(installState({

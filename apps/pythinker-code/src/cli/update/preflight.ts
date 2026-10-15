@@ -48,6 +48,7 @@ export interface RunUpdatePreflightOptions {
   readonly isTTY?: boolean;
   readonly track?: (event: string, properties?: TelemetryProperties) => void;
   readonly logger?: UpdateLogger;
+  readonly onUpdateNotice?: (notice: string) => void;
 }
 
 const AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD = 2;
@@ -434,13 +435,13 @@ async function hasInstallInFlight(
 async function showPendingBackgroundInstallNotice(
   state: UpdateInstallState,
   currentVersion: string,
-  stdout: { write(chunk: string): boolean },
+  emitNotice: (notice: string) => void,
   track: RunUpdatePreflightOptions['track'],
   logger: UpdateLogger,
 ): Promise<UpdateInstallState> {
   const success = state.lastSuccess;
   if (success !== null && success.notifiedAt === null && success.version === currentVersion) {
-    stdout.write(renderBackgroundInstallSuccessNotice(success.version));
+    emitNotice(renderBackgroundInstallSuccessNotice(success.version));
     trackUpdateEvent(track, 'update_success_notice_shown', {
       version: success.version,
       inferred_from_active: false,
@@ -469,7 +470,7 @@ async function showPendingBackgroundInstallNotice(
   }
 
   const notifiedAt = nowIso();
-  stdout.write(renderBackgroundInstallSuccessNotice(active.version));
+  emitNotice(renderBackgroundInstallSuccessNotice(active.version));
   trackUpdateEvent(track, 'update_success_notice_shown', {
     version: active.version,
     inferred_from_active: true,
@@ -804,7 +805,7 @@ export async function runUpdatePreflight(
       installState = await showPendingBackgroundInstallNotice(
         installState,
         currentVersion,
-        stdout,
+        options.onUpdateNotice ?? ((notice) => { stdout.write(notice); }),
         options.track,
         logger,
       );

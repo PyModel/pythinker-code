@@ -252,11 +252,32 @@ describe('main entry command handling', () => {
 
     expect(exitCode).toBeNull();
     expect(validateOptions).toHaveBeenCalledWith(opts);
-    expect(runUpdatePreflight).toHaveBeenCalledWith('0.0.1-alpha.2', { track: expect.any(Function) });
+    expect(runUpdatePreflight).toHaveBeenCalledWith('0.0.1-alpha.2', {
+      track: expect.any(Function),
+      onUpdateNotice: expect.any(Function),
+    });
     expect(mocks.runUpdatePreflight.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.runShell.mock.invocationCallOrder[0]!,
     );
-    expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2');
+    expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2', { updateNotice: undefined });
+  });
+
+  it('passes the update notice from preflight to the shell', async () => {
+    const opts = defaultOpts();
+    mocks.validateOptions.mockReturnValue({ options: opts, uiMode: 'shell' });
+    mocks.runUpdatePreflight.mockImplementation(
+      async (_version: string, options: { onUpdateNotice?: (notice: string) => void }) => {
+        options.onUpdateNotice?.('Pythinker Code updated to v0.0.2\nChangelog: https://example.test\n');
+        return 'continue';
+      },
+    );
+    mocks.runShell.mockResolvedValue(void 0);
+
+    await runHandleMainCommand(opts);
+
+    expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2', {
+      updateNotice: 'Pythinker Code updated to v0.0.2\nChangelog: https://example.test',
+    });
   });
 
   it('runs prompt mode without interactive update preflight', async () => {
@@ -365,8 +386,9 @@ describe('main entry command handling', () => {
     expect(exitCode).toBeNull();
     expect(runUpdatePreflight).toHaveBeenCalledWith('0.0.1-alpha.2', {
       track: expect.any(Function),
+      onUpdateNotice: expect.any(Function),
     });
-    expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2');
+    expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2', { updateNotice: undefined });
   });
 
   it('installs crash handlers before parsing CLI arguments', async () => {

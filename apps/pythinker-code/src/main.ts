@@ -75,9 +75,14 @@ export async function handleMainCommand(
   }
 
   startupTrace('preflight:begin');
+  // The TUI clears the screen on start, so a notice written to stdout here
+  // would vanish; hand it to the TUI to show in the transcript instead.
+  let updateNotice: string | undefined;
   const preflightResult = await runUpdatePreflight(
     version,
-    validated.uiMode === 'print' ? { track, isTTY: false } : { track },
+    validated.uiMode === 'print'
+      ? { track, isTTY: false }
+      : { track, onUpdateNotice: (notice) => { updateNotice = notice.trimEnd(); } },
   );
   startupTrace('preflight:end');
   if (preflightResult === 'exit') {
@@ -90,7 +95,7 @@ export async function handleMainCommand(
   }
 
   startupTrace('runShell:begin');
-  await runShell(validated.options, version);
+  await runShell(validated.options, version, { updateNotice });
   return { headlessCompleted: false };
 }
 
