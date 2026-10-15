@@ -8,8 +8,8 @@ Update this section after every sync. Do not reuse the previous range.
 
 - **Repo:** `https://github.com/earendil-works/pi.git`
 - **Subtree:** `packages/tui`
-- **Commit:** `a7229ddc21810d6245105978033b7df645ecc2f7` (2026-10-03; upstream tag v1.0.1)
-- **Darwin prebuilds:** rebuilt locally from `native/darwin/src/darwin-platform.m` with `native/darwin/build.sh`, not copied from upstream. Exports and linked libraries match the upstream v1.0.1 prebuilds.
+- **Commit:** `71023aec1546d6d677a65669c5665c0927ce0dd0` (2026-10-15; upstream tag v1.3.0)
+- **Darwin prebuilds:** rebuilt locally from `native/darwin/src/darwin-platform.m` with `native/darwin/build.sh`, not copied from upstream. Exports and linked libraries match the upstream v1.0.1 prebuilds. Upstream did not change the native sources or prebuilds between v1.0.1 and v1.3.0.
 - **This commit is an upstream marker.** It may not exist in this repo's object database.
 
 ## Reconstruct the fork

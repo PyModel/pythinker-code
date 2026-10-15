@@ -38,6 +38,8 @@ Type `!` in an empty input box to enter shell mode and run terminal commands dir
 | Shortcut | Function |
 | --- | --- |
 | `Ctrl-G` | Edit the current input in an external editor |
+| `Home` / `End` | Move the cursor to the start or end of the current line |
+| `Ctrl-Home` / `Ctrl-End` | Scroll the transcript to the top or bottom (fullscreen mode) |
 | `Ctrl-V` | Paste an image or video from the clipboard (Unix / macOS) |
 | `Alt-V` | Paste an image or video from the clipboard (Windows) |
 | `Ctrl--` | Undo |
