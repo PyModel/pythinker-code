@@ -220,6 +220,7 @@ describe('handleRemoteControlCommand', () => {
       deviceId: 'device-1',
       deviceName: 'example-device',
       url: entryUrl,
+      closed: new Promise(() => {}),
       close,
     });
     mocks.startServerForeground.mockImplementation(
@@ -289,6 +290,7 @@ describe('handleRemoteControlCommand', () => {
       deviceId: 'device-1',
       deviceName: 'example-device',
       url: entryUrl,
+      closed: new Promise(() => {}),
       close,
     });
     mocks.startServerForeground.mockImplementation(

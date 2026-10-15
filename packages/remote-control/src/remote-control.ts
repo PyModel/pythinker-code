@@ -121,8 +121,11 @@ export interface ParsedRawHttpRequest {
 export type RemoteControlStatus =
   | 'relay_connected'
   | 'relay_disconnected'
+  | 'relay_terminated'
   | 'device_connected'
   | 'device_disconnected';
+
+export type RemoteControlCloseReason = 'local_close' | 'user_requested';
 
 export interface RemoteControlOptions {
   readonly homeDir: string;
@@ -141,7 +144,7 @@ export interface RemoteControlHandle {
   readonly deviceId: string;
   readonly deviceName: string;
   readonly url: string;
-  readonly closed: Promise<void>;
+  readonly closed: Promise<RemoteControlCloseReason>;
   close(): Promise<void>;
 }
 
@@ -340,8 +343,9 @@ export async function startRemoteControl(
     await lock.release();
     throw error;
   }
-  const closed = client.closed.then(async () => {
+  const closed = client.closed.then(async (reason) => {
     await lock.release();
+    return reason;
   });
   return {
     deviceId,
@@ -376,6 +380,7 @@ class RemoteControlClient {
   private readonly pingIntervalMs: number;
   private readonly silenceTimeoutMs: number;
   private stopped = false;
+  private userRequested = false;
   private connected = false;
   private relayOnline = false;
   private runPromise: Promise<void> | undefined;
@@ -413,8 +418,10 @@ class RemoteControlClient {
     await initial;
   }
 
-  get closed(): Promise<void> {
-    return this.runPromise ?? Promise.resolve();
+  get closed(): Promise<RemoteControlCloseReason> {
+    return (this.runPromise ?? Promise.resolve()).then(() =>
+      this.userRequested ? 'user_requested' : 'local_close',
+    );
   }
 
   async close(): Promise<void> {
@@ -576,7 +583,10 @@ class RemoteControlClient {
     }
     if (message.type === 'disconnect') {
       const reason = stringField(message.payload, 'reason');
-      if (reason === 'user_requested') this.stopped = true;
+      if (reason === 'user_requested') {
+        this.stopped = true;
+        this.userRequested = true;
+      }
       if (reason === 'server_shutting_down') this.reconnectImmediately = true;
       this.closeCycle();
     }
@@ -748,7 +758,7 @@ class RemoteControlClient {
     this.http?.close();
     if (this.relayOnline) {
       this.relayOnline = false;
-      this.onStatus('relay_disconnected');
+      this.onStatus(this.userRequested ? 'relay_terminated' : 'relay_disconnected');
     }
     this.management = undefined;
     this.http = undefined;

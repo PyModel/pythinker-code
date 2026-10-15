@@ -27,6 +27,7 @@ export {
 } from '@pymodel/remote-control';
 export type {
   ParsedRawHttpRequest,
+  RemoteControlCloseReason,
   RemoteControlHandle,
   RemoteControlLock,
   RemoteControlLockInfo,
@@ -88,6 +89,8 @@ export function formatRemoteControlStatus(status: RemoteControlStatus): string {
       return `  ${value('✓')} ${label('Connected to relay, waiting for remote devices…')}\n`;
     case 'relay_disconnected':
       return `  ${value('!')} ${label('Relay disconnected; reconnecting…')}\n`;
+    case 'relay_terminated':
+      return `  ${value('✕')} ${label('Taken offline from the web; exiting…')}\n`;
     case 'device_connected':
       return `  ${value('✓')} ${label('Remote device connected (1 active session)')}\n`;
     case 'device_disconnected':
