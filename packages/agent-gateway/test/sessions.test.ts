@@ -21,6 +21,8 @@ import {
   IAgentConversationUndoService,
   IAgentCronService,
   IAgentLifecycleService,
+  IAgentLoopService,
+  IConfigService,
   IEventBus,
   IEventDispatcher,
   IEventService,
@@ -1184,6 +1186,97 @@ describe('server-v2 /api/v1/sessions', () => {
       expect(response.body.code).toBe(40901);
     } finally {
       compacting.mockRestore();
+    }
+  });
+
+  it('returns 40901 when :reload finds a turn queued or holding the loop', async () => {
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+    });
+    const id = created.body.data.id;
+    const session = getLiveSessionById((server as RunningServer).core.accessor, id);
+    if (session === undefined) throw new Error('expected live session');
+    await session.accessor
+      .get(IAgentLifecycleService)
+      .create({ agentId: MAIN_AGENT_ID });
+    const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
+    const busy = vi
+      .spyOn(agent.accessor.get(IAgentLoopService), 'tryAcquireQuiescence')
+      .mockReturnValue(undefined);
+
+    try {
+      const response = await postJson<null>(`/api/v1/sessions/${id}:reload`);
+      expect(response.body.code).toBe(40901);
+    } finally {
+      busy.mockRestore();
+    }
+  });
+
+  it('keeps every agent quiescent while :reload reloads configuration', async () => {
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+    });
+    const id = created.body.data.id;
+    const session = getLiveSessionById((server as RunningServer).core.accessor, id);
+    if (session === undefined) throw new Error('expected live session');
+    await session.accessor
+      .get(IAgentLifecycleService)
+      .create({ agentId: MAIN_AGENT_ID });
+    const loop = session.accessor
+      .get(IAgentLifecycleService)
+      .handleOf(MAIN_AGENT_ID)!
+      .accessor.get(IAgentLoopService);
+    const config = (server as RunningServer).core.accessor.get(IConfigService);
+    const original = config.reload.bind(config);
+    const probes: boolean[] = [];
+    const reload = vi.spyOn(config, 'reload').mockImplementation(async () => {
+      const hold = loop.tryAcquireQuiescence();
+      probes.push(hold === undefined);
+      hold?.dispose();
+      await original();
+    });
+
+    try {
+      const response = await postJson<SessionWire>(`/api/v1/sessions/${id}:reload`);
+      expect(response.body.code).toBe(0);
+      expect(probes).toEqual([true]);
+    } finally {
+      reload.mockRestore();
+    }
+  });
+
+  it('returns 40901 and keeps the session when a prompt arrives during :reload', async () => {
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+    });
+    const id = created.body.data.id;
+    const session = getLiveSessionById((server as RunningServer).core.accessor, id);
+    if (session === undefined) throw new Error('expected live session');
+    await session.accessor
+      .get(IAgentLifecycleService)
+      .create({ agentId: MAIN_AGENT_ID });
+    const loop = session.accessor
+      .get(IAgentLifecycleService)
+      .handleOf(MAIN_AGENT_ID)!
+      .accessor.get(IAgentLoopService);
+    const realSnapshot = loop.snapshot.bind(loop);
+    const config = (server as RunningServer).core.accessor.get(IConfigService);
+    const original = config.reload.bind(config);
+    let snapshot: { mockRestore(): void } | undefined;
+    const reload = vi.spyOn(config, 'reload').mockImplementation(async () => {
+      await original();
+      snapshot = vi
+        .spyOn(loop, 'snapshot')
+        .mockImplementation(() => ({ ...realSnapshot(), queue: [{} as never] }));
+    });
+
+    try {
+      const response = await postJson<null>(`/api/v1/sessions/${id}:reload`);
+      expect(response.body.code).toBe(40901);
+      expect(getLiveSessionById((server as RunningServer).core.accessor, id)).toBe(session);
+    } finally {
+      snapshot?.mockRestore();
+      reload.mockRestore();
     }
   });
 

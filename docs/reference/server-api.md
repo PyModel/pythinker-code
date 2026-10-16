@@ -775,7 +775,7 @@ Reloads the session with the latest on-disk configuration: re-reads `config.toml
 
 On success, `data` is [the session object](#the-session-object).
 
-- `40901`: the session has an active turn and cannot be reloaded
+- `40901`: the session has an active or queued turn or a running compaction, or a prompt arrived while the reload was running; the session is left as it was
 
 #### `GET /api/v1/sessions/{session_id}/children`
 

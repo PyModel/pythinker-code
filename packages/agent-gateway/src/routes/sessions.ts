@@ -35,6 +35,7 @@ import {
   Error2,
   type ContextMessage,
   type IAgentScopeHandle,
+  type IDisposable,
   type ISessionScopeHandle,
   type Scope,
   type SessionSummary,
@@ -1019,23 +1020,13 @@ async function deleteSessionAction(ctx: SessionActionCtx): Promise<void> {
   reply.send(okEnvelope({ deleted: true }, req.id));
 }
 
-async function reloadSessionAction(ctx: SessionActionCtx): Promise<void> {
-  const { core, req, reply, id } = ctx;
-  const live = getLiveSessionById(core.accessor, id);
-  const indexEntry =
-    live === undefined ? await core.accessor.get(ISessionIndex).get(id) : undefined;
-  if (live !== undefined) {
-    const agentLifecycle = live.accessor.get(IAgentLifecycleService);
+function holdReloadQuiescence(live: ISessionScopeHandle, id: string): IDisposable[] {
+  const holds: IDisposable[] = [];
+  const agentLifecycle = live.accessor.get(IAgentLifecycleService);
+  try {
     for (const agent of agentLifecycle.list()) {
       const agentHandle = agentLifecycle.handleOf(agent.agentId);
       if (agentHandle === undefined) continue;
-      if (agentHandle.accessor.get(IAgentLoopService).snapshot().state === 'running') {
-        throw new Error2(
-          ErrorCodes.SESSION_BUSY,
-          `Session "${id}" cannot be reloaded while a turn is running`,
-          { details: { sessionId: id } },
-        );
-      }
       if (agentHandle.accessor.get(IAgentFullCompactionService).compacting !== null) {
         throw new Error2(
           ErrorCodes.SESSION_BUSY,
@@ -1043,45 +1034,89 @@ async function reloadSessionAction(ctx: SessionActionCtx): Promise<void> {
           { details: { sessionId: id } },
         );
       }
+      const hold = agentHandle.accessor.get(IAgentLoopService).tryAcquireQuiescence();
+      if (hold === undefined) {
+        throw new Error2(
+          ErrorCodes.SESSION_BUSY,
+          `Session "${id}" cannot be reloaded while a turn is running`,
+          { details: { sessionId: id } },
+        );
+      }
+      holds.push(hold);
     }
-  } else if (indexEntry === undefined) {
+  } catch (error) {
+    for (const hold of holds) hold.dispose();
+    throw error;
+  }
+  return holds;
+}
+
+function hasQueuedPrompt(live: ISessionScopeHandle): boolean {
+  const agentLifecycle = live.accessor.get(IAgentLifecycleService);
+  return agentLifecycle.list().some((agent) => {
+    const agentHandle = agentLifecycle.handleOf(agent.agentId);
+    return (
+      agentHandle !== undefined &&
+      agentHandle.accessor.get(IAgentLoopService).snapshot().queue.length > 0
+    );
+  });
+}
+
+async function reloadSessionAction(ctx: SessionActionCtx): Promise<void> {
+  const { core, req, reply, id } = ctx;
+  const live = getLiveSessionById(core.accessor, id);
+  const indexEntry =
+    live === undefined ? await core.accessor.get(ISessionIndex).get(id) : undefined;
+  if (live === undefined && indexEntry === undefined) {
     throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${id} does not exist`);
   }
-  const workspaceId =
-    live?.accessor.get(ISessionContext).workspaceId ?? indexEntry?.workspaceId;
   let previousSubagentNames: readonly string[] | undefined;
   let previousModelPool: SubagentModelPoolSnapshot | null | undefined;
-  let staleNotifier: IAgentChangeNotifierService | undefined;
-  if (live !== undefined) {
-    const main = live.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
-    if (main !== undefined) {
-      previousSubagentNames = main.accessor
-        .get(ISessionAgentProfileCatalog)
-        .list()
-        .map((profile) => profile.name);
-      const pool = resolveSubagentModelPool(main.accessor.get(IConfigService));
-      previousModelPool =
-        pool === undefined
-          ? null
-          : { defaultModel: pool.defaultModel, models: { ...pool.models } };
-      staleNotifier = main.accessor.get(IAgentChangeNotifierService);
-      staleNotifier.mute();
-    }
-  }
+  const holds = live === undefined ? [] : holdReloadQuiescence(live, id);
   try {
-    await core.accessor.get(IConfigService).reload();
-    await core.accessor.get(IPluginService).reloadPlugins();
-    await refreshWorkspaceCatalogs(core, workspaceId, id);
-  } catch (error) {
-    if (staleNotifier !== undefined) {
-      staleNotifier.unmute();
-      await Promise.all([
-        staleNotifier.notifyAgentsMdChanges(),
-        staleNotifier.notifySkillChanges(),
-        staleNotifier.notifySubagentChanges({}),
-      ]).catch(() => undefined);
+    const workspaceId =
+      live?.accessor.get(ISessionContext).workspaceId ?? indexEntry?.workspaceId;
+    let staleNotifier: IAgentChangeNotifierService | undefined;
+    if (live !== undefined) {
+      const main = live.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
+      if (main !== undefined) {
+        previousSubagentNames = main.accessor
+          .get(ISessionAgentProfileCatalog)
+          .list()
+          .map((profile) => profile.name);
+        const pool = resolveSubagentModelPool(main.accessor.get(IConfigService));
+        previousModelPool =
+          pool === undefined
+            ? null
+            : { defaultModel: pool.defaultModel, models: { ...pool.models } };
+        staleNotifier = main.accessor.get(IAgentChangeNotifierService);
+        staleNotifier.mute();
+      }
     }
-    throw error;
+    try {
+      await core.accessor.get(IConfigService).reload();
+      await core.accessor.get(IPluginService).reloadPlugins();
+      await refreshWorkspaceCatalogs(core, workspaceId, id);
+      if (live !== undefined && hasQueuedPrompt(live)) {
+        throw new Error2(
+          ErrorCodes.SESSION_BUSY,
+          `Session "${id}" cannot be reloaded because a prompt arrived during the reload`,
+          { details: { sessionId: id } },
+        );
+      }
+    } catch (error) {
+      if (staleNotifier !== undefined) {
+        staleNotifier.unmute();
+        await Promise.all([
+          staleNotifier.notifyAgentsMdChanges(),
+          staleNotifier.notifySkillChanges(),
+          staleNotifier.notifySubagentChanges({}),
+        ]).catch(() => undefined);
+      }
+      throw error;
+    }
+  } finally {
+    for (const hold of holds) hold.dispose();
   }
   if (live !== undefined) {
     await closeSessionById(core.accessor, id);

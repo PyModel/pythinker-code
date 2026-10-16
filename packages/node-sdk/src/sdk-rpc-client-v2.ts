@@ -1567,72 +1567,106 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * v2 channel (the engine owns plugin session-start injection), so reload
    * refreshes the durable guidance snapshot through the Agent service.
    */
+  private static holdReloadQuiescence(live: ISessionScopeHandle, sessionId: string): IDisposable[] {
+    const holds: IDisposable[] = [];
+    const agentLifecycle = live.accessor.get(IAgentLifecycleService);
+    try {
+      for (const agent of agentLifecycle.list()) {
+        const agentHandle = agentLifecycle.handleOf(agent.agentId);
+        if (agentHandle === undefined) continue;
+        if (agentHandle.accessor.get(IAgentFullCompactionService).compacting !== null) {
+          throw new PythinkerError(
+            ErrorCodes.TURN_AGENT_BUSY,
+            `Session "${sessionId}" cannot be reloaded while compaction is running`,
+            { details: { sessionId } },
+          );
+        }
+        const hold = agentHandle.accessor.get(IAgentLoopService).tryAcquireQuiescence();
+        if (hold === undefined) {
+          throw new PythinkerError(
+            ErrorCodes.TURN_AGENT_BUSY,
+            `Session "${sessionId}" cannot be reloaded while a turn is running`,
+            { details: { sessionId } },
+          );
+        }
+        holds.push(hold);
+      }
+    } catch (error) {
+      for (const hold of holds) hold.dispose();
+      throw error;
+    }
+    return holds;
+  }
+
+  private static hasQueuedPrompt(live: ISessionScopeHandle): boolean {
+    const agentLifecycle = live.accessor.get(IAgentLifecycleService);
+    return agentLifecycle.list().some((agent) => {
+      const agentHandle = agentLifecycle.handleOf(agent.agentId);
+      return (
+        agentHandle !== undefined &&
+        agentHandle.accessor.get(IAgentLoopService).snapshot().queue.length > 0
+      );
+    });
+  }
+
   override async reloadSession(input: ReloadSessionRpcInput): Promise<ResumedSessionSummary> {
     const sessionId = input.sessionId;
     return this.runSessionAccess(sessionId, async () => {
       const live = this.liveSession(sessionId);
       const indexEntry =
         live === undefined ? await this.engineAccessor.get(ISessionIndex).get(sessionId) : undefined;
-      if (live !== undefined) {
-        const agentLifecycle = live.accessor.get(IAgentLifecycleService);
-        for (const agent of agentLifecycle.list()) {
-          const agentHandle = agentLifecycle.handleOf(agent.agentId);
-          if (agentHandle === undefined) continue;
-          if (agentHandle.accessor.get(IAgentLoopService).snapshot().state === 'running') {
-            throw new PythinkerError(
-              ErrorCodes.TURN_AGENT_BUSY,
-              `Session "${sessionId}" cannot be reloaded while a turn is running`,
-              { details: { sessionId } },
-            );
-          }
-          if (agentHandle.accessor.get(IAgentFullCompactionService).compacting !== null) {
-            throw new PythinkerError(
-              ErrorCodes.TURN_AGENT_BUSY,
-              `Session "${sessionId}" cannot be reloaded while compaction is running`,
-              { details: { sessionId } },
-            );
-          }
-        }
-      } else if (indexEntry === undefined) {
+      if (live === undefined && indexEntry === undefined) {
         throw SDKRpcClientV2.sessionNotFound(sessionId);
       }
-      const workspaceId =
-        live?.accessor.get(ISessionContext).workspaceId ?? indexEntry?.workspaceId;
       let previousSubagentNames: readonly string[] | undefined;
       let previousModelPool: SubagentModelPoolSnapshot | null | undefined;
-      let staleNotifier: IAgentChangeNotifierService | undefined;
-      if (live !== undefined) {
-        const main = live.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
-        if (main !== undefined) {
-          previousSubagentNames = main.accessor
-            .get(ISessionAgentProfileCatalog)
-            .list()
-            .map((profile) => profile.name);
-          const pool = resolveSubagentModelPool(main.accessor.get(IConfigService));
-          previousModelPool =
-            pool === undefined
-              ? null
-              : { defaultModel: pool.defaultModel, models: { ...pool.models } };
-          staleNotifier = main.accessor.get(IAgentChangeNotifierService);
-          staleNotifier.mute();
-        }
-      }
-      await this.configReady;
+      const holds = live === undefined ? [] : SDKRpcClientV2.holdReloadQuiescence(live, sessionId);
       try {
-        await this.klient.global.config.reload();
-        await this.klient.global.plugins.reload();
-        await this.reloadWorkspaceCatalogs(workspaceId);
-        await this.refreshPluginSessionStarts(sessionId);
-      } catch (error) {
-        if (staleNotifier !== undefined) {
-          staleNotifier.unmute();
-          await Promise.all([
-            staleNotifier.notifyAgentsMdChanges(),
-            staleNotifier.notifySkillChanges(),
-            staleNotifier.notifySubagentChanges({}),
-          ]).catch(() => undefined);
+        const workspaceId =
+          live?.accessor.get(ISessionContext).workspaceId ?? indexEntry?.workspaceId;
+        let staleNotifier: IAgentChangeNotifierService | undefined;
+        if (live !== undefined) {
+          const main = live.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
+          if (main !== undefined) {
+            previousSubagentNames = main.accessor
+              .get(ISessionAgentProfileCatalog)
+              .list()
+              .map((profile) => profile.name);
+            const pool = resolveSubagentModelPool(main.accessor.get(IConfigService));
+            previousModelPool =
+              pool === undefined
+                ? null
+                : { defaultModel: pool.defaultModel, models: { ...pool.models } };
+            staleNotifier = main.accessor.get(IAgentChangeNotifierService);
+            staleNotifier.mute();
+          }
         }
-        throw error;
+        await this.configReady;
+        try {
+          await this.klient.global.config.reload();
+          await this.klient.global.plugins.reload();
+          await this.reloadWorkspaceCatalogs(workspaceId);
+          await this.refreshPluginSessionStarts(sessionId);
+          if (live !== undefined && SDKRpcClientV2.hasQueuedPrompt(live)) {
+            throw new PythinkerError(
+              ErrorCodes.TURN_AGENT_BUSY,
+              `Session "${sessionId}" cannot be reloaded because a prompt arrived during the reload`,
+              { details: { sessionId } },
+            );
+          }
+        } catch (error) {
+          if (staleNotifier !== undefined) {
+            staleNotifier.unmute();
+            await Promise.all([
+              staleNotifier.notifyAgentsMdChanges(),
+              staleNotifier.notifySkillChanges(),
+              staleNotifier.notifySubagentChanges({}),
+            ]).catch(() => undefined);
+          }
+          throw error;
+        }
+      } finally {
+        for (const hold of holds) hold.dispose();
       }
       if (live !== undefined) {
         await closeSessionById(this.engineAccessor, sessionId);
