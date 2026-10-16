@@ -44,11 +44,13 @@ import {
   IAgentIdentity,
   IAgentTodoService,
   IAgentLifecycleService,
+  IAgentLoopService,
   IAgentProfileService,
   IAgentToolActivationService,
   IAgentToolRegistryService,
   INotifyUserTool,
   IAtomicDocumentStore,
+  IConfigService,
   ISessionContext,
   IAgentTowerService,
   IHostRequestHeaders,
@@ -1167,6 +1169,74 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     },
     30_000,
   );
+
+  it('keeps the session quiescent while reloadSession reloads configuration', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      await client.createSession({ id: 'ses_reload_hold', workDir });
+      const manager = getLiveSessionById(client.engineAccessor, 'ses_reload_hold')!.accessor.get(
+        IAgentLifecycleService,
+      );
+      await manager.create({ agentId: MAIN_AGENT_ID });
+      const loop = manager.handleOf(MAIN_AGENT_ID)!.accessor.get(IAgentLoopService);
+      const config = client.engineAccessor.get(IConfigService);
+      const original = config.reload.bind(config);
+      const probes: boolean[] = [];
+      const reload = vi.spyOn(config, 'reload').mockImplementation(async () => {
+        const hold = loop.tryAcquireQuiescence();
+        probes.push(hold === undefined);
+        hold?.dispose();
+        await original();
+      });
+      try {
+        await client.reloadSession({ sessionId: 'ses_reload_hold' });
+        expect(probes).toEqual([true]);
+      } finally {
+        reload.mockRestore();
+      }
+
+      const live = getLiveSessionById(client.engineAccessor, 'ses_reload_hold')!;
+      const reloadedLoop = live.accessor
+        .get(IAgentLifecycleService)
+        .handleOf(MAIN_AGENT_ID)!
+        .accessor.get(IAgentLoopService);
+      const realSnapshot = reloadedLoop.snapshot.bind(reloadedLoop);
+      let queued: { mockRestore(): void } | undefined;
+      const late = vi.spyOn(config, 'reload').mockImplementation(async () => {
+        await original();
+        queued = vi
+          .spyOn(reloadedLoop, 'snapshot')
+          .mockImplementation(() => ({ ...realSnapshot(), queue: [{} as never] }));
+      });
+      try {
+        await expect(client.reloadSession({ sessionId: 'ses_reload_hold' })).rejects.toMatchObject({
+          code: ErrorCodes.TURN_AGENT_BUSY,
+        });
+        expect(getLiveSessionById(client.engineAccessor, 'ses_reload_hold')).toBe(live);
+      } finally {
+        queued?.mockRestore();
+        late.mockRestore();
+      }
+
+      const reloaded = live.accessor.get(IAgentLifecycleService);
+      const busy = vi
+        .spyOn(reloaded.handleOf(MAIN_AGENT_ID)!.accessor.get(IAgentLoopService), 'tryAcquireQuiescence')
+        .mockReturnValue(undefined);
+      try {
+        await expect(client.reloadSession({ sessionId: 'ses_reload_hold' })).rejects.toMatchObject({
+          code: ErrorCodes.TURN_AGENT_BUSY,
+        });
+      } finally {
+        busy.mockRestore();
+      }
+    } finally {
+      await client.close();
+    }
+  });
 
   it('serves getTodos from the live session todo state', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));

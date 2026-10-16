@@ -85,6 +85,7 @@ import type {
   ToolsResetActiveTools,
   ToolsSetActiveTools,
 } from '@pymodel/agent-core-v2/agent/profile/profileOps';
+import type { ChangeNotifierSnapshotEvent } from '@pymodel/agent-core-v2/agent/changeNotifier/changeNotifierOps';
 import type { PermissionSetMode } from '@pymodel/agent-core-v2/agent/permissionMode/permissionModeOps';
 import type { PermissionRecordApprovalResult } from '@pymodel/agent-core-v2/agent/permissionRules/permissionRulesOps';
 import type { RuntimeSetBinding } from '@pymodel/agent-core-v2/agent/runtimeBinding/runtimeBindingOps';
@@ -165,6 +166,7 @@ export interface WireMetadataHeader {
  */
 export type AgentRecord =
   | WireMetadataHeader
+  | WireRecordOf<'changeNotifier.snapshot', ChangeNotifierSnapshotEvent>
   | WireRecordOf<'config.update', ConfigUpdate>
   | WireRecordOf<'context.append_loop_event', ContextAppendLoopEvent>
   | WireRecordOf<'context.append_message', ContextAppendMessage>
