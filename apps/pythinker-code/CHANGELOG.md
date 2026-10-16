@@ -1,5 +1,21 @@
 # @pymodel/pythinker-code
 
+## 2.8.0
+
+### Minor Changes
+
+- [#383](https://github.com/PyModel/pythinker-code/pull/383) [`f54f86d`](https://github.com/PyModel/pythinker-code/commit/f54f86de70dfb8c0f8a6fde8402fd0e7cbaeab24) Thanks [@elkaix](https://github.com/elkaix)! - Tell the agent which AGENTS.md files, skills, subagent profiles, and subagent models changed, after `/reload` and whenever the file watcher sees them change; set `[watch] enabled = false` to stop the automatic reminders.
+
+### Patch Changes
+
+- [#383](https://github.com/PyModel/pythinker-code/pull/383) [`f54f86d`](https://github.com/PyModel/pythinker-code/commit/f54f86de70dfb8c0f8a6fde8402fd0e7cbaeab24) Thanks [@elkaix](https://github.com/elkaix)! - Stop collapsing tool output, shell output, and thinking blocks when only one line would be hidden.
+
+- [#383](https://github.com/PyModel/pythinker-code/pull/383) [`f54f86d`](https://github.com/PyModel/pythinker-code/commit/f54f86de70dfb8c0f8a6fde8402fd0e7cbaeab24) Thanks [@elkaix](https://github.com/elkaix)! - Setting `dangerous_command_guard = false` now also turns off the confirmation prompts for sensitive files such as `.env` and for git control paths; set it to `true` to restore them.
+
+- [#380](https://github.com/PyModel/pythinker-code/pull/380) [`bb2780d`](https://github.com/PyModel/pythinker-code/commit/bb2780d3d7dc98143c0447471328e9af4acd5cd5) Thanks [@elkaix](https://github.com/elkaix)! - Update the terminal UI library to upstream v1.3.0: in fullscreen mode, Ctrl+Home and Ctrl+End now scroll the transcript to the top and bottom, and Home and End move the cursor in the input box.
+
+- [#379](https://github.com/PyModel/pythinker-code/pull/379) [`bde2ec7`](https://github.com/PyModel/pythinker-code/commit/bde2ec7656532bf3348463b885865fce752c61fc) Thanks [@elkaix](https://github.com/elkaix)! - Show the "Pythinker Code updated" notice inside the TUI after a background update, so fullscreen mode no longer hides it.
+
 ## 2.7.0
 
 ### Minor Changes
