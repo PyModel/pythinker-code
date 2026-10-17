@@ -48,11 +48,24 @@ public struct QuestionItem: Equatable, Sendable, Identifiable {
   public let id: String
   public let prompt: String
   public let options: [QuestionOption]
+  public let multiSelect: Bool
+  public let allowOther: Bool
+  public let otherLabel: String
 
-  public init(id: String, prompt: String, options: [QuestionOption]) {
+  public init(
+    id: String,
+    prompt: String,
+    options: [QuestionOption],
+    multiSelect: Bool = false,
+    allowOther: Bool = false,
+    otherLabel: String = "Other"
+  ) {
     self.id = id
     self.prompt = prompt
     self.options = options
+    self.multiSelect = multiSelect
+    self.allowOther = allowOther
+    self.otherLabel = otherLabel
   }
 }
 
@@ -66,12 +79,22 @@ public struct PendingQuestion: Equatable, Sendable, Identifiable {
   }
 }
 
+public struct PendingPrompt: Equatable, Sendable {
+  public let id: String
+  public let text: String
+
+  public init(id: String, text: String) {
+    self.id = id
+    self.text = text
+  }
+}
+
 public enum PhonePhase: Equatable, Sendable {
   case unpaired
   case confirm(RemoteBase)
   case paired(RemoteBase)
   case offline(RemoteBase)
-  case stopped(String)
+  case stopped(RemoteBase, String)
 }
 
 public struct PhoneState: Equatable, Sendable {
@@ -79,14 +102,15 @@ public struct PhoneState: Equatable, Sendable {
   public var sessions: [SessionRow]
   public var selectedSessionID: String?
   public var draft: String
-  public var approval: ApprovalDraft?
-  public var question: PendingQuestion?
-  public var selectedItemID: String?
-  public var selectedOptionID: String?
+  public var approvals: [ApprovalDraft]
+  public var questions: [PendingQuestion]
+  public var choices: [String: [String]]
+  public var otherText: [String: String]
   public var transcript: SessionTranscript
   public var versionAccepted: Bool
   public var socketUp: Bool
-  public var scopeConfirmed: Bool
+  public var scopeApprovalID: String?
+  public var pendingPrompt: PendingPrompt?
   public var refusal: String?
   public var banner: String?
   public var isLoading: Bool
@@ -98,14 +122,11 @@ public struct PhoneState: Equatable, Sendable {
     sessions: [SessionRow] = [],
     selectedSessionID: String? = nil,
     draft: String = "",
-    approval: ApprovalDraft? = nil,
-    question: PendingQuestion? = nil,
-    selectedItemID: String? = nil,
-    selectedOptionID: String? = nil,
+    approvals: [ApprovalDraft] = [],
+    questions: [PendingQuestion] = [],
     transcript: SessionTranscript = SessionTranscript(),
     versionAccepted: Bool = false,
     socketUp: Bool = false,
-    scopeConfirmed: Bool = false,
     refusal: String? = nil,
     banner: String? = nil,
     isLoading: Bool = false,
@@ -116,19 +137,29 @@ public struct PhoneState: Equatable, Sendable {
     self.sessions = sessions
     self.selectedSessionID = selectedSessionID
     self.draft = draft
-    self.approval = approval
-    self.question = question
-    self.selectedItemID = selectedItemID
-    self.selectedOptionID = selectedOptionID
+    self.approvals = approvals
+    self.questions = questions
+    self.choices = [:]
+    self.otherText = [:]
     self.transcript = transcript
     self.versionAccepted = versionAccepted
     self.socketUp = socketUp
-    self.scopeConfirmed = scopeConfirmed
+    self.scopeApprovalID = nil
+    self.pendingPrompt = nil
     self.refusal = refusal
     self.banner = banner
     self.isLoading = isLoading
     self.sendInFlight = sendInFlight
     self.generation = generation
+  }
+
+  public var approval: ApprovalDraft? { approvals.first }
+
+  public var question: PendingQuestion? { questions.first }
+
+  public var scopeConfirmed: Bool {
+    guard let scopeApprovalID else { return false }
+    return scopeApprovalID == approval?.id
   }
 
   public mutating func stageLink(_ raw: String) throws {
@@ -147,25 +178,125 @@ public struct PhoneState: Equatable, Sendable {
     sessions = []
     selectedSessionID = nil
     draft = ""
-    approval = nil
-    question = nil
-    selectedItemID = nil
-    selectedOptionID = nil
+    clearInteractions()
     transcript = SessionTranscript()
     versionAccepted = false
     socketUp = false
-    scopeConfirmed = false
+    pendingPrompt = nil
     refusal = nil
     banner = nil
     isLoading = false
     sendInFlight = false
   }
 
+  public mutating func clearInteractions() {
+    approvals = []
+    questions = []
+    choices = [:]
+    otherText = [:]
+    scopeApprovalID = nil
+  }
+
+  public mutating func replaceInteractions(
+    approvals: [ApprovalDraft], questions: [PendingQuestion]
+  ) {
+    let head = question?.id
+    self.approvals = approvals
+    self.questions = questions
+    if question?.id != head {
+      choices = [:]
+      otherText = [:]
+    }
+    if !scopeConfirmed {
+      scopeApprovalID = nil
+    }
+  }
+
+  public mutating func upsertApproval(_ draft: ApprovalDraft) {
+    if let index = approvals.firstIndex(where: { $0.id == draft.id }) {
+      approvals[index] = draft
+    } else {
+      approvals.append(draft)
+    }
+  }
+
+  public mutating func dropApproval(id: String) {
+    approvals.removeAll { $0.id == id }
+    if scopeApprovalID == id {
+      scopeApprovalID = nil
+    }
+  }
+
+  public mutating func upsertQuestion(_ pending: PendingQuestion) {
+    if let index = questions.firstIndex(where: { $0.id == pending.id }) {
+      questions[index] = pending
+    } else {
+      questions.append(pending)
+    }
+  }
+
+  public mutating func dropQuestion(id: String) {
+    let wasHead = question?.id == id
+    questions.removeAll { $0.id == id }
+    if wasHead {
+      choices = [:]
+      otherText = [:]
+    }
+  }
+
+  public mutating func choose(itemID: String, optionID: String) {
+    guard let item = question?.items.first(where: { $0.id == itemID }),
+      item.options.contains(where: { $0.id == optionID })
+    else { return }
+    if item.multiSelect {
+      var picked = choices[itemID] ?? []
+      if let index = picked.firstIndex(of: optionID) {
+        picked.remove(at: index)
+      } else {
+        picked.append(optionID)
+      }
+      choices[itemID] = picked
+    } else {
+      choices[itemID] = [optionID]
+      otherText[itemID] = nil
+    }
+  }
+
+  public mutating func setOther(itemID: String, text: String) {
+    guard let item = question?.items.first(where: { $0.id == itemID }), item.allowOther else {
+      return
+    }
+    otherText[itemID] = text
+    if !item.multiSelect && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      choices[itemID] = nil
+    }
+  }
+
+  public func isChosen(itemID: String, optionID: String) -> Bool {
+    choices[itemID]?.contains(optionID) ?? false
+  }
+
+  public func answer(for item: QuestionItem) -> QuestionAnswer? {
+    let valid = Set(item.options.map(\.id))
+    let picked = (choices[item.id] ?? []).filter { valid.contains($0) }
+    let typed = item.allowOther ? otherText[item.id] ?? "" : ""
+    let other = typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : typed
+    if item.multiSelect {
+      if let other, !picked.isEmpty { return .multiWithOther(optionIDs: picked, text: other) }
+      if !picked.isEmpty { return .multi(optionIDs: picked) }
+      if let other { return .other(text: other) }
+      return nil
+    }
+    if let first = picked.first { return .single(optionID: first) }
+    if let other { return .other(text: other) }
+    return nil
+  }
+
   public var relayHost: String? {
     switch phase {
-    case .confirm(let base), .paired(let base), .offline(let base):
+    case .confirm(let base), .paired(let base), .offline(let base), .stopped(let base, _):
       return base.relayHost
-    case .unpaired, .stopped:
+    case .unpaired:
       return nil
     }
   }
@@ -181,8 +312,7 @@ public struct PhoneState: Equatable, Sendable {
 
   public var canControl: Bool {
     guard case .paired = phase else { return false }
-    guard selectedSessionID != nil, !isLoading, banner == nil else { return false }
-    return true
+    return selectedSessionID != nil && !isLoading
   }
 
   public var canSend: Bool {
@@ -205,21 +335,17 @@ public struct PhoneState: Equatable, Sendable {
   }
 
   public var canAnswer: Bool {
-    guard canControl, let question, let itemID = selectedItemID, let optionID = selectedOptionID
-    else {
-      return false
-    }
-    guard question.items.contains(where: { $0.id == itemID }) else { return false }
-    return question.items.contains { item in
-      item.id == itemID && item.options.contains { $0.id == optionID }
-    }
+    guard canControl, let question, !question.items.isEmpty else { return false }
+    return question.items.allSatisfy { answer(for: $0) != nil }
   }
 
   public func promptRequest() throws -> ControlRequest {
-    guard let sessionID = selectedSessionID else {
+    guard let sessionID = selectedSessionID, let pendingPrompt else {
       throw ControlBuildError.rejectedID("")
     }
-    return try ControlAction.prompt(sessionID: sessionID, text: draft).request()
+    return try ControlAction.prompt(
+      sessionID: sessionID, text: pendingPrompt.text, promptID: pendingPrompt.id
+    ).request()
   }
 
   public func abortRequest() throws -> ControlRequest {
@@ -243,18 +369,20 @@ public struct PhoneState: Equatable, Sendable {
   }
 
   public func answerRequest() throws -> ControlRequest {
-    guard let sessionID = selectedSessionID,
-      let question,
-      let itemID = selectedItemID,
-      let optionID = selectedOptionID
-    else {
+    guard let sessionID = selectedSessionID, let question else {
       throw ControlBuildError.rejectedID("")
+    }
+    var answers: [String: QuestionAnswer] = [:]
+    for item in question.items {
+      answers[item.id] = answer(for: item)
+    }
+    guard !question.items.isEmpty, answers.count == question.items.count else {
+      throw ControlBuildError.rejectedID(question.id)
     }
     return try ControlAction.answer(
       sessionID: sessionID,
       questionID: question.id,
-      itemID: itemID,
-      optionID: optionID
+      answers: answers
     ).request()
   }
 
@@ -266,6 +394,6 @@ public struct PhoneState: Equatable, Sendable {
   }
 
   public mutating func confirmSessionScope() {
-    scopeConfirmed = true
+    scopeApprovalID = approval?.id
   }
 }

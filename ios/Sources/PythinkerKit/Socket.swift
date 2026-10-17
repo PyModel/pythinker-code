@@ -4,7 +4,6 @@ public protocol EventSocket: Sendable {
   func open(_ url: URL) async throws
   func send(_ text: String) async throws
   func next() async throws -> String
-  func ping() async throws
   func close()
 }
 
@@ -18,8 +17,6 @@ public struct NullEventSocket: EventSocket {
   public func next() async throws -> String {
     throw CancellationError()
   }
-
-  public func ping() async throws {}
 
   public func close() {}
 }
@@ -73,7 +70,12 @@ public final class LiveEventSocket: EventSocket, @unchecked Sendable {
   }
 
   public func next() async throws -> String {
-    let message = try await current().receive()
+    let task = try current()
+    let message = try await withTaskCancellationHandler {
+      try await task.receive()
+    } onCancel: {
+      task.cancel(with: .goingAway, reason: nil)
+    }
     switch message {
     case .string(let text):
       return text
@@ -84,19 +86,6 @@ public final class LiveEventSocket: EventSocket, @unchecked Sendable {
       return text
     @unknown default:
       throw SocketFrameError.encoding
-    }
-  }
-
-  public func ping() async throws {
-    let task = try current()
-    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-      task.sendPing { error in
-        if let error {
-          continuation.resume(throwing: error)
-        } else {
-          continuation.resume()
-        }
-      }
     }
   }
 

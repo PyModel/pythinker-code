@@ -21,6 +21,7 @@ public enum APIOutcome: Equatable, Sendable {
 public enum EnvelopeRules {
   public static let questionDismissSuccess = 40909
   public static let alreadyResolved = 40902
+  public static let promptIDInUse = 40927
 
   public static func outcome(code: Int, message: String, dismiss: Bool) -> APIOutcome {
     if code == 0 { return .success }

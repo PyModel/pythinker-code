@@ -27,6 +27,7 @@ struct PhoneRoot: View {
   }
   @State private var scanning = false
   @State private var confirmScope = false
+  @State private var confirmForget = false
 
   var body: some View {
     NavigationStack {
@@ -37,9 +38,16 @@ struct PhoneRoot: View {
         confirmForm
       case .paired, .offline:
         sessionForm
-      case .stopped(let message):
+      case .stopped(_, let message):
         stoppedForm(message)
       }
+    }
+    .confirmationDialog(
+      "Forget the link to this Mac?", isPresented: $confirmForget, titleVisibility: .visible
+    ) {
+      Button("Forget link", role: .destructive) { desk.forget() }
+    } message: {
+      Text("You will need the Remote Control link again to pair.")
     }
     .sheet(isPresented: $scanning) {
       ScanSheet { raw in
@@ -80,7 +88,7 @@ struct PhoneRoot: View {
 
   private var confirmForm: some View {
     Form {
-      Text("This link controls the Mac.")
+      Text("Anyone with this link can control this Mac. Save it only on your own phone.")
       if let host = desk.state.relayHost {
         Text("Relay host: \(host)")
       }
@@ -162,7 +170,7 @@ struct PhoneRoot: View {
         .disabled(!desk.state.canAnswer)
       Button("Dismiss") { desk.dismiss() }
         .disabled(!desk.state.canDismiss)
-      Button("Forget link", role: .destructive) { desk.forget() }
+      Button("Forget link", role: .destructive) { confirmForget = true }
     }
     .navigationTitle("Sessions")
   }
@@ -170,18 +178,46 @@ struct PhoneRoot: View {
   private func stoppedForm(_ message: String) -> some View {
     Form {
       Text(message)
-      Button("Forget link", role: .destructive) { desk.forget() }
+      Button("Try again") { desk.retryAfterStop() }
+      Button("Forget link", role: .destructive) { confirmForget = true }
     }
     .navigationTitle("Stopped")
+  }
+
+  @ViewBuilder
+  private var sheetStatus: some View {
+    if case .offline = desk.state.phase {
+      Section {
+        Text("Offline. Your choice cannot reach the Mac.")
+        Button("Retry") { desk.refreshSessions() }
+      }
+    }
+    if let banner = desk.state.banner {
+      Section {
+        Text(banner)
+        Button("OK") { desk.clearBanner() }
+      }
+    }
   }
 
   private var approvalSheet: some View {
     NavigationStack {
       Form {
+        sheetStatus
         if let approval = desk.state.approval {
+          if desk.state.approvals.count > 1 {
+            Text("\(desk.state.approvals.count) approvals are waiting.")
+          }
           Text(approval.toolName)
+            .font(.headline)
           Text(approval.action)
-          Text(approval.inputDisplay)
+          ScrollView {
+            Text(approval.inputDisplay)
+              .font(.system(.body, design: .monospaced))
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .textSelection(.enabled)
+          }
+          .frame(maxHeight: 320)
           Button("Approve") { desk.decide(.approved) }
             .disabled(!desk.state.canApprove)
           Button("Reject") { desk.decide(.rejected) }
@@ -189,7 +225,8 @@ struct PhoneRoot: View {
           Button("Cancel") { desk.decide(.cancelled) }
             .disabled(!desk.state.canReject)
           if desk.state.scopeConfirmed {
-            Text("The next approval includes scope session.")
+            Text(
+              "Approve will also allow \(approval.toolName) like this for the rest of the session.")
           } else {
             Button("Remember for this session") { confirmScope = true }
               .disabled(desk.state.selectedSessionID == nil || !approval.canDecide)
@@ -200,6 +237,10 @@ struct PhoneRoot: View {
       .alert("Remember this approval for the rest of the session?", isPresented: $confirmScope) {
         Button("Remember") { desk.confirmSessionScope() }
         Button("Not now", role: .cancel) {}
+      } message: {
+        Text(
+          "\(desk.state.approval?.toolName ?? "This tool") will run like this again without asking until the session ends."
+        )
       }
     }
   }
@@ -207,9 +248,10 @@ struct PhoneRoot: View {
   private var questionSheet: some View {
     NavigationStack {
       Form {
+        sheetStatus
         if let question = desk.state.question {
           ForEach(question.items) { item in
-            Section(item.prompt) {
+            Section {
               ForEach(item.options) { option in
                 Button {
                   desk.chooseOption(itemID: item.id, optionID: option.id)
@@ -217,13 +259,20 @@ struct PhoneRoot: View {
                   HStack {
                     Text(option.label)
                     Spacer()
-                    if desk.state.selectedItemID == item.id
-                      && desk.state.selectedOptionID == option.id
-                    {
+                    if desk.state.isChosen(itemID: item.id, optionID: option.id) {
                       Image(systemName: "checkmark")
                     }
                   }
                 }
+              }
+              if item.allowOther {
+                TextField(item.otherLabel, text: otherBinding(item.id))
+              }
+            } header: {
+              Text(item.prompt)
+            } footer: {
+              if item.multiSelect {
+                Text("Pick one or more.")
               }
             }
           }
@@ -235,6 +284,13 @@ struct PhoneRoot: View {
       }
       .navigationTitle("Question")
     }
+  }
+
+  private func otherBinding(_ itemID: String) -> Binding<String> {
+    Binding(
+      get: { desk.state.otherText[itemID] ?? "" },
+      set: { desk.setOtherText(itemID: itemID, text: $0) }
+    )
   }
 
   private var approvalPresented: Binding<Bool> {
@@ -274,14 +330,27 @@ struct PhoneRoot: View {
 struct ScanSheet: View {
   var onCode: (String) -> Void
   @Environment(\.dismiss) private var dismiss
+  @State private var camera = AVCaptureDevice.authorizationStatus(for: .video)
 
   var body: some View {
     NavigationStack {
       Group {
-        if DataScannerViewController.isSupported {
-          DataCodeScanner(onCode: onCode)
-        } else {
-          VisionCodeScanner(onCode: onCode)
+        switch camera {
+        case .authorized:
+          if DataScannerViewController.isSupported && DataScannerViewController.isAvailable {
+            DataCodeScanner(onCode: onCode)
+          } else {
+            VisionCodeScanner(onCode: onCode)
+          }
+        case .notDetermined:
+          ProgressView()
+            .task {
+              _ = await AVCaptureDevice.requestAccess(for: .video)
+              camera = AVCaptureDevice.authorizationStatus(for: .video)
+            }
+        default:
+          Text("Camera access is off. Turn it on in Settings, or paste the link instead.")
+            .padding()
         }
       }
       .navigationTitle("Scan")

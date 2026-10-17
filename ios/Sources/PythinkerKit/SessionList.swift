@@ -43,9 +43,9 @@ public struct SubscribeCursor: Equatable, Sendable {
 }
 
 public enum SocketFrames {
-  public static func subscribe(sessionIDs: [String], cursors: [String: SubscribeCursor]) throws
-    -> String
-  {
+  public static func subscribe(
+    id: String, sessionIDs: [String], cursors: [String: SubscribeCursor]
+  ) throws -> String {
     var cursorObject: [String: [String: Any]] = [:]
     for (id, cursor) in cursors {
       cursorObject[id] = ["seq": cursor.seq, "epoch": cursor.epoch]
@@ -56,7 +56,7 @@ public enum SocketFrames {
     ]
     let frame: [String: Any] = [
       "type": "subscribe",
-      "id": "1",
+      "id": id,
       "payload": payload,
     ]
     let data: Data
@@ -69,6 +69,10 @@ public enum SocketFrames {
       throw SocketFrameError.encoding
     }
     return text
+  }
+
+  public static func keepalive() -> String {
+    #"{"type":"pong","payload":{"nonce":""}}"#
   }
 
   public static func pong(for frame: String) -> String? {
@@ -108,18 +112,21 @@ enum SessionListDecoder {
 }
 
 enum MetaRead {
-  static func serverVersion(status: Int, body: Data) throws -> String {
+  static func meta(status: Int, body: Data) throws -> ServerMeta {
     let decoded = ResponsePath.decode(status: status, body: body, dismiss: false)
     guard case .success = decoded.outcome else {
       throw ControlBuildError.badResponse
     }
     guard let root = try JSONSerialization.jsonObject(with: body) as? [String: Any],
-      let data = root["data"] as? [String: Any],
-      let version = data["server_version"] as? String,
-      !version.isEmpty
+      let data = root["data"] as? [String: Any]
     else {
-      throw VersionGateError.unknown("")
+      throw ControlBuildError.badResponse
     }
-    return version
+    let capabilities = data["capabilities"] as? [String: Any]
+    return ServerMeta(
+      serverVersion: data["server_version"] as? String ?? "",
+      backend: data["backend"] as? String,
+      websocket: capabilities?["websocket"] as? Bool ?? false
+    )
   }
 }

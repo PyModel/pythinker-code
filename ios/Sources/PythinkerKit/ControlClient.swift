@@ -38,24 +38,46 @@ public enum ApprovalDecision: String, Equatable, Sendable {
   case cancelled
 }
 
+public enum QuestionAnswer: Equatable, Sendable {
+  case single(optionID: String)
+  case multi(optionIDs: [String])
+  case other(text: String)
+  case multiWithOther(optionIDs: [String], text: String)
+
+  var json: [String: Any] {
+    switch self {
+    case .single(let optionID):
+      return ["kind": "single", "option_id": optionID]
+    case .multi(let optionIDs):
+      return ["kind": "multi", "option_ids": optionIDs]
+    case .other(let text):
+      return ["kind": "other", "text": text]
+    case .multiWithOther(let optionIDs, let text):
+      return ["kind": "multi_with_other", "option_ids": optionIDs, "other_text": text]
+    }
+  }
+}
+
 public enum ControlAction: Equatable, Sendable {
-  case prompt(sessionID: String, text: String)
+  case prompt(sessionID: String, text: String, promptID: String)
   case abort(sessionID: String)
   case approve(sessionID: String, approvalID: String, decision: String, scope: String?)
-  case answer(sessionID: String, questionID: String, itemID: String, optionID: String)
+  case answer(sessionID: String, questionID: String, answers: [String: QuestionAnswer])
   case dismiss(sessionID: String, questionID: String)
 
   public func request() throws -> ControlRequest {
     switch self {
-    case .prompt(let sessionID, let text):
+    case .prompt(let sessionID, let text, let promptID):
       let id = try ResourceID.segment(sessionID)
+      guard !promptID.isEmpty else { throw ControlBuildError.rejectedID(promptID) }
       let body = try JSONBody.data([
         "content": [
           [
             "type": "text",
             "text": text,
           ]
-        ]
+        ],
+        "prompt_id": promptID,
       ])
       return ControlRequest(method: "POST", path: "/sessions/\(id)/prompts", body: body)
     case .abort(let sessionID):
@@ -74,18 +96,13 @@ public enum ControlAction: Equatable, Sendable {
         path: "/sessions/\(session)/approvals/\(approval)",
         body: body
       )
-    case .answer(let sessionID, let questionID, let itemID, let optionID):
+    case .answer(let sessionID, let questionID, let answers):
       let session = try ResourceID.segment(sessionID)
       let question = try ResourceID.segment(questionID)
-      _ = try ResourceID.segment(itemID)
-      let body = try JSONBody.data([
-        "answers": [
-          itemID: [
-            "kind": "single",
-            "option_id": optionID,
-          ]
-        ]
-      ])
+      guard !answers.isEmpty, !answers.keys.contains(where: \.isEmpty) else {
+        throw ControlBuildError.rejectedID("")
+      }
+      let body = try JSONBody.data(["answers": answers.mapValues(\.json)])
       return ControlRequest(
         method: "POST",
         path: "/sessions/\(session)/questions/\(question)",
@@ -146,7 +163,7 @@ public struct LiveControlTransport: GatewayTransport {
 
 enum ResourceID {
   static func segment(_ id: String) throws -> String {
-    if id.isEmpty || id.contains("/") || id.contains("..") {
+    if id.isEmpty || id == "." || id == ".." || id.contains("/") {
       throw ControlBuildError.rejectedID(id)
     }
     var allowed = CharacterSet.alphanumerics

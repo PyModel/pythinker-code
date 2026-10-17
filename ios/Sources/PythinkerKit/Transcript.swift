@@ -138,21 +138,21 @@ public struct SnapshotView: Equatable, Sendable {
   public let asOfSeq: Int
   public let epoch: String
   public let transcript: SessionTranscript
-  public let approval: ApprovalDraft?
-  public let question: PendingQuestion?
+  public let approvals: [ApprovalDraft]
+  public let questions: [PendingQuestion]
 
   public init(
     asOfSeq: Int,
     epoch: String,
     transcript: SessionTranscript,
-    approval: ApprovalDraft?,
-    question: PendingQuestion?
+    approvals: [ApprovalDraft],
+    questions: [PendingQuestion]
   ) {
     self.asOfSeq = asOfSeq
     self.epoch = epoch
     self.transcript = transcript
-    self.approval = approval
-    self.question = question
+    self.approvals = approvals
+    self.questions = questions
   }
 }
 
@@ -175,8 +175,8 @@ enum SnapshotDecoder {
       asOfSeq: seq,
       epoch: epoch,
       transcript: transcript(from: data),
-      approval: approval(from: data),
-      question: question(from: data)
+      approvals: (data["pending_approvals"] as? [[String: Any]] ?? []).compactMap(approvalDraft),
+      questions: (data["pending_questions"] as? [[String: Any]] ?? []).compactMap(pendingQuestion)
     )
   }
 
@@ -250,13 +250,6 @@ enum SnapshotDecoder {
     )
   }
 
-  private static func approval(from data: [String: Any]) -> ApprovalDraft? {
-    guard let items = data["pending_approvals"] as? [[String: Any]], let first = items.first else {
-      return nil
-    }
-    return approvalDraft(first)
-  }
-
   static func approvalDraft(_ item: [String: Any]) -> ApprovalDraft? {
     let id = item["approval_id"] as? String ?? ""
     guard !id.isEmpty else { return nil }
@@ -266,13 +259,6 @@ enum SnapshotDecoder {
       inputDisplay: DisplayText.string(item["tool_input_display"]),
       id: id
     )
-  }
-
-  private static func question(from data: [String: Any]) -> PendingQuestion? {
-    guard let items = data["pending_questions"] as? [[String: Any]], let first = items.first else {
-      return nil
-    }
-    return pendingQuestion(first)
   }
 
   static func pendingQuestion(_ item: [String: Any]) -> PendingQuestion? {
@@ -286,7 +272,14 @@ enum SnapshotDecoder {
         guard let optionID = option["id"] as? String else { return nil }
         return QuestionOption(id: optionID, label: option["label"] as? String ?? optionID)
       }
-      return QuestionItem(id: itemID, prompt: item["question"] as? String ?? "", options: options)
+      return QuestionItem(
+        id: itemID,
+        prompt: item["question"] as? String ?? "",
+        options: options,
+        multiSelect: item["multi_select"] as? Bool ?? false,
+        allowOther: item["allow_other"] as? Bool ?? false,
+        otherLabel: item["other_label"] as? String ?? "Other"
+      )
     }
     return PendingQuestion(id: id, items: parsed)
   }
@@ -303,29 +296,23 @@ enum InteractionFrames {
     let payload = frame["payload"] as? [String: Any] ?? [:]
     switch type {
     case "event.approval.requested":
-      guard let draft = SnapshotDecoder.approvalDraft(payload) else { return true }
-      state.approval = draft
-      state.scopeConfirmed = false
+      if let draft = SnapshotDecoder.approvalDraft(payload) {
+        state.upsertApproval(draft)
+      }
       return true
     case "event.approval.resolved":
-      let id = payload["approval_id"] as? String ?? ""
-      if id.isEmpty || state.approval?.id == id {
-        state.approval = nil
-        state.scopeConfirmed = false
+      if let id = payload["approval_id"] as? String, !id.isEmpty {
+        state.dropApproval(id: id)
       }
       return true
     case "event.question.requested":
-      guard let question = SnapshotDecoder.pendingQuestion(payload) else { return true }
-      state.question = question
-      state.selectedItemID = nil
-      state.selectedOptionID = nil
+      if let question = SnapshotDecoder.pendingQuestion(payload) {
+        state.upsertQuestion(question)
+      }
       return true
     case "event.question.answered", "event.question.dismissed":
-      let id = payload["question_id"] as? String ?? ""
-      if id.isEmpty || state.question?.id == id {
-        state.question = nil
-        state.selectedItemID = nil
-        state.selectedOptionID = nil
+      if let id = payload["question_id"] as? String, !id.isEmpty {
+        state.dropQuestion(id: id)
       }
       return true
     default:
@@ -335,17 +322,83 @@ enum InteractionFrames {
 }
 
 enum DisplayText {
+  static let maxUnits = 4_000
+
   static func string(_ value: Any?) -> String {
-    if let text = value as? String { return text }
+    if let text = value as? String { return clip(text) }
     guard let object = value as? [String: Any] else { return "" }
-    for key in ["command", "path", "query", "url", "prompt", "detail"] {
-      if let text = object[key] as? String, !text.isEmpty { return text }
+    return clip(render(object))
+  }
+
+  static func clip(_ text: String) -> String {
+    let units = text.utf16.count
+    guard units > maxUnits else { return text }
+    var end = text.startIndex
+    var used = 0
+    while end < text.endIndex {
+      let next = text.index(after: end)
+      let piece = text[end..<next].utf16.count
+      if used + piece > maxUnits { break }
+      used += piece
+      end = next
     }
-    guard JSONSerialization.isValidJSONObject(object),
-      let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+    return String(text[..<end]) + "\n… \(units - used) more characters not shown"
+  }
+
+  private static func render(_ object: [String: Any]) -> String {
+    func field(_ key: String) -> String? {
+      guard let text = object[key] as? String, !text.isEmpty else { return nil }
+      return text
+    }
+    func lines(_ parts: [String?]) -> String {
+      parts.compactMap { $0 }.joined(separator: "\n")
+    }
+    switch object["kind"] as? String {
+    case "command":
+      return lines([field("command").map { "$ " + $0 }, field("cwd").map { "in " + $0 }])
+    case "file_io":
+      return lines([
+        [field("operation"), field("path")].compactMap { $0 }.joined(separator: " "),
+        field("detail"),
+        field("content").map { "--- content\n" + $0 },
+        field("before").map { "--- before\n" + $0 },
+        field("after").map { "+++ after\n" + $0 },
+      ])
+    case "diff":
+      return lines([
+        field("path"),
+        field("before").map { "--- before\n" + $0 },
+        field("after").map { "+++ after\n" + $0 },
+      ])
+    case "search":
+      return lines([field("query"), field("scope").map { "in " + $0 }])
+    case "url_fetch":
+      return [field("method"), field("url")].compactMap { $0 }.joined(separator: " ")
+    case "agent_call":
+      return lines([field("agent_name"), field("prompt")])
+    case "skill_call":
+      return lines([field("skill_name"), field("args")])
+    case "plan_review":
+      return lines([field("path"), field("plan")])
+    case "goal_start":
+      return lines([field("objective"), field("completionCriterion")])
+    case "task":
+      return lines([field("description"), field("status")])
+    case "task_stop":
+      return lines([field("task_description"), field("task_id")])
+    case "generic":
+      return lines([field("summary"), field("detail") ?? json(object["detail"])])
+    default:
+      return json(object) ?? ""
+    }
+  }
+
+  private static func json(_ value: Any?) -> String? {
+    guard let value, JSONSerialization.isValidJSONObject(value),
+      let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
       let text = String(data: data, encoding: .utf8)
     else {
-      return ""
+      return nil
     }
     return text
   }
