@@ -67,3 +67,23 @@ _Avoid_: Meeting transcript, winning opinion
 **Expert Talk retry**:
 A new run for the same accepted turn input that reruns admission and every stage without resuming participants or reusing artifacts.
 _Avoid_: Resume, fusion-only retry
+
+**Remote Control link**:
+The relay URL that `pythinker rc` prints. It has no bearer token, but the relay adds the Mac's token to each forwarded request, so anyone who has the link can control the Mac.
+_Avoid_: Pairing code, safe share link
+
+**Envelope**:
+The JSON wrapper on every API response. `code` is the business result and `data` is the payload.
+_Avoid_: Response body
+
+**Snapshot**:
+The session rebuild payload. It carries the `as_of_seq` and `epoch` cursor that a client uses to subscribe again after a drop.
+_Avoid_: History page
+
+**Approval**:
+A pending permission request for one tool call. A session can have more than one at a time.
+_Avoid_: Prompt, confirmation
+
+**Question**:
+A pending structured ask with one or more items. Each item has labeled options and can allow more than one choice or free text.
+_Avoid_: Approval
