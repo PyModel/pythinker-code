@@ -1,7 +1,10 @@
 // apps/pythinker-web/src/api/config.ts
 // Reads Vite env, builds REST/WS URLs, manages stable clientId.
 
+import { relayBasePath } from '../lib/relayPrefix';
 import { safeGetString, safeSetString, STORAGE_KEYS } from '../lib/storage';
+
+export { relayBasePath };
 
 const CLIENT_ID_KEY = STORAGE_KEYS.clientId;
 const WEB_CLIENT_NAME = 'pythinker-code-web';
@@ -38,25 +41,6 @@ function defaultServerOrigin(): string {
     return window.location.origin + relayBasePath();
   }
   return 'http://127.0.0.1:58627';
-}
-
-// The Remote Control relay serves this SPA under `/devices/<id>` and records
-// that prefix (as `origin + prefix`) in sessionStorage before the bundle runs.
-// Only trust it when it is this origin and the page is under that prefix.
-const RELAY_SERVER_ORIGIN_KEY = 'pythinker-desktop-server-origin';
-
-export function relayBasePath(): string {
-  if (typeof window === 'undefined' || !window.location?.origin) return '';
-  let recorded: string | null = null;
-  try {
-    recorded = window.sessionStorage?.getItem(RELAY_SERVER_ORIGIN_KEY) ?? null;
-  } catch {
-    return '';
-  }
-  if (!recorded || !recorded.startsWith(`${window.location.origin}/`)) return '';
-  const prefix = recorded.slice(window.location.origin.length).replace(/\/+$/, '');
-  const path = window.location.pathname;
-  return path === prefix || path.startsWith(`${prefix}/`) ? prefix : '';
 }
 
 /** Resolve a `public/` asset path (`/brand/icon.svg`) against the relay prefix, if any. */

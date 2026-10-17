@@ -1,1 +1,0 @@
-import e from"./CodeBlockNode-Ct-ZnbVD.js";e.install=t=>{t.component(e.__name,e)};export{e as default};

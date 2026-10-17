@@ -249,7 +249,7 @@ export function rewriteRemoteControlResponse(
       /[<>/\u2028\u2029]/g,
       (char) => `\\u${char.codePointAt(0)?.toString(16).padStart(4, '0')}`,
     );
-    const injected = `<script>(function(){var p=${prefixLiteral};try{sessionStorage.setItem('pythinker-desktop-server-origin',location.origin+p)}catch(e){}var w=function(f){return function(s,t,u){if(typeof u==='string'&&u.charAt(0)==='/'&&u.indexOf(p)!==0)u=p+u;return f.apply(this,[s,t,u])}};history.pushState=w(history.pushState);history.replaceState=w(history.replaceState)})();</script>`;
+    const injected = `<script>(function(){var p=${prefixLiteral};window.__PYTHINKER_RELAY_PREFIX__=p;try{sessionStorage.removeItem('pythinker-desktop-server-origin')}catch(e){}var w=function(f){return function(s,t,u){if(typeof u==='string'&&u.charAt(0)==='/'&&u.indexOf(p)!==0)u=p+u;return f.apply(this,[s,t,u])}};history.pushState=w(history.pushState);history.replaceState=w(history.replaceState)})();</script>`;
     let text = body.toString('utf8');
     const headEnd = findHeadOpenTagEnd(text);
     text = text.slice(0, headEnd) + injected + text.slice(headEnd);

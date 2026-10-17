@@ -105,7 +105,9 @@ describe('Remote Control HTTP forwarding', () => {
     ).toString();
     expect(html).toContain(`src="${prefix}/boot.js"`);
     expect(html).toContain(`href="${prefix}/x"`);
-    expect(html).toContain("sessionStorage.setItem('pythinker-desktop-server-origin',location.origin+p)");
+    expect(html).toContain('window.__PYTHINKER_RELAY_PREFIX__=p;');
+    expect(html).toContain("sessionStorage.removeItem('pythinker-desktop-server-origin')");
+    expect(html).not.toContain('sessionStorage.setItem');
     expect(html).toContain('history.pushState=w(history.pushState)');
 
     const js = rewriteRemoteControlResponse(
