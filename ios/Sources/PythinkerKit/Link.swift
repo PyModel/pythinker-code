@@ -13,17 +13,34 @@ public struct RemoteBase: Equatable, Sendable {
         base.appending(path: "api/v1")
     }
 
-    public var socketURL: URL {
-        var parts = URLComponents(url: base, resolvingAgainstBaseURL: false)!
-        parts.scheme = base.scheme == "https" ? "wss" : "ws"
-        parts.path = base.path + "/api/v1/ws"
-        return parts.url!
+    public func socketURL() throws -> URL {
+        guard var parts = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
+            throw LinkParseError.socketURL
+        }
+        switch base.scheme {
+        case "https":
+            parts.scheme = "wss"
+        case "http":
+            parts.scheme = "ws"
+        default:
+            throw LinkParseError.socketURL
+        }
+        var path = parts.percentEncodedPath
+        while path.hasSuffix("/") {
+            path.removeLast()
+        }
+        parts.percentEncodedPath = path + "/api/v1/ws"
+        guard let url = parts.url else {
+            throw LinkParseError.socketURL
+        }
+        return url
     }
 }
 
 public enum LinkParseError: Error, Equatable {
     case notAURL
     case missingDevice
+    case socketURL
 }
 
 public enum RemoteLink {
