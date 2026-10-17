@@ -4,9 +4,9 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IConfigService } from '#/app/config/config';
-import { type ExperimentalFeatureState, IFlagService } from '#/app/flag/flag';
 import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
 import { ErrorCodes, Error2, isError2 } from '#/errors';
+import { UNKNOWN_CAPABILITY } from '#/llm-adapter/contract/capability';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { SECONDARY_MODEL_SECTION } from '#/session/subagent/policy';
 import {
@@ -16,20 +16,34 @@ import {
 import { SubagentModelPolicyService } from '#/session/subagent/subagentModelPolicyService';
 
 import { StubConfigService } from '../../stubs';
-import { stubFlag } from '../../app/flag/stubs';
+
+function testModel(id: string, extra: Partial<Model> = {}): Model {
+  return {
+    id,
+    name: id,
+    aliases: [],
+    protocol: 'openai',
+    headers: {},
+    capabilities: UNKNOWN_CAPABILITY,
+    maxContextSize: 128_000,
+    alwaysThinking: false,
+    providerName: 'acme',
+    ...extra,
+  };
+}
 
 describe('SubagentModelPolicyService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let config: StubConfigService;
-  let models: Map<string, Partial<Model>>;
+  let models: Map<string, Model>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     models = new Map([
-      ['acme/sol', { id: 'acme/sol', supportEfforts: ['low', 'high'], defaultEffort: 'high' }],
-      ['acme/luna', { id: 'acme/luna', supportEfforts: ['low', 'high'] }],
+      ['acme/sol', testModel('acme/sol', { supportEfforts: ['low', 'high'], defaultEffort: 'high' })],
+      ['acme/luna', testModel('acme/luna', { supportEfforts: ['low', 'high'] })],
     ]);
   });
   afterEach(() => disposables.dispose());
@@ -46,9 +60,9 @@ describe('SubagentModelPolicyService', () => {
             details: { model: id },
           });
         }
-        return model as Model;
+        return model;
       },
-    } as unknown as IModelCatalog);
+    });
     ix.set(ISubagentModelPolicyService, new SyncDescriptor(SubagentModelPolicyService));
     return ix.get(ISubagentModelPolicyService);
   }

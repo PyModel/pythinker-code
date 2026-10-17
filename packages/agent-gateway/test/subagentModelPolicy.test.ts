@@ -161,6 +161,20 @@ describe('server-v2 /api/v1/config/subagent-model-policy', () => {
     expect(await disk()).toContain('default_model = "acme/luna"');
   });
 
+  it('If-Match uses strong comparison over the whole list and rejects a blank condition', async () => {
+    await boot();
+    const current = (await call('PUT', { mode: 'default', default_model: 'acme/sol' })).etag as string;
+    for (const condition of ['', '   ', `W/${current}`, '"other"', current.slice(1, -1)]) {
+      const refused = await call('PUT', { mode: 'force', default_model: 'acme/sol' }, { 'if-match': condition });
+      expect(refused.status, condition).toBe(412);
+    }
+    expect(await disk()).not.toContain('force');
+    const listed = await call('PUT', { mode: 'default', default_model: 'acme/luna' }, { 'if-match': `"other", ${current}` });
+    expect(listed.body.code).toBe(0);
+    const any = await call('PUT', { mode: 'default', default_model: 'acme/sol' }, { 'if-match': '*' });
+    expect(any.body.code).toBe(0);
+  });
+
   it('DELETE removes the section (no mode on disk) and a stale inherit ETag is rejected after another write', async () => {
     await boot();
     const inheritEtag = (await call('GET')).etag as string;

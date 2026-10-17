@@ -79,13 +79,15 @@ export function etagOf(resourceVersion: string): string {
   return `"${resourceVersion}"`;
 }
 
-export function parseIfMatch(header: unknown): string | undefined {
-  if (typeof header !== 'string') return undefined;
+const UNMATCHED_VERSION = '';
+
+export function expectedVersionFor(header: unknown, currentVersion: string): string | undefined {
+  if (header === undefined) return undefined;
+  if (typeof header !== 'string') return UNMATCHED_VERSION;
   const trimmed = header.trim();
-  if (trimmed.length === 0 || trimmed === '*') return undefined;
-  const first = trimmed.split(',')[0]?.trim() ?? '';
-  const strong = first.startsWith('W/') ? first.slice(2) : first;
-  return strong.startsWith('"') && strong.endsWith('"') ? strong.slice(1, -1) : strong;
+  if (trimmed === '*') return undefined;
+  const current = etagOf(currentVersion);
+  return trimmed.split(',').some((tag) => tag.trim() === current) ? currentVersion : UNMATCHED_VERSION;
 }
 
 function toResponse(
@@ -160,7 +162,10 @@ export function registerSubagentModelPolicyRoutes(app: PolicyRouteHost, core: Sc
       const typedReply = reply as unknown as PolicyReply;
       try {
         await core.accessor.get(IConfigService).ready;
-        const expectedVersion = parseIfMatch(req.headers['if-match']);
+        const expectedVersion = expectedVersionFor(
+          req.headers['if-match'],
+          policyService().get().resourceVersion,
+        );
         await policyService().set(fromWirePolicy(req.body), expectedVersion);
       } catch (error) {
         fail(req as PolicyRequest, typedReply, error);
@@ -188,7 +193,10 @@ export function registerSubagentModelPolicyRoutes(app: PolicyRouteHost, core: Sc
       const typedReply = reply as unknown as PolicyReply;
       try {
         await core.accessor.get(IConfigService).ready;
-        const expectedVersion = parseIfMatch(req.headers['if-match']);
+        const expectedVersion = expectedVersionFor(
+          req.headers['if-match'],
+          policyService().get().resourceVersion,
+        );
         await policyService().clear(expectedVersion);
       } catch (error) {
         fail(req as PolicyRequest, typedReply, error);
