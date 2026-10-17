@@ -303,45 +303,63 @@ public final class PhoneDesk {
         state = done
       }
     }
-    await performPost(seen: seen, dismiss: false, request: { try self.state.promptRequest() }) {
-      next in
-      next.draft = ""
-    }
+    await performPost(
+      seen: seen,
+      dismiss: false,
+      request: { try self.state.promptRequest() },
+      onSuccess: { next in
+        next.draft = ""
+      }
+    )
   }
 
   private func performStop(_ seen: Int) async {
-    await performPost(seen: seen, dismiss: false, request: { try self.state.abortRequest() }) { _ in
-    }
+    await performPost(
+      seen: seen,
+      dismiss: false,
+      request: { try self.state.abortRequest() },
+      onSuccess: { _ in }
+    )
   }
 
   private func performDecision(_ decision: ApprovalDecision, seen: Int) async {
     await performPost(
-      seen: seen, dismiss: false,
+      seen: seen,
+      dismiss: false,
       request: {
         try self.state.approvalRequest(decision: decision.rawValue)
+      },
+      onSuccess: { next in
+        next.approval = nil
+        next.scopeConfirmed = false
       }
-    ) { next in
-      next.approval = nil
-      next.scopeConfirmed = false
-    }
+    )
   }
 
   private func performAnswer(_ seen: Int) async {
-    await performPost(seen: seen, dismiss: false, request: { try self.state.answerRequest() }) {
-      next in
-      next.question = nil
-      next.selectedItemID = nil
-      next.selectedOptionID = nil
-    }
+    await performPost(
+      seen: seen,
+      dismiss: false,
+      request: { try self.state.answerRequest() },
+      onSuccess: { next in
+        next.question = nil
+        next.selectedItemID = nil
+        next.selectedOptionID = nil
+      }
+    )
   }
 
   private func performDismiss(_ seen: Int) async {
-    await performPost(seen: seen, dismiss: true, request: { try self.state.dismissRequest() }) {
-      next in
-      next.question = nil
-      next.selectedItemID = nil
-      next.selectedOptionID = nil
-    }
+    await performPost(
+      seen: seen,
+      dismiss: true,
+      request: { try self.state.dismissRequest() },
+      onSuccess: { next in
+        next.question = nil
+        next.selectedItemID = nil
+        next.selectedOptionID = nil
+      }
+    )
   }
 
   private func performPost(
