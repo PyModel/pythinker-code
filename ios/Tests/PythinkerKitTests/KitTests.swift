@@ -361,11 +361,12 @@ import Testing
   }
 }
 
-@Test @MainActor func silentSocketBecomesOfflineAfterOneRecovery() async throws {
+@Test @MainActor func silentSocketBecomesOfflineAfterBoundedRecoveries() async throws {
   let transport = ScriptedTransport()
   let socket = SilentSocket()
   let desk = PhoneDesk(transport: transport, store: MemoryLinkStore(), socket: socket)
   desk.receiveDeadline = .milliseconds(20)
+  desk.recoveryDelay = .zero
   desk.state.phase = .paired(try RemoteLink.parse("https://relay.example/devices/abc/"))
   desk.state.selectedSessionID = "session_1"
   desk.state.versionAccepted = true
@@ -503,6 +504,7 @@ import Testing
   let socket = PingSocket()
   let desk = PhoneDesk(transport: transport, store: MemoryLinkStore(), socket: socket)
   desk.receiveDeadline = .milliseconds(30)
+  desk.recoveryDelay = .zero
   desk.state.phase = .paired(try RemoteLink.parse("https://relay.example/devices/abc/"))
   desk.state.selectedSessionID = "session_1"
   desk.state.versionAccepted = true
@@ -828,17 +830,39 @@ import Testing
 @Test @MainActor func recoveryIsReArmedAfterHealthyFrames() async throws {
   let socket = QueueSocket()
   let desk = try pairedDesk(ScriptedTransport(), socket: socket)
+  desk.recoveryDelay = .zero
   desk.select("s1")
-  socket.push(.failure(SocketFrameError.encoding))
-  for _ in 0..<5 { socket.push(.success(#"{"type":"turn.started","payload":{}}"#)) }
-  socket.push(.failure(SocketFrameError.encoding))
+  for _ in 0...PhoneDesk.maxRecoveries + 1 {
+    socket.push(.failure(SocketFrameError.encoding))
+    socket.push(.success(#"{"type":"turn.started","payload":{}}"#))
+  }
   let task = Task { await desk.followSelected() }
   try await waitUntil { socket.isDrained }
   try await Task.sleep(for: .milliseconds(30))
   task.cancel()
   if case .offline = desk.state.phase {
-    Issue.record("a second drop after healthy frames went offline")
+    Issue.record("drops separated by healthy frames went offline")
   }
+}
+
+@Test(.timeLimit(.minutes(1))) @MainActor
+func aSocketThatOnlyHandshakesThenDropsStopsReconnecting() async throws {
+  let socket = QueueSocket()
+  let transport = ScriptedTransport()
+  let desk = try pairedDesk(transport, socket: socket)
+  desk.recoveryDelay = .zero
+  desk.select("s1")
+  for _ in 0..<20 {
+    socket.push(.success(#"{"type":"server_hello","payload":{"heartbeat_ms":10000}}"#))
+    socket.push(.failure(SocketFrameError.encoding))
+  }
+  await desk.followSelected()
+  if case .offline = desk.state.phase {
+  } else {
+    Issue.record("a handshake-then-drop server never went offline: \(desk.state.phase)")
+  }
+  let snapshots = transport.requests.filter { $0.path.hasSuffix("/snapshot") }.count
+  #expect(snapshots == PhoneDesk.maxRecoveries + 1)
 }
 
 @Test @MainActor func refreshDoesNotDropTheSentPromptResult() async throws {
@@ -918,6 +942,14 @@ import Testing
   state.dropApproval(id: "A")
   #expect(state.approval?.id == "B")
   #expect(state.scopeConfirmed == false)
+  state.replaceInteractions(
+    approvals: [ApprovalDraft(toolName: "Bash", action: "run", inputDisplay: "ls", id: "A")],
+    questions: [])
+  state.confirmSessionScope()
+  state.replaceInteractions(
+    approvals: [ApprovalDraft(toolName: "Bash", action: "run", inputDisplay: "rm -rf /", id: "C")],
+    questions: [])
+  #expect(state.scopeConfirmed == false, "a snapshot that replaced A kept A's session scope")
   #expect(try jsonObject(state.approvalRequest(decision: "approved").body)["scope"] == nil)
 }
 

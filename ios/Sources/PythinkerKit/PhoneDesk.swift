@@ -8,6 +8,8 @@ public final class PhoneDesk {
   public var paste: String
   public private(set) var listenID: Int
   public var receiveDeadline: Duration = .seconds(20)
+  public var recoveryDelay: Duration = .seconds(1)
+  public static let maxRecoveries = 3
 
   private let transport: any GatewayTransport
   private let store: any LinkStore
@@ -551,12 +553,11 @@ public final class PhoneDesk {
   }
 
   private func readLoop(_ id: String, seen: Int, listen: Int) async throws {
-    var recovered = false
+    var failures = 0
     while seen == state.generation, listen == listenID, !Task.isCancelled {
       do {
         let text = try await SocketWait.next(socket, within: receiveDeadline)
         guard seen == state.generation, listen == listenID else { return }
-        recovered = false
         if let reply = SocketFrames.pong(for: text) {
           try await socket.send(reply)
           continue
@@ -564,23 +565,29 @@ public final class PhoneDesk {
         var next = state
         if InteractionFrames.apply(text, to: &next) {
           state = next
+          failures = 0
           continue
         }
         let effect = next.transcript.apply(frame: text)
         state = next
+        if effect == .applied {
+          failures = 0
+        }
         if effect == .resync {
           guard seen == state.generation, listen == listenID else { return }
           _ = try await recover(sessionID: id)
         }
       } catch {
         if Task.isCancelled || seen != state.generation || listen != listenID { return }
-        if recovered {
+        failures += 1
+        if failures > Self.maxRecoveries {
           throw error
         }
-        recovered = true
         var down = state
         down.socketUp = false
         state = down
+        try await Task.sleep(for: recoveryDelay * failures)
+        guard seen == state.generation, listen == listenID else { return }
         _ = try await recover(sessionID: id)
       }
     }
