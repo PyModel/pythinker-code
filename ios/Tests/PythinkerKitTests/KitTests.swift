@@ -81,6 +81,29 @@ import Testing
     #expect(request.path == "/sessions/session_1/questions/q1:dismiss")
 }
 
+@Test func sessionFactsPreferApprovalOverBusy() throws {
+    let raw = #"{"id":"session_1","title":"Fix the build","busy":true,"pending_interaction":"approval"}"#
+    let facts = try JSONDecoder().decode(SessionFacts.self, from: Data(raw.utf8))
+    #expect(facts.activity == "approval")
+    #expect(facts.row.title == "Fix the build")
+}
+
+@Test func idleFailedTurnIsFailed() throws {
+    let raw = #"{"id":"session_2","title":"Notes","busy":false,"last_turn_reason":"failed"}"#
+    let facts = try JSONDecoder().decode(SessionFacts.self, from: Data(raw.utf8))
+    #expect(facts.activity == "failed")
+}
+
+@Test func subscribeFrameKeepsCursor() {
+    let frame = SocketFrames.subscribe(
+        sessionIDs: ["session_1"],
+        cursors: ["session_1": SubscribeCursor(seq: 4, epoch: "ep")]
+    )
+    #expect(frame.contains("\"type\":\"subscribe\""))
+    #expect(frame.contains("\"seq\":4"))
+    #expect(frame.contains("\"epoch\":\"ep\""))
+}
+
 @Test func approvalNeedsToolNameAndInput() {
     let hidden = ApprovalDraft(toolName: "", action: "bash", inputDisplay: "ls")
     let shown = ApprovalDraft(toolName: "Bash", action: "bash", inputDisplay: "ls")
