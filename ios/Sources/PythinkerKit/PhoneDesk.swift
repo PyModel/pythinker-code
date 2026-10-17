@@ -15,6 +15,7 @@ public final class PhoneDesk {
   private let socket: any EventSocket
   private var inflight: Task<Void, Never>?
   private var pingTask: Task<Void, Never>?
+  private var actionID: Int
 
   public init(
     transport: any GatewayTransport,
@@ -28,6 +29,7 @@ public final class PhoneDesk {
     self.state = state
     self.paste = ""
     self.listenID = 0
+    self.actionID = 0
   }
 
   public func stagePasted() {
@@ -109,8 +111,17 @@ public final class PhoneDesk {
 
   public func select(_ id: String) {
     guard (try? ResourceID.segment(id)) != nil else { return }
+    if state.selectedSessionID == id { return }
     var next = state
     next.selectedSessionID = id
+    next.approval = nil
+    next.question = nil
+    next.selectedItemID = nil
+    next.selectedOptionID = nil
+    next.scopeConfirmed = false
+    next.transcript = SessionTranscript()
+    next.socketUp = false
+    next.banner = nil
     state = next
     listenID += 1
   }
@@ -154,40 +165,41 @@ public final class PhoneDesk {
   }
 
   public func sendPromptNow() async {
-    await performPrompt(state.generation)
+    await performPrompt(begin())
   }
 
   public func stopNow() async {
-    await performStop(state.generation)
+    await performStop(begin())
   }
 
   public func decideNow(_ decision: ApprovalDecision) async {
-    await performDecision(decision, seen: state.generation)
+    await performDecision(decision, seen: begin())
   }
 
   public func answerNow() async {
-    await performAnswer(state.generation)
+    await performAnswer(begin())
   }
 
   public func dismissNow() async {
-    await performDismiss(state.generation)
+    await performDismiss(begin())
   }
 
   public func followSelected() async {
     guard let id = state.selectedSessionID, state.activeBase != nil else { return }
     let seen = state.generation
-    startPing(seen)
+    let listen = listenID
+    startPing(seen, listen: listen)
     defer {
       pingTask?.cancel()
       pingTask = nil
     }
     do {
       _ = try await recover(sessionID: id)
-      try await readLoop(id, seen: seen)
+      try await readLoop(id, seen: seen, listen: listen)
     } catch is CancellationError {
       return
     } catch {
-      if Task.isCancelled || seen != state.generation { return }
+      if Task.isCancelled || seen != state.generation || listen != listenID { return }
       applyTransportFailure(generation: seen)
     }
   }
@@ -198,14 +210,21 @@ public final class PhoneDesk {
 
   public func recover(sessionID: String) async throws -> String {
     let seen = state.generation
+    let listen = listenID
     guard await acceptVersion(seen) else { throw CancellationError() }
+    guard listen == listenID else { throw CancellationError() }
     let base = try requireBase()
     let id = try ResourceID.segment(sessionID)
+    if state.socketUp,
+      let beat = SocketFrames.pong(for: #"{"type":"ping","payload":{"nonce":"hold"}}"#)
+    {
+      try await socket.send(beat)
+    }
     let response = try await transport.perform(
       ControlRequest(method: "GET", path: "/sessions/\(id)/snapshot", body: nil),
       to: base
     )
-    guard seen == state.generation else { throw CancellationError() }
+    guard seen == state.generation, listen == listenID else { throw CancellationError() }
     let decoded = ResponsePath.decode(status: response.status, body: response.body, dismiss: false)
     guard case .success = decoded.outcome else {
       throw ControlBuildError.badResponse
@@ -215,6 +234,10 @@ public final class PhoneDesk {
       sessionIDs: [id],
       cursors: [id: SubscribeCursor(seq: view.asOfSeq, epoch: view.epoch)]
     )
+    if !state.socketUp {
+      try await socket.open(try base.socketURL())
+    }
+    guard seen == state.generation, listen == listenID else { throw CancellationError() }
     var next = state
     next.transcript = view.transcript
     next.approval = view.approval
@@ -223,10 +246,6 @@ public final class PhoneDesk {
       next.scopeConfirmed = false
     }
     state = next
-    if !state.socketUp {
-      try await socket.open(try base.socketURL())
-    }
-    guard seen == state.generation else { throw CancellationError() }
     try await socket.send(frame)
     var connected = state
     connected.socketUp = true
@@ -247,10 +266,13 @@ public final class PhoneDesk {
   }
 
   private func begin() -> Int {
-    var next = state
-    next.generation += 1
-    state = next
-    return state.generation
+    actionID += 1
+    if state.sendInFlight {
+      var next = state
+      next.sendInFlight = false
+      state = next
+    }
+    return actionID
   }
 
   private func track(_ task: Task<Void, Never>) {
@@ -261,6 +283,12 @@ public final class PhoneDesk {
   private func refreshSessions(_ seen: Int) async {
     guard await acceptVersion(seen) else { return }
     guard seen == state.generation, let base = state.activeBase else { return }
+    let recovering: Bool
+    if case .offline = state.phase {
+      recovering = true
+    } else {
+      recovering = false
+    }
     var loading = state
     loading.isLoading = true
     state = loading
@@ -284,8 +312,14 @@ public final class PhoneDesk {
         next.selectedSessionID = nil
         next.socketUp = false
       }
+      if case .offline(let linked) = next.phase {
+        next.phase = .paired(linked)
+      }
       next.banner = nil
       state = next
+      if recovering, seen == state.generation {
+        listenID += 1
+      }
     } catch {
       if Task.isCancelled || seen != state.generation { return }
       applyTransportFailure(generation: seen)
@@ -293,11 +327,13 @@ public final class PhoneDesk {
   }
 
   private func performPrompt(_ seen: Int) async {
+    let life = state.generation
+    guard seen == actionID, life == state.generation else { return }
     var next = state
     next.sendInFlight = true
     state = next
     defer {
-      if seen == state.generation {
+      if seen == actionID, life == state.generation {
         var done = state
         done.sendInFlight = false
         state = done
@@ -368,8 +404,10 @@ public final class PhoneDesk {
     request: () throws -> ControlRequest,
     onSuccess: (inout PhoneState) -> Void
   ) async {
-    guard await acceptVersion(seen) else { return }
-    guard seen == state.generation else { return }
+    let life = state.generation
+    guard seen == actionID, life == state.generation else { return }
+    guard await acceptVersion(life) else { return }
+    guard seen == actionID, life == state.generation else { return }
     let built: ControlRequest
     do {
       built = try request()
@@ -379,11 +417,11 @@ public final class PhoneDesk {
     guard let base = state.activeBase else { return }
     do {
       let response = try await transport.perform(built, to: base)
-      guard seen == state.generation, !Task.isCancelled else { return }
-      apply(response, dismiss: dismiss, seen: seen, onSuccess: onSuccess)
+      guard seen == actionID, life == state.generation, !Task.isCancelled else { return }
+      apply(response, dismiss: dismiss, action: seen, life: life, onSuccess: onSuccess)
     } catch {
-      if Task.isCancelled || seen != state.generation { return }
-      applyTransportFailure(generation: seen)
+      if Task.isCancelled || seen != actionID || life != state.generation { return }
+      applyTransportFailure(generation: life)
     }
   }
 
@@ -430,16 +468,19 @@ public final class PhoneDesk {
     next.refusal = message
     next.versionAccepted = false
     next.socketUp = false
+    next.generation += 1
     state = next
+    listenID += 1
   }
 
   private func apply(
     _ response: ControlHTTPResult,
     dismiss: Bool,
-    seen: Int,
+    action: Int,
+    life: Int,
     onSuccess: (inout PhoneState) -> Void
   ) {
-    guard seen == state.generation else { return }
+    guard action == actionID, life == state.generation else { return }
     let decoded = ResponsePath.decode(
       status: response.status, body: response.body, dismiss: dismiss)
     var next = state
@@ -468,31 +509,40 @@ public final class PhoneDesk {
     return base
   }
 
-  private func startPing(_ seen: Int) {
+  private func startPing(_ seen: Int, listen: Int) {
     pingTask?.cancel()
     pingTask = Task { @MainActor in
-      while seen == self.state.generation, !Task.isCancelled {
+      while seen == self.state.generation, listen == self.listenID, !Task.isCancelled {
         try? await Task.sleep(for: self.pingInterval)
-        if Task.isCancelled || seen != self.state.generation { return }
+        if Task.isCancelled || seen != self.state.generation || listen != self.listenID { return }
         await self.pingNow()
       }
     }
   }
 
-  private func readLoop(_ id: String, seen: Int) async throws {
+  private func readLoop(_ id: String, seen: Int, listen: Int) async throws {
     var recovered = false
-    while seen == state.generation, !Task.isCancelled {
+    while seen == state.generation, listen == listenID, !Task.isCancelled {
       do {
         let text = try await SocketWait.next(socket, within: receiveDeadline)
-        guard seen == state.generation else { return }
+        guard seen == state.generation, listen == listenID else { return }
+        if let reply = SocketFrames.pong(for: text) {
+          try await socket.send(reply)
+          continue
+        }
         var next = state
+        if InteractionFrames.apply(text, to: &next) {
+          state = next
+          continue
+        }
         let effect = next.transcript.apply(frame: text)
         state = next
         if effect == .resync {
+          guard seen == state.generation, listen == listenID else { return }
           _ = try await recover(sessionID: id)
         }
       } catch {
-        if Task.isCancelled || seen != state.generation { return }
+        if Task.isCancelled || seen != state.generation || listen != listenID { return }
         if recovered {
           throw error
         }

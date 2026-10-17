@@ -471,6 +471,294 @@ import Testing
   #expect(VersionGate.acceptedServerVersion == object?["version"] as? String)
 }
 
+@Test @MainActor func liveRepairSendDoesNotAbandonTheListener() {
+  let desk = PhoneDesk(transport: ScriptedTransport(), store: MemoryLinkStore())
+  let generation = desk.state.generation
+  let listen = desk.listenID
+  desk.sendPrompt()
+  desk.stop()
+  desk.decide(.approved)
+  desk.answer()
+  desk.dismiss()
+  #expect(desk.state.generation == generation, "LIVE_DEFECT reader stopped")
+  #expect(desk.listenID == listen, "LIVE_DEFECT reader stopped")
+}
+
+@Test @MainActor func liveRepairPingGetsAnApplicationPong() async throws {
+  let transport = ScriptedTransport()
+  let socket = PingSocket()
+  let desk = PhoneDesk(transport: transport, store: MemoryLinkStore(), socket: socket)
+  desk.receiveDeadline = .milliseconds(30)
+  desk.pingInterval = .seconds(30)
+  desk.state.phase = .paired(try RemoteLink.parse("https://relay.example/devices/abc/"))
+  desk.state.selectedSessionID = "session_1"
+  desk.state.versionAccepted = true
+  transport.handler = { request in
+    if request.path.hasSuffix("/snapshot") {
+      return ControlHTTPResult(status: 200, body: snapshotBody())
+    }
+    return ControlHTTPResult(status: 200, body: envelope(code: 0, message: "ok", data: [:]))
+  }
+  await desk.followSelected()
+  #expect(socket.sent.contains { $0.contains("\"type\":\"pong\"") }, "LIVE_DEFECT missing pong")
+}
+
+@Test func liveRepairNewStepKeepsOffsetZeroText() {
+  var stepped = SessionTranscript(liveText: "old", cursor: StreamCursor(textLength: 3))
+  _ = stepped.apply(frame: #"{"type":"turn.step.started","payload":{"turnId":1}}"#)
+  _ = stepped.apply(
+    frame: #"{"type":"assistant.delta","offset":0,"payload":{"delta":"new"}}"#
+  )
+  #expect(stepped.assistantText.contains("old"), "LIVE_DEFECT dropped old step")
+  #expect(stepped.assistantText.contains("new"), "LIVE_DEFECT dropped new step")
+
+  var turned = SessionTranscript(liveText: "old", cursor: StreamCursor(textLength: 3))
+  _ = turned.apply(frame: #"{"type":"turn.started","payload":{"turnId":2}}"#)
+  _ = turned.apply(
+    frame: #"{"type":"assistant.delta","offset":0,"payload":{"delta":"next"}}"#
+  )
+  #expect(turned.assistantText.contains("next"), "LIVE_DEFECT dropped new turn")
+}
+
+@Test func liveRepairDeltaOffsetUsesUTF16Units() {
+  var transcript = SessionTranscript()
+  _ = transcript.apply(
+    frame: #"{"type":"assistant.delta","offset":0,"payload":{"delta":"👍"}}"#
+  )
+  let effect = transcript.apply(
+    frame: #"{"type":"assistant.delta","offset":2,"payload":{"delta":"!"}}"#
+  )
+  #expect(effect == .applied, "LIVE_DEFECT utf16 offset")
+  #expect(transcript.liveText == "👍!", "LIVE_DEFECT utf16 offset")
+}
+
+@Test func liveRepairSnapshotKeepsAssistantOrderAndBounds() throws {
+  let filler = String(repeating: "a", count: SessionTranscript.maxText)
+  let huge = "HEAD" + filler + "TAIL"
+  var items: [[String: Any]] = [
+    ["role": "user", "content": [["type": "text", "text": "ask"]]],
+    ["role": "assistant", "content": [["type": "text", "text": "first"]]],
+    ["role": "system", "content": [["type": "text", "text": "secret"]]],
+    [
+      "role": "assistant",
+      "content": [
+        ["type": "text", "text": "second"],
+        ["type": "tool_use", "tool_call_id": "c-keep", "tool_name": "Bash"],
+      ],
+    ],
+    ["role": "assistant", "content": [["type": "text", "text": huge]]],
+  ]
+  for index in 0..<SessionTranscript.maxTools {
+    items.append([
+      "role": "assistant",
+      "content": [
+        ["type": "tool_use", "tool_call_id": "c\(index)", "tool_name": "Bash"]
+      ],
+    ])
+  }
+  let ordered = try SnapshotDecoder.decode(
+    snapshotEnvelope([
+      ["role": "assistant", "content": [["type": "text", "text": "first"]]],
+      ["role": "assistant", "content": [["type": "text", "text": "second"]]],
+    ])
+  )
+  #expect(
+    ordered.transcript.assistantText.range(of: "first").map { first in
+      ordered.transcript.assistantText.range(of: "second").map { first.upperBound < $0.lowerBound }
+        ?? false
+    } == true,
+    "LIVE_DEFECT snapshot order"
+  )
+  let view = try SnapshotDecoder.decode(snapshotEnvelope(items))
+  #expect(
+    view.transcript.assistantText.utf16.count <= SessionTranscript.maxText,
+    "LIVE_DEFECT snapshot unbound"
+  )
+  #expect(!view.transcript.assistantText.contains("ask"), "LIVE_DEFECT snapshot role")
+  #expect(!view.transcript.assistantText.contains("secret"), "LIVE_DEFECT snapshot role")
+  #expect(!view.transcript.assistantText.contains("HEAD"), "LIVE_DEFECT snapshot unbound")
+  #expect(view.transcript.assistantText.contains("TAIL"), "LIVE_DEFECT snapshot unbound")
+  #expect(view.transcript.tools.count == SessionTranscript.maxTools, "LIVE_DEFECT snapshot unbound")
+  #expect(
+    view.transcript.tools.contains { $0.id == "c-keep" } == false, "LIVE_DEFECT snapshot unbound")
+  #expect(view.transcript.tools.contains { $0.id == "c31" }, "LIVE_DEFECT snapshot unbound")
+}
+
+@Test @MainActor func liveRepairSelectClearsThePreviousApproval() throws {
+  let desk = try pairedDesk(ScriptedTransport())
+  desk.state.selectedSessionID = "session_1"
+  desk.state.approval = ApprovalDraft(
+    toolName: "Bash", action: "bash", inputDisplay: "ls", id: "apr_old")
+  desk.state.question = PendingQuestion(
+    id: "question_9",
+    items: [
+      QuestionItem(id: "q_2", prompt: "Pick", options: [QuestionOption(id: "opt_a", label: "A")])
+    ]
+  )
+  desk.state.scopeConfirmed = true
+  desk.select("session_2")
+  #expect(desk.state.selectedSessionID == "session_2")
+  #expect(desk.state.approval == nil, "LIVE_DEFECT stale approval")
+  #expect(desk.state.question == nil, "LIVE_DEFECT stale approval")
+  #expect(desk.state.scopeConfirmed == false, "LIVE_DEFECT stale approval")
+}
+
+@Test @MainActor func liveRepairRetryRestoresTheListener() async throws {
+  let transport = ScriptedTransport()
+  let desk = try pairedDesk(transport)
+  let base = try RemoteLink.parse("https://relay.example/devices/abc/")
+  desk.state.phase = .offline(base)
+  desk.state.selectedSessionID = "session_1"
+  desk.state.versionAccepted = true
+  let listen = desk.listenID
+  transport.handler = { _ in
+    ControlHTTPResult(
+      status: 200,
+      body: envelope(
+        code: 0,
+        message: "ok",
+        data: ["items": [["id": "session_1", "title": "Notes", "busy": false]]]
+      )
+    )
+  }
+  desk.refreshSessions()
+  var restored = false
+  for _ in 0..<100 {
+    if case .paired = desk.state.phase {
+      restored = true
+      break
+    }
+    await Task.yield()
+  }
+  #expect(restored, "LIVE_DEFECT retry stays offline")
+  #expect(desk.listenID == listen + 1, "LIVE_DEFECT retry stays offline")
+}
+
+@Test func liveRepairForeignStepDoesNotDropMainText() {
+  var transcript = SessionTranscript(liveText: "main", cursor: StreamCursor(textLength: 4))
+  _ = transcript.apply(
+    frame: #"{"type":"turn.step.started","payload":{"agentId":"sub","turnId":1}}"#
+  )
+  _ = transcript.apply(
+    frame: #"{"type":"assistant.delta","offset":4,"payload":{"agentId":"main","delta":"!"}}"#
+  )
+  #expect(transcript.assistantText == "main!", "LIVE_DEFECT foreign step")
+}
+
+@Test @MainActor func liveRepairSameSessionTapKeepsTheApproval() throws {
+  let desk = try pairedDesk(ScriptedTransport())
+  desk.state.selectedSessionID = "session_1"
+  desk.state.approval = ApprovalDraft(
+    toolName: "Bash", action: "bash", inputDisplay: "ls", id: "apr_old")
+  let listen = desk.listenID
+  desk.select("session_1")
+  #expect(desk.state.approval?.id == "apr_old", "LIVE_DEFECT same session cleared")
+  #expect(desk.listenID == listen, "LIVE_DEFECT same session cleared")
+}
+
+@Test @MainActor func liveRepairApprovalFrameOpensTheSheet() async throws {
+  let transport = ScriptedTransport()
+  let socket = FrameSocket(
+    frames: [
+      #"{"type":"event.approval.requested","payload":{"approval_id":"apr_9","tool_name":"Bash","action":"bash","tool_input_display":"ls"}}"#
+    ]
+  )
+  let desk = PhoneDesk(transport: transport, store: MemoryLinkStore(), socket: socket)
+  desk.receiveDeadline = .milliseconds(200)
+  desk.pingInterval = .seconds(30)
+  desk.state.phase = .paired(try RemoteLink.parse("https://relay.example/devices/abc/"))
+  desk.state.selectedSessionID = "session_1"
+  desk.state.versionAccepted = true
+  transport.handler = { request in
+    if request.path.hasSuffix("/snapshot") {
+      return ControlHTTPResult(status: 200, body: snapshotBody())
+    }
+    return ControlHTTPResult(status: 200, body: envelope(code: 0, message: "ok", data: [:]))
+  }
+  let task = Task { await desk.followSelected() }
+  var opened = false
+  for _ in 0..<80 {
+    if desk.state.approval?.id == "apr_9" {
+      opened = true
+      break
+    }
+    await Task.yield()
+  }
+  task.cancel()
+  #expect(opened, "LIVE_DEFECT approval frame")
+}
+
+@Test @MainActor func liveRepairListenChangeDoesNotMarkOffline() async throws {
+  let transport = ScriptedTransport()
+  let socket = GateSocket()
+  let desk = PhoneDesk(transport: transport, store: MemoryLinkStore(), socket: socket)
+  desk.receiveDeadline = .seconds(2)
+  desk.pingInterval = .seconds(30)
+  desk.state.phase = .paired(try RemoteLink.parse("https://relay.example/devices/abc/"))
+  desk.state.selectedSessionID = "session_1"
+  desk.state.versionAccepted = true
+  transport.handler = { request in
+    if request.path.hasSuffix("/snapshot") {
+      return ControlHTTPResult(status: 200, body: snapshotBody())
+    }
+    return ControlHTTPResult(status: 200, body: envelope(code: 0, message: "ok", data: [:]))
+  }
+  let task = Task { await desk.followSelected() }
+  for _ in 0..<80 {
+    if !socket.sent.isEmpty { break }
+    await Task.yield()
+  }
+  desk.select("session_2")
+  socket.release()
+  await task.value
+  if case .offline = desk.state.phase {
+    Issue.record("LIVE_DEFECT stale reader")
+  }
+}
+
+@Test @MainActor func liveRepairOpenSocketAnswersPingDuringSnapshot() async throws {
+  let transport = ScriptedTransport()
+  let socket = RecordingSocket()
+  let desk = PhoneDesk(transport: transport, store: MemoryLinkStore(), socket: socket)
+  desk.state.phase = .paired(try RemoteLink.parse("https://relay.example/devices/abc/"))
+  desk.state.selectedSessionID = "session_1"
+  desk.state.versionAccepted = true
+  desk.state.socketUp = true
+  transport.handler = { _ in
+    ControlHTTPResult(status: 200, body: snapshotBody())
+  }
+  _ = try await desk.recover(sessionID: "session_1")
+  #expect(socket.sent.contains { $0.contains("\"type\":\"pong\"") }, "LIVE_DEFECT snapshot ping")
+}
+
+@Test @MainActor func liveRepairStopClearsSendInFlight() throws {
+  let desk = try pairedDesk(ScriptedTransport())
+  desk.state.selectedSessionID = "session_1"
+  desk.state.socketUp = true
+  desk.state.versionAccepted = true
+  desk.state.sendInFlight = true
+  desk.stop()
+  #expect(desk.state.sendInFlight == false, "LIVE_DEFECT send stuck")
+}
+
+@Test @MainActor func liveRepairSelectDropsAnInFlightSnapshot() async throws {
+  let transport = WaitingTransport()
+  let desk = PhoneDesk(transport: transport, store: MemoryLinkStore(), socket: RecordingSocket())
+  desk.state.phase = .paired(try RemoteLink.parse("https://relay.example/devices/abc/"))
+  desk.state.selectedSessionID = "session_1"
+  desk.state.versionAccepted = true
+  let task = Task { _ = try? await desk.recover(sessionID: "session_1") }
+  for _ in 0..<80 {
+    if transport.entered { break }
+    await Task.yield()
+  }
+  desk.select("session_2")
+  transport.release(snapshotBody())
+  await task.value
+  #expect(desk.state.selectedSessionID == "session_2")
+  #expect(desk.state.transcript.assistantText.isEmpty, "LIVE_DEFECT stale recover")
+}
+
 @MainActor
 private func pairedDesk(_ transport: ScriptedTransport) throws -> PhoneDesk {
   let desk = PhoneDesk(transport: transport, store: MemoryLinkStore())
@@ -493,6 +781,20 @@ private func envelope(code: Int, message: String, data: [String: Any]) -> Data {
   return try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
 }
 
+private func snapshotEnvelope(_ items: [[String: Any]]) -> Data {
+  let object: [String: Any] = [
+    "code": 0,
+    "msg": "ok",
+    "request_id": "r",
+    "data": [
+      "as_of_seq": 3,
+      "epoch": "ep",
+      "messages": ["items": items],
+    ],
+  ]
+  return try! JSONSerialization.data(withJSONObject: object)
+}
+
 private func snapshotBody() -> Data {
   let object: [String: Any] = [
     "code": 0,
@@ -511,6 +813,63 @@ private func snapshotBody() -> Data {
     ],
   ]
   return try! JSONSerialization.data(withJSONObject: object)
+}
+
+private final class WaitingTransport: GatewayTransport, @unchecked Sendable {
+  private let lock = NSLock()
+  private var open = false
+  private var body = Data()
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+  private var started = false
+
+  var entered: Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return started
+  }
+
+  func perform(_ request: ControlRequest, to base: RemoteBase) async throws -> ControlHTTPResult {
+    markEntered()
+    await waitForRelease()
+    return ControlHTTPResult(status: 200, body: currentBody())
+  }
+
+  func release(_ body: Data) {
+    lock.lock()
+    self.body = body
+    open = true
+    let pending = waiters
+    waiters = []
+    lock.unlock()
+    for waiter in pending {
+      waiter.resume()
+    }
+  }
+
+  private func markEntered() {
+    lock.lock()
+    started = true
+    lock.unlock()
+  }
+
+  private func currentBody() -> Data {
+    lock.lock()
+    defer { lock.unlock() }
+    return body
+  }
+
+  private func waitForRelease() async {
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      lock.lock()
+      if open {
+        lock.unlock()
+        continuation.resume()
+        return
+      }
+      waiters.append(continuation)
+      lock.unlock()
+    }
+  }
 }
 
 private final class ScriptedTransport: GatewayTransport, @unchecked Sendable {
@@ -566,6 +925,137 @@ private final class RecordingSocket: EventSocket, @unchecked Sendable {
 
   func next() async throws -> String {
     throw CancellationError()
+  }
+
+  func ping() async throws {}
+
+  func close() {}
+}
+
+private final class FrameSocket: EventSocket, @unchecked Sendable {
+  private let lock = NSLock()
+  private var frames: [String]
+
+  init(frames: [String]) {
+    self.frames = frames
+  }
+
+  func open(_ url: URL) async throws {}
+
+  func send(_ text: String) async throws {}
+
+  func next() async throws -> String {
+    if let frame = take() { return frame }
+    try await Task.sleep(for: .seconds(5))
+    throw CancellationError()
+  }
+
+  func ping() async throws {}
+
+  func close() {}
+
+  private func take() -> String? {
+    lock.lock()
+    defer { lock.unlock() }
+    guard !frames.isEmpty else { return nil }
+    return frames.removeFirst()
+  }
+}
+
+private final class GateSocket: EventSocket, @unchecked Sendable {
+  private let lock = NSLock()
+  private var frames: [String] = []
+  private var openGate = false
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+
+  var sent: [String] {
+    lock.lock()
+    defer { lock.unlock() }
+    return frames
+  }
+
+  func open(_ url: URL) async throws {}
+
+  func send(_ text: String) async throws {
+    remember(text)
+  }
+
+  func next() async throws -> String {
+    await waitForRelease()
+    throw SocketFrameError.timedOut
+  }
+
+  private func remember(_ text: String) {
+    lock.lock()
+    frames.append(text)
+    lock.unlock()
+  }
+
+  func ping() async throws {}
+
+  func close() {}
+
+  func release() {
+    lock.lock()
+    openGate = true
+    let pending = waiters
+    waiters = []
+    lock.unlock()
+    for waiter in pending {
+      waiter.resume()
+    }
+  }
+
+  private func waitForRelease() async {
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      lock.lock()
+      if openGate {
+        lock.unlock()
+        continuation.resume()
+        return
+      }
+      waiters.append(continuation)
+      lock.unlock()
+    }
+  }
+}
+
+private final class PingSocket: EventSocket, @unchecked Sendable {
+  private let lock = NSLock()
+  private var frames: [String] = []
+  private var yielded = false
+
+  var sent: [String] {
+    lock.lock()
+    defer { lock.unlock() }
+    return frames
+  }
+
+  func open(_ url: URL) async throws {}
+
+  func send(_ text: String) async throws {
+    remember(text)
+  }
+
+  func next() async throws -> String {
+    if takeFirst() {
+      return #"{"type":"ping","payload":{"nonce":"n1"}}"#
+    }
+    throw CancellationError()
+  }
+
+  private func remember(_ text: String) {
+    lock.lock()
+    frames.append(text)
+    lock.unlock()
+  }
+
+  private func takeFirst() -> Bool {
+    lock.lock()
+    let first = !yielded
+    yielded = true
+    lock.unlock()
+    return first
   }
 
   func ping() async throws {}

@@ -11,7 +11,7 @@ public struct StreamCursor: Equatable, Sendable {
     if offset < textLength {
       return false
     }
-    textLength = offset + chunk.count
+    textLength = offset + chunk.utf16.count
     return true
   }
 }

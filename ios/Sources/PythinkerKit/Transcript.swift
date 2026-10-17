@@ -42,17 +42,28 @@ public struct SessionTranscript: Equatable, Sendable {
   public var assistantText: String {
     if committedText.isEmpty { return liveText }
     if liveText.isEmpty { return committedText }
-    return committedText + "\n" + liveText
+    return Self.tail(committedText + "\n" + liveText, utf16Limit: Self.maxText)
   }
 
   public mutating func applyDelta(offset: Int, chunk: String) -> Bool {
     guard cursor.apply(offset: offset, chunk: chunk) else { return false }
     liveText += chunk
-    if liveText.count > Self.maxText {
-      liveText = String(liveText.suffix(Self.maxText))
-      cursor.textLength = liveText.count
-    }
+    liveText = Self.tail(liveText, utf16Limit: Self.maxText)
     return true
+  }
+
+  static func tail(_ text: String, utf16Limit: Int) -> String {
+    guard text.utf16.count > utf16Limit else { return text }
+    var start = text.endIndex
+    var units = 0
+    while start > text.startIndex && units < utf16Limit {
+      let previous = text.index(before: start)
+      let piece = text[previous..<start].utf16.count
+      if units + piece > utf16Limit { break }
+      units += piece
+      start = previous
+    }
+    return String(text[start...])
   }
 
   public mutating func apply(frame text: String) -> FrameEffect {
@@ -64,7 +75,13 @@ public struct SessionTranscript: Equatable, Sendable {
     }
     if type == "resync_required" { return .resync }
     let payload = frame["payload"] as? [String: Any] ?? [:]
+    if let agent = payload["agentId"] as? String, agent != "main" {
+      return .ignored
+    }
     switch type {
+    case "turn.started", "turn.step.started", "turn.ended":
+      commitLive()
+      return .applied
     case "assistant.delta":
       let offset = JSONValue.int(frame["offset"]) ?? cursor.textLength
       let chunk = payload["delta"] as? String ?? ""
@@ -85,6 +102,19 @@ public struct SessionTranscript: Equatable, Sendable {
     default:
       return .ignored
     }
+  }
+
+  private mutating func commitLive() {
+    if !liveText.isEmpty {
+      if committedText.isEmpty {
+        committedText = liveText
+      } else {
+        committedText += "\n" + liveText
+      }
+      liveText = ""
+      committedText = Self.tail(committedText, utf16Limit: Self.maxText)
+    }
+    cursor = StreamCursor()
   }
 
   private mutating func upsert(id: String, name: String, status: String) {
@@ -157,13 +187,14 @@ enum SnapshotDecoder {
     if let messages = data["messages"] as? [String: Any],
       let items = messages["items"] as? [[String: Any]]
     {
-      for item in items.reversed() {
+      for item in items {
+        let role = item["role"] as? String
         guard let content = item["content"] as? [[String: Any]] else { continue }
         for part in content {
           switch part["type"] as? String {
           case "text":
-            if let text = part["text"] as? String, !text.isEmpty {
-              committed.append(text)
+            if role == "assistant", let text = part["text"] as? String, !text.isEmpty {
+              committed.append(SessionTranscript.tail(text, utf16Limit: SessionTranscript.maxText))
             }
           case "tool_use":
             let id = part["tool_call_id"] as? String ?? "tool-\(tools.count)"
@@ -200,10 +231,21 @@ enum SnapshotDecoder {
         }
       }
     }
+    while tools.count > SessionTranscript.maxTools {
+      if let index = tools.firstIndex(where: { $0.status != "running" }) {
+        tools.remove(at: index)
+      } else {
+        tools.removeFirst()
+      }
+    }
+    let liveUnits = live.utf16.count
     return SessionTranscript(
-      committedText: committed.joined(separator: "\n"),
-      liveText: live,
-      cursor: StreamCursor(textLength: live.count),
+      committedText: SessionTranscript.tail(
+        committed.joined(separator: "\n"),
+        utf16Limit: SessionTranscript.maxText
+      ),
+      liveText: SessionTranscript.tail(live, utf16Limit: SessionTranscript.maxText),
+      cursor: StreamCursor(textLength: liveUnits),
       tools: tools
     )
   }
@@ -212,12 +254,16 @@ enum SnapshotDecoder {
     guard let items = data["pending_approvals"] as? [[String: Any]], let first = items.first else {
       return nil
     }
-    let id = first["approval_id"] as? String ?? ""
+    return approvalDraft(first)
+  }
+
+  static func approvalDraft(_ item: [String: Any]) -> ApprovalDraft? {
+    let id = item["approval_id"] as? String ?? ""
     guard !id.isEmpty else { return nil }
     return ApprovalDraft(
-      toolName: first["tool_name"] as? String ?? "",
-      action: first["action"] as? String ?? "",
-      inputDisplay: DisplayText.string(first["tool_input_display"]),
+      toolName: item["tool_name"] as? String ?? "",
+      action: item["action"] as? String ?? "",
+      inputDisplay: DisplayText.string(item["tool_input_display"]),
       id: id
     )
   }
@@ -226,9 +272,13 @@ enum SnapshotDecoder {
     guard let items = data["pending_questions"] as? [[String: Any]], let first = items.first else {
       return nil
     }
-    let id = first["question_id"] as? String ?? ""
+    return pendingQuestion(first)
+  }
+
+  static func pendingQuestion(_ item: [String: Any]) -> PendingQuestion? {
+    let id = item["question_id"] as? String ?? ""
     guard !id.isEmpty else { return nil }
-    let rawItems = first["questions"] as? [[String: Any]] ?? []
+    let rawItems = item["questions"] as? [[String: Any]] ?? []
     let parsed = rawItems.compactMap { item -> QuestionItem? in
       guard let itemID = item["id"] as? String else { return nil }
       let options = (item["options"] as? [[String: Any]] ?? []).compactMap {
@@ -239,6 +289,48 @@ enum SnapshotDecoder {
       return QuestionItem(id: itemID, prompt: item["question"] as? String ?? "", options: options)
     }
     return PendingQuestion(id: id, items: parsed)
+  }
+}
+
+enum InteractionFrames {
+  static func apply(_ text: String, to state: inout PhoneState) -> Bool {
+    guard let data = text.data(using: .utf8),
+      let frame = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let type = frame["type"] as? String
+    else {
+      return false
+    }
+    let payload = frame["payload"] as? [String: Any] ?? [:]
+    switch type {
+    case "event.approval.requested":
+      guard let draft = SnapshotDecoder.approvalDraft(payload) else { return true }
+      state.approval = draft
+      state.scopeConfirmed = false
+      return true
+    case "event.approval.resolved":
+      let id = payload["approval_id"] as? String ?? ""
+      if id.isEmpty || state.approval?.id == id {
+        state.approval = nil
+        state.scopeConfirmed = false
+      }
+      return true
+    case "event.question.requested":
+      guard let question = SnapshotDecoder.pendingQuestion(payload) else { return true }
+      state.question = question
+      state.selectedItemID = nil
+      state.selectedOptionID = nil
+      return true
+    case "event.question.answered", "event.question.dismissed":
+      let id = payload["question_id"] as? String ?? ""
+      if id.isEmpty || state.question?.id == id {
+        state.question = nil
+        state.selectedItemID = nil
+        state.selectedOptionID = nil
+      }
+      return true
+    default:
+      return false
+    }
   }
 }
 

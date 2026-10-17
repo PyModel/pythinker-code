@@ -70,6 +70,27 @@ public enum SocketFrames {
     }
     return text
   }
+
+  public static func pong(for frame: String) -> String? {
+    guard let data = frame.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      object["type"] as? String == "ping"
+    else {
+      return nil
+    }
+    let payload = object["payload"] as? [String: Any]
+    let nonce = payload?["nonce"] as? String ?? ""
+    let reply: [String: Any] = [
+      "type": "pong",
+      "payload": ["nonce": nonce],
+    ]
+    guard let encoded = try? JSONSerialization.data(withJSONObject: reply, options: [.sortedKeys]),
+      let text = String(data: encoded, encoding: .utf8)
+    else {
+      return nil
+    }
+    return text
+  }
 }
 
 enum SessionListDecoder {
