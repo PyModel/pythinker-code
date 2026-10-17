@@ -1,5 +1,6 @@
 import {
   RemoteControlAlreadyRunningError,
+  type RemoteControlLockInfo,
   type RemoteControlManager,
   type RemoteControlStatusInfo,
 } from '@pymodel/remote-control';
@@ -38,6 +39,7 @@ interface RemoteControlRouteHost {
 export interface RemoteControlRouteOptions {
   readonly service: RemoteControlManager;
   readonly staticEnableError?: string;
+  readonly lockHolder?: () => Promise<RemoteControlLockInfo | undefined>;
   readonly telemetry?: ITelemetryService;
 }
 
@@ -54,7 +56,7 @@ export function registerRemoteControlRoutes(
       tags: ['remote-control'],
     },
     async (req, reply) => {
-      reply.send(okEnvelope(toRemoteControlStatusResponse(opts.service.status()), req.id));
+      reply.send(okEnvelope(await currentStatus(opts), req.id));
     },
   );
   app.get(
@@ -114,6 +116,20 @@ export function registerRemoteControlRoutes(
     setRoute.options,
     setRoute.handler as Parameters<RemoteControlRouteHost['post']>[2],
   );
+}
+
+async function currentStatus(opts: RemoteControlRouteOptions): Promise<RemoteControlStatusResponse> {
+  const status = opts.service.status();
+  if (status.state !== 'off') return toRemoteControlStatusResponse(status);
+  const holder = await opts.lockHolder?.();
+  if (holder === undefined) return toRemoteControlStatusResponse(status);
+  return {
+    enabled: true,
+    state: 'on',
+    url: holder.url,
+    device_id: holder.deviceId,
+    started_in_terminal: true,
+  };
 }
 
 function toRemoteControlStatusResponse(

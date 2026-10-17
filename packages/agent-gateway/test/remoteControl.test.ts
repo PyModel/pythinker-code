@@ -160,6 +160,17 @@ describe('agent-gateway /api/v1/remote-control', () => {
     const posted = await postRemoteControl(true);
     expect(posted.code).toBe(ErrorCode.REMOTE_CONTROL_ALREADY_RUNNING);
     expect(posted.msg).toContain('already running');
+
+    const status = (await (
+      await authedFetch(server as RunningServer, base, '/api/v1/remote-control')
+    ).json()) as { data: Record<string, unknown> };
+    expect(status.data).toMatchObject({
+      enabled: true,
+      state: 'on',
+      url: 'https://code-rc.example.test/devices/other-device/',
+      device_id: 'other-device',
+      started_in_terminal: true,
+    });
   });
 });
 

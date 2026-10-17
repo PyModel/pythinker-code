@@ -79,7 +79,7 @@ import { TranscriptService } from './services/transcript/transcriptService';
 import { ModelCatalogRefreshScheduler } from './services/modelCatalog/modelCatalogRefreshScheduler';
 import { startConfigChangedPublisher } from './services/config/configChangedPublisher';
 import { createAuthFailureLimiter } from './middleware/rateLimit';
-import { createRemoteControlManager } from '@pymodel/remote-control';
+import { createRemoteControlManager, inspectRemoteControlLock } from '@pymodel/remote-control';
 
 import { createAuthTokenService, type IAuthTokenService } from './services/auth/authTokenService';
 import { createCredentialValidator } from './services/auth/credentials';
@@ -445,6 +445,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     pluginMarketplaceIsDefault: false,
     remoteControl: {
       service: remoteControlManager,
+      lockHolder: () => inspectRemoteControlLock(homeDir),
       staticEnableError:
         exposureClass !== 'loopback'
           ? 'Remote Control requires a loopback host.'
