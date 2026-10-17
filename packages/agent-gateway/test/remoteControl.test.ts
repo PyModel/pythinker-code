@@ -171,6 +171,9 @@ describe('agent-gateway /api/v1/remote-control', () => {
       device_id: 'other-device',
       started_in_terminal: true,
     });
+
+    const disabled = await postRemoteControl(false);
+    expect(disabled.data).toMatchObject({ state: 'on', started_in_terminal: true });
   });
 });
 
@@ -192,6 +195,7 @@ describe('remote-control route telemetry', () => {
         return { enabled: true, state: 'on' };
       },
       disable: async () => ({ enabled: false, state: 'off' }),
+      status: () => ({ enabled: false, state: 'off' }),
     } as unknown as RemoteControlManager;
   }
 

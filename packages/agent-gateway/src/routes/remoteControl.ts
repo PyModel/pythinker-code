@@ -82,9 +82,9 @@ export function registerRemoteControlRoutes(
     async (req, reply) => {
       const { enabled } = req.body as { enabled: boolean };
       if (!enabled) {
-        const status = await opts.service.disable();
+        await opts.service.disable();
         opts.telemetry?.track2('remote_control_toggle', { enabled, outcome: 'ok' });
-        reply.send(okEnvelope(toRemoteControlStatusResponse(status), req.id));
+        reply.send(okEnvelope(await currentStatus(opts), req.id));
         return;
       }
       if (opts.staticEnableError !== undefined) {
