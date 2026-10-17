@@ -3,6 +3,7 @@
      The old workspace rail and workspace tabs have been removed;
      workspace switching, folding and renaming all live in the group header. -->
 <script setup lang="ts">
+import { publicAssetUrl } from '../api/config';
 import { computed, defineAsyncComponent, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { copyTextToClipboard } from '../lib/clipboard';
@@ -884,7 +885,7 @@ watch([() => props.collapsed, update.hasUpdate], ([collapsed, hasUpdate]) => {
         <div class="ch-brand">
           <img
             class="ch-logo"
-            src="/brand/pythinker_banner_dark.svg"
+            :src="publicAssetUrl('/brand/pythinker_banner_dark.svg')"
             alt="Pythinker Code"
             draggable="false"
             @pointerdown="onLogoPointerDown"

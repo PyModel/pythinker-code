@@ -170,7 +170,7 @@ describe('app shell contracts', () => {
   });
 
   it('uses the Pythinker banner in the sidebar brand', () => {
-    expect(sidebar).toContain('src="/brand/pythinker_banner_dark.svg"');
+    expect(sidebar).toContain(`:src="publicAssetUrl('/brand/pythinker_banner_dark.svg')"`);
     expect(sidebar).not.toContain('pythinker_banner_light.svg');
     expect(sidebar).not.toContain('useIsDark');
     expect(sidebar).toContain('alt="Pythinker Code"');

@@ -1,8 +1,10 @@
 <!-- Pythinker robot mascot — same mark as install.sh / public/pythinker_animated.svg -->
 <script setup lang="ts">
 import { useApngRestart } from '../composables/useApngRestart';
+import { publicAssetUrl } from '../api/config';
 
-const wavingSrc = useApngRestart('/brand/mascot-waving.png');
+const wavingSrc = useApngRestart(publicAssetUrl('/brand/mascot-waving.png'));
+const staticSrc = publicAssetUrl('/brand/icon.svg');
 
 const props = withDefaults(
   defineProps<{
@@ -29,7 +31,7 @@ function onClick(): void {
 
 <template>
   <img
-    :src="animated ? wavingSrc : '/brand/icon.svg'"
+    :src="animated ? wavingSrc : staticSrc"
     class="pythinker-logo"
     :class="[`size-${size}`, { interactive }]"
     :alt="label"

@@ -1,0 +1,1 @@
+import e from"./Tooltip-m4hRLwB5.js";e.install=t=>{t.component(e.__name,e)};export{e as default};

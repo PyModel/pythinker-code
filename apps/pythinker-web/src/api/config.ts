@@ -35,9 +35,33 @@ export function readPythinkerApiConfig(): PythinkerApiConfig {
 // origin instead (that path does require the server to send CORS headers).
 function defaultServerOrigin(): string {
   if (typeof window !== 'undefined' && window.location?.origin) {
-    return window.location.origin;
+    return window.location.origin + relayBasePath();
   }
   return 'http://127.0.0.1:58627';
+}
+
+// The Remote Control relay serves this SPA under `/devices/<id>` and records
+// that prefix (as `origin + prefix`) in sessionStorage before the bundle runs.
+// Only trust it when it is this origin and the page is under that prefix.
+const RELAY_SERVER_ORIGIN_KEY = 'pythinker-desktop-server-origin';
+
+export function relayBasePath(): string {
+  if (typeof window === 'undefined' || !window.location?.origin) return '';
+  let recorded: string | null = null;
+  try {
+    recorded = window.sessionStorage?.getItem(RELAY_SERVER_ORIGIN_KEY) ?? null;
+  } catch {
+    return '';
+  }
+  if (!recorded || !recorded.startsWith(`${window.location.origin}/`)) return '';
+  const prefix = recorded.slice(window.location.origin.length).replace(/\/+$/, '');
+  const path = window.location.pathname;
+  return path === prefix || path.startsWith(`${prefix}/`) ? prefix : '';
+}
+
+/** Resolve a `public/` asset path (`/brand/icon.svg`) against the relay prefix, if any. */
+export function publicAssetUrl(path: string): string {
+  return relayBasePath() + path;
 }
 
 export function normalizeServerOrigin(value: string | undefined): string {
@@ -71,7 +95,9 @@ export function serverEndpointLabel(): string {
   if (import.meta.env.DEV && proxy) return shortOrigin(proxy);
 
   const origin =
-    typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '';
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin + relayBasePath()
+      : '';
   return shortOrigin(origin);
 }
 
