@@ -20,7 +20,7 @@ export async function loadRemoteControlSecret(homeDir: string): Promise<string> 
   try {
     await writeFile(path, randomBytes(32).toString('base64url'), { mode: 0o600, flag: 'wx' });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    if (!isErrno(error, 'EEXIST')) throw error;
   }
   const created = await readSecret(path);
   if (created === undefined) {
@@ -38,7 +38,7 @@ async function readSecret(path: string): Promise<string | undefined> {
   try {
     text = await readFile(path, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    if (isErrno(error, 'ENOENT')) return undefined;
     throw error;
   }
   const secret = text.trim();
@@ -46,4 +46,8 @@ async function readSecret(path: string): Promise<string | undefined> {
     throw new Error(`Remote Control secret at ${path} is invalid. Delete the file to create a new one.`);
   }
   return secret;
+}
+
+function isErrno(error: unknown, code: string): boolean {
+  return error instanceof Error && 'code' in error && error.code === code;
 }
