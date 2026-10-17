@@ -1,6 +1,6 @@
 import { assign, createActor, fromPromise, setup, waitFor } from '@pymodel/agent-core-v2/human/xstate2';
 
-import { resolveRelayKey, startRemoteControl, type RemoteControlHandle } from './remote-control';
+import { startRemoteControl, type RemoteControlHandle } from './remote-control';
 
 export type RemoteControlState = 'off' | 'starting' | 'on' | 'stopping';
 
@@ -25,7 +25,6 @@ export interface RemoteControlManagerOptions {
   readonly localOrigin: () => string;
   readonly localServerToken: () => string;
   readonly clientVersion: string;
-  readonly relayKey?: string;
   readonly relayOrigin?: string;
   readonly stderr?: Pick<NodeJS.WriteStream, 'write'>;
 }
@@ -53,7 +52,6 @@ function createRemoteControlMachine(
           localOrigin: options.localOrigin(),
           localServerToken: options.localServerToken,
           clientVersion: options.clientVersion,
-          relayKey: options.relayKey ?? resolveRelayKey(),
           relayOrigin: options.relayOrigin,
           stderr: options.stderr,
         });

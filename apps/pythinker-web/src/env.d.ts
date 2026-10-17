@@ -95,3 +95,16 @@ declare module '~icons/*?raw' {
   const src: string;
   export default src;
 }
+
+interface Window {
+  // Set by the Remote Control tunnel's injected script; see lib/relayPrefix.ts.
+  __PYTHINKER_RELAY_PREFIX__?: string;
+}
+
+// `@types/qrcode` pulls in Node's globals, so declare only the browser call we use.
+declare module 'qrcode' {
+  const QRCode: {
+    toDataURL(text: string, options?: { margin?: number; width?: number }): Promise<string>;
+  };
+  export default QRCode;
+}

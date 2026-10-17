@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { publicAssetUrl } from '../api/config';
 
 type MascotState = 'running' | 'waiting' | 'failed';
 type ThinkingPose = 'laptop' | 'review';
@@ -28,9 +29,9 @@ const mascotStyle = computed<Record<string, string>>(() => {
 });
 
 const mascotSrc = computed(() => {
-  if (props.state === 'failed') return '/brand/mascot-failed.png';
-  if (props.state === 'waiting') return '/brand/mascot-idle.png';
-  return `/brand/mascot-${pose.value}.png`;
+  if (props.state === 'failed') return publicAssetUrl('/brand/mascot-failed.png');
+  if (props.state === 'waiting') return publicAssetUrl('/brand/mascot-idle.png');
+  return publicAssetUrl(`/brand/mascot-${pose.value}.png`);
 });
 
 function reducedMotion(): boolean {

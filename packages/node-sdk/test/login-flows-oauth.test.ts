@@ -290,3 +290,13 @@ describe('runLogin OAuth dispatch', () => {
     expect(ui.showError).toHaveBeenCalledWith(expect.stringContaining('Kimi login failed'));
   });
 });
+
+describe('PythinkerAuthFacade.login', () => {
+  it('fails with a pointer to provider login instead of reporting a sign-in that did not happen', async () => {
+    const { PythinkerAuthFacade } = await import('#/auth');
+    const home = mkdtempSync(join(tmpdir(), 'pythinker-sdk-login-'));
+    homes.push(home);
+    const facade = new PythinkerAuthFacade({ homeDir: home });
+    await expect(facade.login()).rejects.toThrow(/no longer available.*\/login/);
+  });
+});

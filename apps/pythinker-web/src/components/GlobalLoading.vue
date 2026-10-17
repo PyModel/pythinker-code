@@ -3,6 +3,7 @@
      daemon, so a page refresh doesn't flash a half-rendered, not-yet-connected
      app. Hidden once usePythinkerWebClient.initialized flips true. -->
 <script setup lang="ts">
+import { publicAssetUrl } from '../api/config';
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import Spinner from './ui/Spinner.vue';
@@ -89,7 +90,7 @@ const issueDetail = computed(() => {
 <template>
   <div class="gload" role="status" :aria-label="t('app.connecting')">
     <div class="gload-box">
-      <img class="gload-logo" src="/logo.png" alt="Pythinker" width="120" height="120" />
+      <img class="gload-logo" :src="publicAssetUrl('/logo.png')" alt="Pythinker" width="120" height="120" />
       <Spinner size="md" :label="t('app.connecting')" />
       <div class="gload-text">
         <div>{{ t('app.connecting') }}</div>

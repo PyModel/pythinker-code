@@ -38,24 +38,6 @@ interface RemoteControlStatusWire {
   error?: string;
 }
 
-const RELAY_KEY = 'relay-key';
-
-async function seedLoginToken(homeDir: string): Promise<void> {
-  const credDir = join(homeDir, 'credentials');
-  await mkdir(credDir, { recursive: true });
-  await writeFile(
-    join(credDir, 'pythinker-code.json'),
-    JSON.stringify({
-      access_token: 'access-token',
-      refresh_token: 'refresh-token',
-      expires_at: Math.floor(Date.now() / 1000) + 3600,
-      scope: 'openid',
-      token_type: 'Bearer',
-      expires_in: 3600,
-    }),
-  );
-}
-
 
 describe('agent-gateway /api/v1/remote-control', () => {
   let home: string | undefined;
@@ -96,8 +78,6 @@ describe('agent-gateway /api/v1/remote-control', () => {
   it('starts and stops the tunnel at runtime, dedupes concurrent enables, and tracks relay-initiated shutdown', async () => {
     const relay = await startRegisterAckRelay();
     vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_URL', `http://127.0.0.1:${relay.port}`);
-    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY', RELAY_KEY);
-    await seedLoginToken(home as string);
 
     const initial = await authedFetch(server as RunningServer, base, '/api/v1/remote-control');
     const initialBody = (await initial.json()) as Envelope<RemoteControlStatusWire>;
@@ -164,7 +144,6 @@ describe('agent-gateway /api/v1/remote-control', () => {
   });
 
   it('reports REMOTE_CONTROL_ALREADY_RUNNING when another live process holds the lock', async () => {
-    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY', RELAY_KEY);
     await mkdir(join(home as string, 'server'), { recursive: true });
     await writeFile(
       remoteControlLockPath(home as string),
@@ -181,6 +160,20 @@ describe('agent-gateway /api/v1/remote-control', () => {
     const posted = await postRemoteControl(true);
     expect(posted.code).toBe(ErrorCode.REMOTE_CONTROL_ALREADY_RUNNING);
     expect(posted.msg).toContain('already running');
+
+    const status = (await (
+      await authedFetch(server as RunningServer, base, '/api/v1/remote-control')
+    ).json()) as { data: Record<string, unknown> };
+    expect(status.data).toMatchObject({
+      enabled: true,
+      state: 'on',
+      url: 'https://code-rc.example.test/devices/other-device/',
+      device_id: 'other-device',
+      started_in_terminal: true,
+    });
+
+    const disabled = await postRemoteControl(false);
+    expect(disabled.data).toMatchObject({ state: 'on', started_in_terminal: true });
   });
 });
 
@@ -202,6 +195,7 @@ describe('remote-control route telemetry', () => {
         return { enabled: true, state: 'on' };
       },
       disable: async () => ({ enabled: false, state: 'off' }),
+      status: () => ({ enabled: false, state: 'off' }),
     } as unknown as RemoteControlManager;
   }
 

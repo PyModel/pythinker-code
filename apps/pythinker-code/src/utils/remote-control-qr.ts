@@ -1,6 +1,3 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
-
 import {
   getCapabilities,
   getCellDimensions,
@@ -17,16 +14,9 @@ const ANSI_RESET = '\u001B[0m';
 const QR_PNG_MARGIN = 4;
 const QR_IMAGE_MIN_PX_PER_MODULE = 4;
 
-export async function generateRemoteControlQr(
-  url: string,
-  dataDir: string,
-): Promise<{ terminal: string; pngPath: string }> {
-  await mkdir(dataDir, { recursive: true });
-  const pngPath = resolve(dataDir, 'rc-qrcode.png');
+export async function generateRemoteControlQr(url: string): Promise<string> {
   const png = await QRCode.toBuffer(url, { type: 'png', margin: QR_PNG_MARGIN });
-  await writeFile(pngPath, png);
-  const terminal = renderInlineImageQr(url, png) ?? renderTerminalQr(url);
-  return { terminal, pngPath };
+  return renderInlineImageQr(url, png) ?? renderTerminalQr(url);
 }
 
 function renderInlineImageQr(url: string, png: Buffer): string | null {
