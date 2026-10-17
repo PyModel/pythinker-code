@@ -1043,6 +1043,16 @@ export interface AppHook {
 }
 
 /** One installed plugin. */
+export interface AppRemoteControlStatus {
+  enabled: boolean;
+  state: 'off' | 'starting' | 'on' | 'stopping';
+  url?: string;
+  deviceName?: string;
+  error?: string;
+  /** Started by `pythinker web --remote-control`; only that terminal can stop it. */
+  startedInTerminal: boolean;
+}
+
 export interface AppPlugin {
   id: string;
   displayName: string;
@@ -1225,6 +1235,8 @@ export interface PythinkerWebApi {
   updateConnector(connectorId: string, input: AppMcpServerInput): Promise<{ updated: true }>;
   removeConnector(connectorId: string): Promise<{ deleted: true }>;
   restartConnector(connectorId: string): Promise<{ restarting: true }>;
+  getRemoteControl(): Promise<AppRemoteControlStatus>;
+  setRemoteControl(enabled: boolean): Promise<AppRemoteControlStatus>;
   listPlugins(): Promise<AppPlugin[]>;
   listPluginMarketplace(): Promise<AppPluginMarketplaceEntry[]>;
   installPlugin(source: string): Promise<AppPlugin>;

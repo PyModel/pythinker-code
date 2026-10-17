@@ -29,6 +29,7 @@ import type {
   AppMcpServerDefinition,
   AppMcpServerInput,
   AppPlugin,
+  AppRemoteControlStatus,
   AppPluginMarketplaceEntry,
   AppSubagent,
   AppTool,
@@ -1409,6 +1410,16 @@ export class DaemonPythinkerWebApi implements PythinkerWebApi {
     );
   }
 
+  async getRemoteControl(): Promise<AppRemoteControlStatus> {
+    return toAppRemoteControlStatus(await this.http.get<WireRemoteControlStatus>('/remote-control'));
+  }
+
+  async setRemoteControl(enabled: boolean): Promise<AppRemoteControlStatus> {
+    return toAppRemoteControlStatus(
+      await this.http.post<WireRemoteControlStatus>('/remote-control', { enabled }),
+    );
+  }
+
   async listPlugins(): Promise<AppPlugin[]> {
     const data = await this.http.get<{ plugins: WirePlugin[] }>('/plugins');
     return (data.plugins ?? []).map(toAppPlugin);
@@ -2232,5 +2243,25 @@ function toProviderRefreshResult(data: WireProviderRefreshResult): ProviderRefre
     })),
     unchanged: data.unchanged,
     failed: data.failed,
+  };
+}
+
+interface WireRemoteControlStatus {
+  enabled: boolean;
+  state: AppRemoteControlStatus['state'];
+  url?: string;
+  device_name?: string;
+  error?: string;
+  started_in_terminal?: boolean;
+}
+
+function toAppRemoteControlStatus(wire: WireRemoteControlStatus): AppRemoteControlStatus {
+  return {
+    enabled: wire.enabled,
+    state: wire.state,
+    url: wire.url,
+    deviceName: wire.device_name,
+    error: wire.error,
+    startedInTerminal: wire.started_in_terminal === true,
   };
 }

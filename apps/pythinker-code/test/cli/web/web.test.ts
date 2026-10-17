@@ -472,7 +472,6 @@ describe('`pythinker web` opens the browser', () => {
     const { handleWebCommand } = await import('#/cli/sub/web/run');
     const home = mkdtempSync(join(tmpdir(), 'pythinker-web-rc-'));
     vi.stubEnv('PYTHINKER_CODE_HOME', home);
-    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY', 'relay-key');
     const { stdout, stderr, readStdout } = makeIo();
     const requestShutdown = vi.fn();
     const runner: ForegroundRunner = async (_options, hooks) => {
@@ -523,7 +522,6 @@ describe('`pythinker web` opens the browser', () => {
     const { handleWebCommand } = await import('#/cli/sub/web/run');
     const home = mkdtempSync(join(tmpdir(), 'pythinker-web-rc-'));
     vi.stubEnv('PYTHINKER_CODE_HOME', home);
-    vi.stubEnv('PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY', 'relay-key');
     const { stdout, stderr } = makeIo();
     const requestShutdown = vi.fn();
     const runner: ForegroundRunner = async (_options, hooks) => {

@@ -23,6 +23,7 @@
     "markstream-vue": "1.0.9-beta.1",
     "mermaid": "^11.17.0",
     "monaco-editor": "^0.55.1",
+    "qrcode": "^1.5.4",
     "shiki": "^4.3.0",
     "stream-diffs": "0.0.2",
     "stream-markdown": "0.0.16",

@@ -13,6 +13,7 @@
 // explicitly opting in.
 
 import { ref, type Ref } from 'vue';
+import { publicAssetUrl } from '../../api/config';
 import { i18n } from '../../i18n';
 import { safeGetString, safeSetString, STORAGE_KEYS } from '../../lib/storage';
 
@@ -36,7 +37,7 @@ const notifyPermission = ref<string>(
   typeof Notification !== 'undefined' ? Notification.permission : 'denied',
 );
 
-const NOTIFICATION_ICON = '/favicon.ico';
+const NOTIFICATION_ICON = publicAssetUrl('/favicon.ico');
 
 /** Shared setter: disabling is instant; enabling requests OS permission first
     and stays off if the user blocks it. */

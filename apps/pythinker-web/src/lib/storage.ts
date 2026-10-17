@@ -6,6 +6,8 @@
 // fallback. Centralizes the persisted key strings so each key has a single
 // source of truth.
 
+import { relayBasePath } from './relayPrefix';
+
 export const STORAGE_KEYS = {
   // usePythinkerWebClient
   permission: 'pythinker-web.permission',
@@ -62,9 +64,31 @@ export function draftStorageKey(sid: string | undefined): string {
   return `pythinker-web.draft.${sid && sid.length > 0 ? sid : '__new__'}`;
 }
 
+type AppStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+
+const relayMemory = new Map<string, string>();
+const relayMemoryStorage: AppStorage = {
+  getItem: (key) => relayMemory.get(key) ?? null,
+  setItem: (key, value) => {
+    relayMemory.set(key, String(value));
+  },
+  removeItem: (key) => {
+    relayMemory.delete(key);
+  },
+};
+
+/**
+ * Behind the Remote Control relay every machine's pages share one browser
+ * origin, so another machine's page could read this origin's localStorage
+ * (prompt history, drafts, workspace paths). Keep state in memory there.
+ */
+export function appStorage(): AppStorage | undefined {
+  return relayBasePath() === '' ? globalThis.localStorage : relayMemoryStorage;
+}
+
 export function safeGetString(key: string): string | null {
   try {
-    return globalThis.localStorage.getItem(key);
+    return appStorage()?.getItem(key) ?? null;
   } catch {
     return null;
   }
@@ -72,7 +96,7 @@ export function safeGetString(key: string): string | null {
 
 export function safeSetString(key: string, value: string): void {
   try {
-    globalThis.localStorage.setItem(key, value);
+    appStorage()?.setItem(key, value);
   } catch {
     // storage unavailable (private mode, quota, etc.) — ignore
   }
@@ -80,7 +104,7 @@ export function safeSetString(key: string, value: string): void {
 
 export function safeRemove(key: string): void {
   try {
-    globalThis.localStorage.removeItem(key);
+    appStorage()?.removeItem(key);
   } catch {
     // ignore
   }
@@ -98,7 +122,7 @@ export function safeGetJson<T>(key: string): T | null {
 
 export function safeSetJson(key: string, value: unknown): void {
   try {
-    globalThis.localStorage.setItem(key, JSON.stringify(value));
+    appStorage()?.setItem(key, JSON.stringify(value));
   } catch {
     // ignore
   }
