@@ -28,9 +28,11 @@ struct PhoneRoot: View {
   @State private var scanning = false
   @State private var confirmScope = false
   @State private var confirmForget = false
+  @State private var path: [String] = []
+  @State private var creating = false
 
   var body: some View {
-    NavigationStack {
+    NavigationStack(path: $path) {
       switch desk.state.phase {
       case .unpaired:
         pairScreen
@@ -45,7 +47,10 @@ struct PhoneRoot: View {
     .confirmationDialog(
       "Forget the link to this Mac?", isPresented: $confirmForget, titleVisibility: .visible
     ) {
-      Button("Forget link", role: .destructive) { desk.forget() }
+      Button("Forget link", role: .destructive) {
+        path = []
+        desk.forget()
+      }
     } message: {
       Text("You will need the Remote Control link again to pair.")
     }
@@ -152,6 +157,11 @@ struct PhoneRoot: View {
           Button("OK") { desk.clearBanner() }
         }
       }
+      if !desk.state.workspaces.isEmpty {
+        Section {
+          workspacePicker
+        }
+      }
       Section {
         if desk.state.sessions.isEmpty {
           if desk.state.isLoading {
@@ -163,7 +173,9 @@ struct PhoneRoot: View {
           } else {
             EmptyState(
               image: "MascotIdle", title: "No sessions yet",
-              message: "Start a session on your Mac. It shows here.")
+              message: desk.state.selectedWorkspace == nil
+                ? "Start a session on your Mac, or choose a workspace and tap New session."
+                : "Tap New session to start one in this workspace.")
           }
         }
         ForEach(desk.state.sessions) { row in
@@ -179,7 +191,7 @@ struct PhoneRoot: View {
           }
         }
       } header: {
-        Text("Sessions")
+        Text(desk.state.selectedWorkspace.map { "Sessions in \($0.name)" } ?? "Sessions")
       } footer: {
         if let host = desk.state.relayHost {
           Text("Connected through \(host)")
@@ -197,6 +209,9 @@ struct PhoneRoot: View {
         ConnectionBadge(online: !isOffline)
       }
       ToolbarItem(placement: .topBarTrailing) {
+        newSessionButton
+      }
+      ToolbarItem(placement: .topBarTrailing) {
         Menu {
           Button {
             desk.refreshSessions()
@@ -212,6 +227,59 @@ struct PhoneRoot: View {
           Image(systemName: "ellipsis.circle")
             .accessibilityLabel("More")
         }
+      }
+    }
+  }
+
+  private var workspacePicker: some View {
+    Picker(selection: workspaceSelection) {
+      Text("All workspaces").tag(String?.none)
+      ForEach(desk.state.workspaces) { workspace in
+        Text("\(workspace.name) (\(workspace.sessionCount))").tag(Optional(workspace.id))
+      }
+    } label: {
+      Label("Workspace", systemImage: "folder")
+    }
+    .pickerStyle(.menu)
+  }
+
+  private var workspaceSelection: Binding<String?> {
+    Binding(
+      get: { desk.state.selectedWorkspaceID },
+      set: { desk.selectWorkspace($0) }
+    )
+  }
+
+  @ViewBuilder
+  private var newSessionButton: some View {
+    if desk.state.selectedWorkspace != nil {
+      Button {
+        startSession()
+      } label: {
+        Label("New session", systemImage: "square.and.pencil")
+      }
+      .disabled(creating || isOffline)
+    } else {
+      Menu {
+        ForEach(desk.state.workspaces) { workspace in
+          Button(workspace.name) {
+            desk.selectWorkspace(workspace.id)
+            startSession()
+          }
+        }
+      } label: {
+        Label("New session", systemImage: "square.and.pencil")
+      }
+      .disabled(creating || isOffline || desk.state.workspaces.isEmpty)
+    }
+  }
+
+  private func startSession() {
+    creating = true
+    Task {
+      defer { creating = false }
+      if let id = await desk.createSession() {
+        path.append(id)
       }
     }
   }

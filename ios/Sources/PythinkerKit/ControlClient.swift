@@ -65,9 +65,14 @@ public enum ControlAction: Equatable, Sendable {
   case approve(sessionID: String, approvalID: String, decision: String, scope: String?)
   case answer(sessionID: String, questionID: String, answers: [String: QuestionAnswer])
   case dismiss(sessionID: String, questionID: String)
+  case createSession(workspaceID: String)
 
   public func request() throws -> ControlRequest {
     switch self {
+    case .createSession(let workspaceID):
+      guard !workspaceID.isEmpty else { throw ControlBuildError.rejectedID(workspaceID) }
+      let body = try JSONBody.data(["workspace_id": workspaceID, "metadata": [String: Any]()])
+      return ControlRequest(method: "POST", path: "/sessions", body: body)
     case .prompt(let sessionID, let text, let promptID):
       let id = try ResourceID.segment(sessionID)
       guard !promptID.isEmpty else { throw ControlBuildError.rejectedID(promptID) }

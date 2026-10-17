@@ -4,11 +4,13 @@ public struct SessionRow: Equatable, Sendable, Identifiable {
   public let id: String
   public var title: String
   public var activity: String
+  public var workspaceID: String?
 
-  public init(id: String, title: String, activity: String) {
+  public init(id: String, title: String, activity: String, workspaceID: String? = nil) {
     self.id = id
     self.title = title
     self.activity = activity
+    self.workspaceID = workspaceID
   }
 }
 
@@ -100,6 +102,8 @@ public enum PhonePhase: Equatable, Sendable {
 public struct PhoneState: Equatable, Sendable {
   public var phase: PhonePhase
   public var sessions: [SessionRow]
+  public var workspaces: [WorkspaceRow]
+  public var selectedWorkspaceID: String?
   public var selectedSessionID: String?
   public var draft: String
   public var approvals: [ApprovalDraft]
@@ -135,6 +139,8 @@ public struct PhoneState: Equatable, Sendable {
   ) {
     self.phase = phase
     self.sessions = sessions
+    self.workspaces = []
+    self.selectedWorkspaceID = nil
     self.selectedSessionID = selectedSessionID
     self.draft = draft
     self.approvals = approvals
@@ -154,6 +160,10 @@ public struct PhoneState: Equatable, Sendable {
   }
 
   public var approval: ApprovalDraft? { approvals.first }
+
+  public var selectedWorkspace: WorkspaceRow? {
+    workspaces.first { $0.id == selectedWorkspaceID }
+  }
 
   public var question: PendingQuestion? { questions.first }
 
@@ -176,6 +186,8 @@ public struct PhoneState: Equatable, Sendable {
     generation += 1
     phase = .unpaired
     sessions = []
+    workspaces = []
+    selectedWorkspaceID = nil
     selectedSessionID = nil
     draft = ""
     clearInteractions()
