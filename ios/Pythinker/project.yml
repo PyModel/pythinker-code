@@ -18,6 +18,7 @@ targets:
       - package: PythinkerKit
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.pymodel.pythinker.phone
+      SUPPORTED_PLATFORMS: iphoneos iphonesimulator
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_CFBundleDisplayName: Pythinker
       INFOPLIST_KEY_NSCameraUsageDescription: Scan the Remote Control code to pair with this Mac.

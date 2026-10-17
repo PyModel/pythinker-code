@@ -1,70 +1,74 @@
 import Foundation
 
 public struct RemoteBase: Equatable, Sendable {
-    public let base: URL
-    public let relayHost: String
+  public let base: URL
+  public let relayHost: String
 
-    public init(base: URL, relayHost: String) {
-        self.base = base
-        self.relayHost = relayHost
-    }
+  public init(base: URL, relayHost: String) {
+    self.base = base
+    self.relayHost = relayHost
+  }
 
-    public var restRoot: URL {
-        base.appending(path: "api/v1")
-    }
+  public var restRoot: URL {
+    base.appending(path: "api/v1")
+  }
 
-    public func socketURL() throws -> URL {
-        guard var parts = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
-            throw LinkParseError.socketURL
-        }
-        switch base.scheme {
-        case "https":
-            parts.scheme = "wss"
-        case "http":
-            parts.scheme = "ws"
-        default:
-            throw LinkParseError.socketURL
-        }
-        var path = parts.percentEncodedPath
-        while path.hasSuffix("/") {
-            path.removeLast()
-        }
-        parts.percentEncodedPath = path + "/api/v1/ws"
-        guard let url = parts.url else {
-            throw LinkParseError.socketURL
-        }
-        return url
+  public func socketURL() throws -> URL {
+    guard var parts = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
+      throw LinkParseError.socketURL
     }
+    switch base.scheme {
+    case "https":
+      parts.scheme = "wss"
+    case "http":
+      parts.scheme = "ws"
+    default:
+      throw LinkParseError.socketURL
+    }
+    var path = parts.percentEncodedPath
+    while path.hasSuffix("/") {
+      path.removeLast()
+    }
+    parts.percentEncodedPath = path + "/api/v1/ws"
+    guard let url = parts.url else {
+      throw LinkParseError.socketURL
+    }
+    return url
+  }
 }
 
 public enum LinkParseError: Error, Equatable {
-    case notAURL
-    case missingDevice
-    case socketURL
+  case notAURL
+  case missingDevice
+  case insecure
+  case socketURL
 }
 
 public enum RemoteLink {
-    public static func parse(_ raw: String) throws -> RemoteBase {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard var parts = URLComponents(string: trimmed), parts.host != nil else {
-            throw LinkParseError.notAURL
-        }
-        parts.query = nil
-        parts.fragment = nil
-        var path = parts.path
-        while path.hasSuffix("/") {
-            path.removeLast()
-        }
-        guard path.contains("/devices/") else {
-            throw LinkParseError.missingDevice
-        }
-        if let range = path.range(of: "/sessions/") {
-            path = String(path[..<range.lowerBound])
-        }
-        parts.path = path
-        guard let base = parts.url, let host = parts.host else {
-            throw LinkParseError.notAURL
-        }
-        return RemoteBase(base: base, relayHost: host)
+  public static func parse(_ raw: String) throws -> RemoteBase {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard var parts = URLComponents(string: trimmed), parts.host != nil else {
+      throw LinkParseError.notAURL
     }
+    guard parts.scheme?.lowercased() == "https" else {
+      throw LinkParseError.insecure
+    }
+    parts.query = nil
+    parts.fragment = nil
+    var path = parts.path
+    while path.hasSuffix("/") {
+      path.removeLast()
+    }
+    guard path.contains("/devices/") else {
+      throw LinkParseError.missingDevice
+    }
+    if let range = path.range(of: "/sessions/") {
+      path = String(path[..<range.lowerBound])
+    }
+    parts.path = path
+    guard let base = parts.url, let host = parts.host else {
+      throw LinkParseError.notAURL
+    }
+    return RemoteBase(base: base, relayHost: host)
+  }
 }

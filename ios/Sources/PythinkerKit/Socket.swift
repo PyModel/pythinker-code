@@ -1,79 +1,121 @@
 import Foundation
 
 public protocol EventSocket: Sendable {
-    func open(_ url: URL) async throws
-    func send(_ text: String) async throws
-    func next() async throws -> String
-    func close()
+  func open(_ url: URL) async throws
+  func send(_ text: String) async throws
+  func next() async throws -> String
+  func ping() async throws
+  func close()
 }
 
 public struct NullEventSocket: EventSocket {
-    public init() {}
+  public init() {}
 
-    public func open(_ url: URL) async throws {}
+  public func open(_ url: URL) async throws {}
 
-    public func send(_ text: String) async throws {}
+  public func send(_ text: String) async throws {}
 
-    public func next() async throws -> String {
-        throw CancellationError()
+  public func next() async throws -> String {
+    throw CancellationError()
+  }
+
+  public func ping() async throws {}
+
+  public func close() {}
+}
+
+public enum SocketFrameError: Error, Equatable {
+  case encoding
+  case timedOut
+}
+
+public enum SocketWait {
+  public static func next(_ socket: any EventSocket, within limit: Duration) async throws -> String
+  {
+    try await withThrowingTaskGroup(of: String.self) { group in
+      group.addTask { try await socket.next() }
+      group.addTask {
+        try await Task.sleep(for: limit)
+        throw SocketFrameError.timedOut
+      }
+      guard let first = try await group.next() else {
+        throw SocketFrameError.timedOut
+      }
+      group.cancelAll()
+      return first
     }
-
-    public func close() {}
+  }
 }
 
 public enum SocketConnect {
-    public static func webSocketTask(session: URLSession, url: URL) -> URLSessionWebSocketTask {
-        session.webSocketTask(with: url)
-    }
+  public static func webSocketTask(session: URLSession, url: URL) -> URLSessionWebSocketTask {
+    session.webSocketTask(with: url)
+  }
 }
 
 public final class LiveEventSocket: EventSocket, @unchecked Sendable {
-    private let lock = NSLock()
-    private var task: URLSessionWebSocketTask?
+  private let lock = NSLock()
+  private let session: URLSession
+  private var task: URLSessionWebSocketTask?
 
-    public init() {}
+  public init(session: URLSession = PhoneHTTP.makeSession()) {
+    self.session = session
+  }
 
-    public func open(_ url: URL) async throws {
-        let task = SocketConnect.webSocketTask(session: .shared, url: url)
-        task.resume()
-        replace(task)?.cancel(with: .goingAway, reason: nil)
+  public func open(_ url: URL) async throws {
+    let task = SocketConnect.webSocketTask(session: session, url: url)
+    task.resume()
+    replace(task)?.cancel(with: .goingAway, reason: nil)
+  }
+
+  public func send(_ text: String) async throws {
+    try await current().send(.string(text))
+  }
+
+  public func next() async throws -> String {
+    let message = try await current().receive()
+    switch message {
+    case .string(let text):
+      return text
+    case .data(let data):
+      guard let text = String(data: data, encoding: .utf8) else {
+        throw SocketFrameError.encoding
+      }
+      return text
+    @unknown default:
+      throw SocketFrameError.encoding
     }
+  }
 
-    public func send(_ text: String) async throws {
-        try await current().send(.string(text))
-    }
-
-    public func next() async throws -> String {
-        let message = try await current().receive()
-        switch message {
-        case .string(let text):
-            return text
-        case .data(let data):
-            guard let text = String(data: data, encoding: .utf8) else {
-                throw SocketFrameError.encoding
-            }
-            return text
-        @unknown default:
-            throw SocketFrameError.encoding
+  public func ping() async throws {
+    let task = try current()
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+      task.sendPing { error in
+        if let error {
+          continuation.resume(throwing: error)
+        } else {
+          continuation.resume()
         }
+      }
     }
+  }
 
-    public func close() {
-        replace(nil)?.cancel(with: .goingAway, reason: nil)
-    }
+  public func close() {
+    replace(nil)?.cancel(with: .goingAway, reason: nil)
+  }
 
-    private func current() throws -> URLSessionWebSocketTask {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let task else { throw LinkParseError.socketURL }
-        return task
-    }
+  private func current() throws -> URLSessionWebSocketTask {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let task else { throw LinkParseError.socketURL }
+    return task
+  }
 
-    private func replace(_ task: URLSessionWebSocketTask?) -> URLSessionWebSocketTask? {
-        lock.lock()
-        let previous = self.task
-        self.task = task
-        lock.unlock()
-        return previous
-    }
+  private func replace(_ task: URLSessionWebSocketTask?) -> URLSessionWebSocketTask? {
+    lock.lock()
+    let previous = self.task
+    self.task = task
+    lock.unlock()
+    return previous
+  }
 }
