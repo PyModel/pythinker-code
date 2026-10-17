@@ -8,7 +8,6 @@ import {
   formatRemoteControlOutput,
   formatRemoteControlStatus,
   inspectRemoteControlLock,
-  resolveRelayKey,
   resolveRelayOrigin,
   startRemoteControl,
   type RemoteControlStatus,
@@ -53,14 +52,6 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
     return;
   }
 
-  let relayKey: string;
-  try {
-    relayKey = resolveRelayKey();
-  } catch (error) {
-    host.showError(formatErrorMessage(error));
-    return;
-  }
-
   host.setExitForegroundTask(async () => {
     const options = parseServerOptions({});
     let remoteControl: Awaited<ReturnType<typeof startRemoteControl>> | undefined;
@@ -83,7 +74,6 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
             localOrigin: origin,
             localServerToken: () => tryResolveServerToken(dataDir) ?? '',
             clientVersion: `pythinker-code/${getVersion()}`,
-            relayKey,
             relayOrigin,
             onStatus,
           });

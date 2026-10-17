@@ -1011,9 +1011,6 @@ importers:
       '@pymodel/agent-core-v2':
         specifier: workspace:^
         version: link:../agent-core-v2
-      '@pymodel/pythinker-code-oauth':
-        specifier: workspace:^
-        version: link:../oauth
       ws:
         specifier: ^8.21.3
         version: 8.21.3

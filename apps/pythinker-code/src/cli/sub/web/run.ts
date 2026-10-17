@@ -44,7 +44,6 @@ import { type NetworkAddress } from './networks';
 import {
   formatRemoteControlOutput,
   formatRemoteControlStatus,
-  resolveRelayKey,
   resolveRelayOrigin,
   startRemoteControl,
   type RemoteControlHandle,
@@ -231,14 +230,12 @@ export async function handleWebCommand(
           if (outputReady) deps.stdout.write(line);
           else pendingStatuses.push(line);
         };
-        const relayKey = resolveRelayKey();
         const relayOrigin = resolveRelayOrigin();
         remoteControl = await (deps.startRemoteControl ?? startRemoteControl)({
           homeDir: dataDir,
           localOrigin: origin,
           localServerToken: () => deps.resolveToken?.() ?? token ?? '',
           clientVersion: `pythinker-code/${getVersion()}`,
-          relayKey,
           relayOrigin,
           stderr: deps.stderr,
           onStatus,

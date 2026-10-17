@@ -18,8 +18,6 @@ export {
   REMOTE_CONTROL_RELAY_ORIGIN,
   REMOTE_CONTROL_RELAY_ENV,
   REMOTE_CONTROL_RELAY_URL_ENV,
-  REMOTE_CONTROL_RELAY_KEY_ENV,
-  resolveRelayKey,
   resolveRelayOrigin,
   resolveRemoteControlRelayOrigin,
   rewriteRemoteControlResponse,

@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +9,11 @@ import { gunzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 
+import {
+  loadRemoteControlSecret,
+  remoteControlDeviceId,
+  remoteControlSecretPath,
+} from '../src/secret';
 import {
   buildRemoteControlUrl,
   filterForwardRequestHeaders,
@@ -182,7 +187,6 @@ describe('Remote Control tunnel', () => {
         homeDir,
         localOrigin: 'http://127.0.0.1:1',
         localServerToken: 'local-server-token',
-        relayKey: 'relay-key',
         clientVersion: CLIENT_VERSION,
         relayOrigin: `http://127.0.0.1:${relayPort}/coding-relay`,
         stderr: { write: () => true },
@@ -190,7 +194,7 @@ describe('Remote Control tunnel', () => {
     ).rejects.toThrow(/DEVICE_LIMIT_EXCEEDED.*membership allows 3 devices/);
   });
 
-  it('uses only Authorization when the relay key is not a valid subprotocol token', async () => {
+  it('authenticates as the device its own secret hashes to', async () => {
     const homeDir = await createRemoteControlHome();
     const relay = await startAuthRelay();
     let handle: RemoteControlHandle | undefined;
@@ -200,17 +204,50 @@ describe('Remote Control tunnel', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
-      relayKey: 'invalid/token=',
       clientVersion: CLIENT_VERSION,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
     });
 
-    expect(relay.requests).toHaveLength(2);
-    expect(relay.requests.every((request) => request.protocol === undefined)).toBe(true);
-    expect(relay.requests.every((request) => request.authorization === 'Bearer invalid/token=')).toBe(
-      true,
+    const secret = await loadRemoteControlSecret(homeDir);
+    expect(secret).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(statSync(remoteControlSecretPath(homeDir)).mode & 0o777).toBe(0o600);
+    expect(handle.deviceId).toBe(remoteControlDeviceId(secret));
+    expect(handle.url).toContain(`/devices/${handle.deviceId}/`);
+    expect(relay.registrations).toContainEqual(
+      expect.objectContaining({ payload: expect.objectContaining({ device_id: handle.deviceId }) }),
     );
+    expect(
+      relay.requests.every((request) => request.protocol === `pythinker-code.bearer.${secret}`),
+    ).toBe(true);
+    await handle.close();
+    handle = undefined;
+
+    handle = await startRemoteControl({
+      homeDir,
+      localOrigin: 'http://127.0.0.1:1',
+      localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
+      relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
+      stderr: { write: () => true },
+    });
+    expect(handle.deviceId).toBe(remoteControlDeviceId(secret));
+  });
+
+  it('refuses to start with a corrupted secret instead of replacing it', async () => {
+    const homeDir = await createRemoteControlHome();
+    await writeFile(remoteControlSecretPath(homeDir), 'not-a-secret');
+    await expect(
+      startRemoteControl({
+        homeDir,
+        localOrigin: 'http://127.0.0.1:1',
+        localServerToken: 'local-server-token',
+        clientVersion: CLIENT_VERSION,
+        relayOrigin: 'http://127.0.0.1:1/coding-relay',
+        stderr: { write: () => true },
+      }),
+    ).rejects.toThrow(/secret .* is invalid/);
+    expect(await readFile(remoteControlSecretPath(homeDir), 'utf8')).toBe('not-a-secret');
   });
 
   it('retries with only Authorization when the server does not echo the subprotocol', async () => {
@@ -223,20 +260,20 @@ describe('Remote Control tunnel', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
-      relayKey: 'relay-key',
       clientVersion: CLIENT_VERSION,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
     });
 
-    expect(relay.requests.some((request) => request.protocol?.startsWith('pythinker-code.bearer.'))).toBe(
+    const secret = await loadRemoteControlSecret(homeDir);
+    expect(relay.requests.some((request) => request.protocol === `pythinker-code.bearer.${secret}`)).toBe(
       true,
     );
     expect(
       relay.requests.some(
         (request) =>
           request.protocol === undefined &&
-          request.authorization === 'Bearer relay-key',
+          request.authorization === `Bearer ${secret}`,
       ),
     ).toBe(true);
   });
@@ -251,7 +288,6 @@ describe('Remote Control tunnel', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
-      relayKey: 'relay-key',
       clientVersion: CLIENT_VERSION,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
@@ -271,7 +307,6 @@ describe('Remote Control tunnel', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
-      relayKey: 'relay-key',
       clientVersion: CLIENT_VERSION,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
@@ -439,7 +474,6 @@ describe('Remote Control tunnel', () => {
       homeDir,
       localOrigin: `http://127.0.0.1:${localPort}`,
       localServerToken: () => currentToken,
-      relayKey: 'relay-key',
       clientVersion: CLIENT_VERSION,
       relayOrigin: `http://127.0.0.1:${relayPort}/coding-relay`,
       stderr: { write: () => true },
@@ -1108,7 +1142,6 @@ describe('Remote Control tunnel', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
-      relayKey: 'relay-key',
       clientVersion: CLIENT_VERSION,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: (text) => ((logs += String(text)), true) },
@@ -1137,7 +1170,6 @@ describe('Remote Control tunnel', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
-      relayKey: 'relay-key',
       clientVersion: CLIENT_VERSION,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: (text) => ((logs += String(text)), true) },
@@ -1173,7 +1205,6 @@ describe('Remote Control single-instance lock', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:58627',
       localServerToken: 'local-server-token',
-      relayKey: 'relay-key',
       clientVersion: CLIENT_VERSION,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },
@@ -1184,7 +1215,6 @@ describe('Remote Control single-instance lock', () => {
         homeDir,
         localOrigin: 'http://127.0.0.1:58628',
         localServerToken: 'local-server-token',
-        relayKey: 'relay-key',
         clientVersion: CLIENT_VERSION,
         relayOrigin: `http://127.0.0.1:${relay.port}`,
         stderr: { write: () => true },
@@ -1215,7 +1245,6 @@ describe('Remote Control single-instance lock', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:58627',
       localServerToken: 'local-server-token',
-      relayKey: 'relay-key',
       clientVersion: CLIENT_VERSION,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },
@@ -1234,7 +1263,6 @@ describe('Remote Control single-instance lock', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:58627',
       localServerToken: 'local-server-token',
-      relayKey: 'relay-key',
       clientVersion: CLIENT_VERSION,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },
@@ -1265,7 +1293,6 @@ describe('Remote Control single-instance lock', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:58627',
       localServerToken: 'local-server-token',
-      relayKey: 'relay-key',
       clientVersion: CLIENT_VERSION,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },
@@ -1285,7 +1312,6 @@ describe('Remote Control single-instance lock', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:58627',
       localServerToken: 'local-server-token',
-      relayKey: 'relay-key',
       clientVersion: CLIENT_VERSION,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },
@@ -1304,7 +1330,6 @@ describe('Remote Control single-instance lock', () => {
       homeDir,
       localOrigin: 'http://127.0.0.1:58627',
       localServerToken: 'local-server-token',
-      relayKey: 'relay-key',
       clientVersion: CLIENT_VERSION,
       relayOrigin: `http://127.0.0.1:${relay.port}`,
       stderr: { write: () => true },
