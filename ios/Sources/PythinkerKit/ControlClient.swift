@@ -28,6 +28,7 @@ public protocol GatewayTransport: Sendable {
 
 public enum ControlBuildError: Error, Equatable {
   case rejectedID(String)
+  case stale(String)
   case encoding
   case badResponse
 }

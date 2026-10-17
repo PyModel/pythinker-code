@@ -178,18 +178,21 @@ public final class PhoneDesk {
   }
 
   public func decide(_ decision: ApprovalDecision) {
+    let id = state.approval?.id ?? ""
     let seen = begin()
-    track(Task { await self.performDecision(decision, seen: seen) })
+    track(Task { await self.performDecision(decision, id: id, seen: seen) })
   }
 
   public func answer() {
+    let id = state.question?.id ?? ""
     let seen = begin()
-    track(Task { await self.performAnswer(seen) })
+    track(Task { await self.performAnswer(id, seen: seen) })
   }
 
   public func dismiss() {
+    let id = state.question?.id ?? ""
     let seen = begin()
-    track(Task { await self.performDismiss(seen) })
+    track(Task { await self.performDismiss(id, seen: seen) })
   }
 
   public func sendPromptNow() async {
@@ -201,15 +204,18 @@ public final class PhoneDesk {
   }
 
   public func decideNow(_ decision: ApprovalDecision) async {
-    await performDecision(decision, seen: begin())
+    let id = state.approval?.id ?? ""
+    await performDecision(decision, id: id, seen: begin())
   }
 
   public func answerNow() async {
-    await performAnswer(begin())
+    let id = state.question?.id ?? ""
+    await performAnswer(id, seen: begin())
   }
 
   public func dismissNow() async {
-    await performDismiss(begin())
+    let id = state.question?.id ?? ""
+    await performDismiss(id, seen: begin())
   }
 
   public func followSelected() async {
@@ -395,13 +401,12 @@ public final class PhoneDesk {
     )
   }
 
-  private func performDecision(_ decision: ApprovalDecision, seen: Int) async {
-    let id = state.approval?.id ?? ""
+  private func performDecision(_ decision: ApprovalDecision, id: String, seen: Int) async {
     await performPost(
       seen: seen,
       dismiss: false,
       request: {
-        try self.state.approvalRequest(decision: decision.rawValue)
+        try self.state.approvalRequest(decision: decision.rawValue, approvalID: id)
       },
       onSuccess: { next in
         next.dropApproval(id: id)
@@ -409,24 +414,22 @@ public final class PhoneDesk {
     )
   }
 
-  private func performAnswer(_ seen: Int) async {
-    let id = state.question?.id ?? ""
+  private func performAnswer(_ id: String, seen: Int) async {
     await performPost(
       seen: seen,
       dismiss: false,
-      request: { try self.state.answerRequest() },
+      request: { try self.state.answerRequest(questionID: id) },
       onSuccess: { next in
         next.dropQuestion(id: id)
       }
     )
   }
 
-  private func performDismiss(_ seen: Int) async {
-    let id = state.question?.id ?? ""
+  private func performDismiss(_ id: String, seen: Int) async {
     await performPost(
       seen: seen,
       dismiss: true,
-      request: { try self.state.dismissRequest() },
+      request: { try self.state.dismissRequest(questionID: id) },
       onSuccess: { next in
         next.dropQuestion(id: id)
       }
@@ -451,6 +454,9 @@ public final class PhoneDesk {
     let built: ControlRequest
     do {
       built = try request()
+    } catch ControlBuildError.stale {
+      showBanner("That item changed before it was sent. Check it and try again.")
+      return
     } catch {
       showBanner("The phone could not build that request. Refresh and try again.")
       return

@@ -355,22 +355,30 @@ public struct PhoneState: Equatable, Sendable {
     return try ControlAction.abort(sessionID: sessionID).request()
   }
 
-  public func approvalRequest(decision: String) throws -> ControlRequest {
-    guard let sessionID = selectedSessionID, let approval else {
+  public func approvalRequest(decision: String, approvalID: String) throws -> ControlRequest {
+    guard let sessionID = selectedSessionID else {
       throw ControlBuildError.rejectedID("")
     }
-    let scope = scopeConfirmed && decision == ApprovalDecision.approved.rawValue ? "session" : nil
+    guard approvals.contains(where: { $0.id == approvalID }) else {
+      throw ControlBuildError.stale(approvalID)
+    }
+    let scope =
+      scopeApprovalID == approvalID && decision == ApprovalDecision.approved.rawValue
+      ? "session" : nil
     return try ControlAction.approve(
       sessionID: sessionID,
-      approvalID: approval.id,
+      approvalID: approvalID,
       decision: decision,
       scope: scope
     ).request()
   }
 
-  public func answerRequest() throws -> ControlRequest {
-    guard let sessionID = selectedSessionID, let question else {
+  public func answerRequest(questionID: String) throws -> ControlRequest {
+    guard let sessionID = selectedSessionID else {
       throw ControlBuildError.rejectedID("")
+    }
+    guard let question, question.id == questionID else {
+      throw ControlBuildError.stale(questionID)
     }
     var answers: [String: QuestionAnswer] = [:]
     for item in question.items {
@@ -386,11 +394,14 @@ public struct PhoneState: Equatable, Sendable {
     ).request()
   }
 
-  public func dismissRequest() throws -> ControlRequest {
-    guard let sessionID = selectedSessionID, let question else {
+  public func dismissRequest(questionID: String) throws -> ControlRequest {
+    guard let sessionID = selectedSessionID else {
       throw ControlBuildError.rejectedID("")
     }
-    return try ControlAction.dismiss(sessionID: sessionID, questionID: question.id).request()
+    guard questions.contains(where: { $0.id == questionID }) else {
+      throw ControlBuildError.stale(questionID)
+    }
+    return try ControlAction.dismiss(sessionID: sessionID, questionID: questionID).request()
   }
 
   public mutating func confirmSessionScope() {

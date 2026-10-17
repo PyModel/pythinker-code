@@ -407,11 +407,11 @@ import Testing
       id: "apr_draft_7"
     )
   ]
-  let first = try phone.approvalRequest(decision: "approved")
+  let first = try phone.approvalRequest(decision: "approved", approvalID: "apr_draft_7")
   #expect(first.path.contains("/approvals/apr_draft_7"))
   #expect(try jsonObject(first.body)["scope"] == nil)
   phone.confirmSessionScope()
-  let second = try phone.approvalRequest(decision: "approved")
+  let second = try phone.approvalRequest(decision: "approved", approvalID: "apr_draft_7")
   #expect(try jsonObject(second.body)["scope"] as? String == "session")
 }
 
@@ -484,6 +484,33 @@ import Testing
   let meta = try MetaRead.meta(status: 200, body: body)
   #expect(meta == ServerMeta(serverVersion: "2.8.0", backend: "v2", websocket: true))
   try VersionGate.accept(meta)
+}
+
+@Test @MainActor func decisionsStayBoundToTheItemOnScreenAtTapTime() async throws {
+  let transport = ScriptedTransport()
+  let desk = try pairedDesk(transport)
+  desk.state.versionAccepted = true
+  desk.state.selectedSessionID = "s1"
+  desk.state.approvals = [
+    ApprovalDraft(toolName: "Bash", action: "run", inputDisplay: "ls", id: "A"),
+    ApprovalDraft(toolName: "Bash", action: "run", inputDisplay: "rm -rf /", id: "B"),
+  ]
+  desk.decide(.approved)
+  desk.state.dropApproval(id: "A")
+  try await waitUntil { desk.state.banner != nil }
+  #expect(transport.requests.isEmpty, "approved B, which the user never saw")
+  #expect(desk.state.approval?.id == "B")
+
+  desk.state.banner = nil
+  let pick = [QuestionItem(id: "q", prompt: "Pick", options: [QuestionOption(id: "o", label: "O")])]
+  desk.state.questions = [
+    PendingQuestion(id: "Q1", items: pick), PendingQuestion(id: "Q2", items: pick),
+  ]
+  desk.dismiss()
+  desk.state.dropQuestion(id: "Q1")
+  try await waitUntil { desk.state.banner != nil }
+  #expect(transport.requests.isEmpty, "dismissed Q2, which the user never saw")
+  #expect(desk.state.question?.id == "Q2")
 }
 
 @Test @MainActor func liveRepairSendDoesNotAbandonTheListener() {
@@ -937,7 +964,7 @@ func aSocketThatOnlyHandshakesThenDropsStopsReconnecting() async throws {
   ]
   state.confirmSessionScope()
   #expect(
-    try jsonObject(state.approvalRequest(decision: "approved").body)["scope"] as? String
+    try jsonObject(state.approvalRequest(decision: "approved", approvalID: "A").body)["scope"] as? String
       == "session")
   state.dropApproval(id: "A")
   #expect(state.approval?.id == "B")
@@ -950,7 +977,9 @@ func aSocketThatOnlyHandshakesThenDropsStopsReconnecting() async throws {
     approvals: [ApprovalDraft(toolName: "Bash", action: "run", inputDisplay: "rm -rf /", id: "C")],
     questions: [])
   #expect(state.scopeConfirmed == false, "a snapshot that replaced A kept A's session scope")
-  #expect(try jsonObject(state.approvalRequest(decision: "approved").body)["scope"] == nil)
+  #expect(
+    try jsonObject(state.approvalRequest(decision: "approved", approvalID: "C").body)["scope"]
+      == nil)
 }
 
 @Test func snapshotKeepsEveryPendingApprovalAndQuestion() throws {
@@ -1019,7 +1048,7 @@ func aSocketThatOnlyHandshakesThenDropsStopsReconnecting() async throws {
   state.setOther(itemID: "q_2", text: "free text")
   state.choose(itemID: "q_0", optionID: "o1")
   #expect(state.canAnswer)
-  let answers = try #require(jsonObject(state.answerRequest().body)["answers"] as? [String: Any])
+  let answers = try #require(jsonObject(state.answerRequest(questionID: state.question?.id ?? "").body)["answers"] as? [String: Any])
   let one = answers["q_0"] as? [String: Any]
   #expect(one?["kind"] as? String == "single" && one?["option_id"] as? String == "o1")
   let many = answers["q_1"] as? [String: Any]
