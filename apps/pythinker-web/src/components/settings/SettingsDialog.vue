@@ -86,7 +86,7 @@ const props = defineProps<{
   /** Saved + effective subagent model routing policy (dedicated endpoint). */
   subagentModelPolicy?: AppSubagentModelPolicyState | null;
   subagentModelPolicySaving?: boolean;
-  initialTab?: 'general' | 'providers' | 'agent' | 'expertOpinion';
+  initialTab?: 'general' | 'providers' | 'agent' | 'expertOpinion' | 'remoteControl';
 }>();
 
 const emit = defineEmits<{

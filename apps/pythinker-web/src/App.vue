@@ -20,6 +20,7 @@ import DiffView from './components/chat/DiffView.vue';
 import PanelTabBar from './components/panel/PanelTabBar.vue';
 import ModelPicker from './components/settings/ModelPicker.vue';
 import SettingsDialog from './components/settings/SettingsDialog.vue';
+import { takeRemoteControlSettingsLink } from './lib/settingsDeepLink';
 import AddWorkspaceDialog from './components/dialogs/AddWorkspaceDialog.vue';
 import ConfirmDialogHost from './components/dialogs/ConfirmDialogHost.vue';
 import StatusPanel from './components/chat/StatusPanel.vue';
@@ -360,6 +361,7 @@ onMounted(() => {
     client.clearDangerousBypassAuth();
   });
   void client.load();
+  openSettingsFromUrl();
   loadSidebarCollapsed();
   setAppHeight();
   window.visualViewport?.addEventListener('resize', syncAppHeight);
@@ -713,7 +715,7 @@ const showModelPicker = ref(false);
 const showAddWorkspace = ref(false);
 const showStatusPanel = ref(false);
 const showSettings = ref(false);
-const settingsInitialTab = ref<'general' | 'providers' | 'agent' | 'expertOpinion'>('general');
+const settingsInitialTab = ref<'general' | 'providers' | 'agent' | 'expertOpinion' | 'remoteControl'>('general');
 const overlayOpen = computed(() =>
   openDialogCount.value > 0 ||
   showModelPicker.value ||
@@ -780,9 +782,18 @@ async function openModelPicker(): Promise<void> {
   }
 }
 
-function openSettings(tab: 'general' | 'providers' | 'agent' | 'expertOpinion' = 'general'): void {
+function openSettings(
+  tab: 'general' | 'providers' | 'agent' | 'expertOpinion' | 'remoteControl' = 'general',
+): void {
   settingsInitialTab.value = tab;
   showSettings.value = true;
+}
+
+function openSettingsFromUrl(): void {
+  const cleaned = takeRemoteControlSettingsLink(window.location.href);
+  if (cleaned === null) return;
+  window.history.replaceState(window.history.state, '', cleaned);
+  openSettings('remoteControl');
 }
 
 function openProviders(): void {

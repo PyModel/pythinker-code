@@ -39,7 +39,6 @@ export interface RemoteControlOutputOptions {
   readonly localServerToken: string;
   readonly deviceName: string;
   readonly qrCode: string;
-  readonly pngPath: string;
 }
 
 export function formatRemoteControlOutput(options: RemoteControlOutputOptions): string {
@@ -69,7 +68,7 @@ export function formatRemoteControlOutput(options: RemoteControlOutputOptions): 
     `  ${status('⚠')} ${muted('This link grants control of this machine. Do not share it.')}`,
     '',
     options.qrCode.trimEnd().replaceAll(/^/gm, '    '),
-    `  ${label('QR code PNG: ')}${options.pngPath} ${muted('(open this if the QR above does not scan)')}`,
+    `  ${label('QR code page: ')}${accent(`${localBase}?settings=remote-control`)}${dim(localFrag)} ${muted('(open this if the QR above does not scan)')}`,
     `  ${label('Local UI: ')}${accent(localBase)}${dim(localFrag)} ${muted('(LAN: --host)')}`,
     '',
     `  ${docs} ${muted('·')} ${feedback}`,

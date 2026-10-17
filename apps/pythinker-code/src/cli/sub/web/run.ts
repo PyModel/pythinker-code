@@ -253,15 +253,14 @@ export async function handleWebCommand(
             controls?.requestShutdown('remote_control_closed');
           },
         );
-        const qrCode = await generateRemoteControlQr(remoteControl.url, dataDir);
+        const qrCode = await generateRemoteControlQr(remoteControl.url);
         deps.stdout.write(
           formatRemoteControlOutput({
             url: remoteControl.url,
             localOrigin: origin,
             localServerToken: token,
             deviceName: remoteControl.deviceName,
-            qrCode: qrCode.terminal,
-            pngPath: qrCode.pngPath,
+            qrCode,
           }),
         );
         outputReady = true;

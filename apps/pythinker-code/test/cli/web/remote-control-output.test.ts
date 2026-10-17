@@ -16,7 +16,6 @@ describe('Remote Control output', () => {
     localServerToken: 'example-token',
     deviceName: 'example-device',
     qrCode: 'QR\n',
-    pngPath: '/tmp/example-qr.png',
   };
 
   it('shows the full URL as the clickable link text and the setup contract', () => {
@@ -40,7 +39,10 @@ describe('Remote Control output', () => {
     expect(output).toContain('Connected to example.test');
     expect(output).toContain('This device:');
     expect(output).not.toContain('Manage devices');
-    expect(output).toContain('PNG:');
+    expect(plain).toContain(
+      'QR code page: http://127.0.0.1:1234/?settings=remote-control#token=example-token',
+    );
+    expect(output).not.toContain('PNG');
     expect(output).toContain('\n    QR');
     expect(output).toContain('grants control of this machine');
     expect(output).toContain('docs');

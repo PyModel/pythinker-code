@@ -91,15 +91,14 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
             },
           );
           const url = buildRemoteControlUrl(remoteControl.deviceId, session?.id, relayOrigin);
-          const qrCode = await generateRemoteControlQr(url, dataDir);
+          const qrCode = await generateRemoteControlQr(url);
           process.stdout.write(
             formatRemoteControlOutput({
               url,
               localOrigin: origin,
               localServerToken: token,
               deviceName: remoteControl.deviceName,
-              qrCode: qrCode.terminal,
-              pngPath: qrCode.pngPath,
+              qrCode,
             }),
           );
           outputReady = true;

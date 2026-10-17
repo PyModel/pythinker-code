@@ -1,7 +1,3 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 import { resetCapabilitiesCache, setCapabilities } from '@pymodel/pi-tui';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -51,54 +47,27 @@ describe('generateRemoteControlQr terminal rendering', () => {
     resetCapabilitiesCache();
   });
 
-  async function generateInTempDir(url: string) {
-    const dir = mkdtempSync(join(tmpdir(), 'pythinker-rc-qr-'));
-    try {
-      const result = await generateRemoteControlQr(url, dir);
-      return { ...result, dir };
-    } catch (error) {
-      rmSync(dir, { recursive: true, force: true });
-      throw error;
-    }
-  }
-
   it('falls back to half-block rendering when the terminal has no image protocol', async () => {
     setCapabilities({ images: null, trueColor: true, hyperlinks: false });
     const url = 'https://example.test/rc/entry';
-    const { terminal, pngPath, dir } = await generateInTempDir(url);
-    try {
-      expect(terminal).toBe(renderTerminalQr(url));
-      expect(readFileSync(pngPath)).toEqual(await QRCode.toBuffer(url));
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    expect(await generateRemoteControlQr(url)).toBe(renderTerminalQr(url));
   });
 
   it('renders the PNG as a kitty image when the kitty protocol is available', async () => {
     setCapabilities({ images: 'kitty', trueColor: true, hyperlinks: true });
     const url = 'https://example.test/rc/entry';
-    const { terminal, pngPath, dir } = await generateInTempDir(url);
-    try {
-      const png = readFileSync(pngPath);
-      expect(terminal).toContain('\u001B_G');
-      expect(terminal).toContain(png.toString('base64'));
-      expect(terminal).not.toBe(renderTerminalQr(url));
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    const terminal = await generateRemoteControlQr(url);
+    expect(terminal).toContain('\u001B_G');
+    expect(terminal).toContain((await QRCode.toBuffer(url)).toString('base64'));
+    expect(terminal).not.toBe(renderTerminalQr(url));
   });
 
   it('renders the PNG as an iterm2 inline image when the iterm2 protocol is available', async () => {
     setCapabilities({ images: 'iterm2', trueColor: true, hyperlinks: true });
     const url = 'https://example.test/rc/entry';
-    const { terminal, pngPath, dir } = await generateInTempDir(url);
-    try {
-      const png = readFileSync(pngPath);
-      expect(terminal).toContain('\u001B]1337;File=');
-      expect(terminal).toContain(png.toString('base64'));
-      expect(terminal).not.toBe(renderTerminalQr(url));
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    const terminal = await generateRemoteControlQr(url);
+    expect(terminal).toContain('\u001B]1337;File=');
+    expect(terminal).toContain((await QRCode.toBuffer(url)).toString('base64'));
+    expect(terminal).not.toBe(renderTerminalQr(url));
   });
 });
