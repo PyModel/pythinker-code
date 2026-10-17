@@ -493,6 +493,7 @@ export * from '#/session/subagent/spawn';
 import '#/session/subagent/flag';
 export * from '#/session/subagent/subagentModelsValidation';
 import '#/session/subagent/subagentModelsValidationService';
+export type { CanonicalSubagentModelPolicy } from '#/session/subagent/policy';
 export * from '#/session/subagent/subagentModelPolicy';
 import '#/session/subagent/subagentModelPolicyService';
 export * from '#/agent/tools/agent/subagent-task';

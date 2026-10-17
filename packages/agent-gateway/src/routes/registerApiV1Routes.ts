@@ -15,6 +15,7 @@ import { registerAuthRoute } from './auth';
 import { registerCodexLoginRoutes } from './codex';
 import { registerCapabilitiesRoutes } from './capabilities';
 import { registerConfigRoutes } from './config';
+import { registerSubagentModelPolicyRoutes } from './subagentModelPolicy';
 import { registerConnectionsRoutes } from './connections';
 import { registerFileHistoryRoutes } from './fileHistory';
 import { registerFilesRoutes } from './files';
@@ -114,6 +115,10 @@ export async function registerApiV1Routes(
       registerAuthRoute(apiV1 as unknown as Parameters<typeof registerAuthRoute>[0], core);
       registerCodexLoginRoutes(apiV1 as unknown as Parameters<typeof registerCodexLoginRoutes>[0], core);
       registerConfigRoutes(apiV1 as unknown as Parameters<typeof registerConfigRoutes>[0], core);
+      registerSubagentModelPolicyRoutes(
+        apiV1 as unknown as Parameters<typeof registerSubagentModelPolicyRoutes>[0],
+        core,
+      );
       registerModelCatalogRoutes(
         apiV1 as unknown as Parameters<typeof registerModelCatalogRoutes>[0],
         core,
