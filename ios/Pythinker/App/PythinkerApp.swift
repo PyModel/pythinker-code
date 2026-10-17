@@ -15,6 +15,7 @@ struct PythinkerApp: App {
 struct PhoneRoot: View {
     @Binding var phone: PhoneState
     @State private var pasted = ""
+    @State private var optionID = ""
 
     var body: some View {
         NavigationStack {
@@ -84,6 +85,20 @@ struct PhoneRoot: View {
                     )
                 }
                 .disabled(!approval.canApprove)
+            }
+            TextField("Question option", text: $optionID)
+            Button("Answer") {
+                send(
+                    .answer(
+                        sessionID: phone.sessions.first?.id ?? "session",
+                        questionID: "question",
+                        optionID: optionID
+                    )
+                )
+            }
+            .disabled(optionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            Button("Dismiss question") {
+                send(.dismiss(sessionID: phone.sessions.first?.id ?? "session", questionID: "question"))
             }
             Button("Forget link", role: .destructive) { phone.forget() }
         }
