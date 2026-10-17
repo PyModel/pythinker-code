@@ -1,16 +1,11 @@
 import { createHash } from 'node:crypto';
 import { hostname, platform } from 'node:os';
-import { join } from 'node:path';
 import { request as httpRequest, validateHeaderName, validateHeaderValue } from 'node:http';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { gzip } from 'node:zlib';
 
-import {
-  createPythinkerDeviceId,
-  FileTokenStorage,
-  resolveOAuthTokenStorageName,
-} from '@pymodel/pythinker-code-oauth';
+import { createPythinkerDeviceId } from '@pymodel/pythinker-code-oauth';
 import { WebSocket, type RawData } from 'ws';
 
 import { acquireRemoteControlLock } from './lock';
@@ -360,11 +355,6 @@ export async function startRemoteControl(
       `Remote Control needs a relay key. Pass --relay-key or set ${REMOTE_CONTROL_RELAY_KEY_ENV}.`,
     );
   }
-  const storage = new FileTokenStorage(join(options.homeDir, 'credentials'));
-  const token = await storage.load(resolveOAuthTokenStorageName('oauth/pythinker-code'));
-  if (token?.refreshToken === undefined || token.refreshToken.length === 0) {
-    throw new Error('Remote Control requires a Pythinker login. Run `pythinker login` first.');
-  }
   const relayOrigin = options.relayOrigin ?? resolveRemoteControlRelayOrigin();
   const deviceId = createPythinkerDeviceId(options.homeDir);
   const deviceName = hostname();
@@ -379,7 +369,6 @@ export async function startRemoteControl(
     localServerToken,
     relayOrigin,
     deviceId,
-    refreshToken: token.refreshToken,
     relayToken: options.relayKey,
   });
   try {
@@ -410,7 +399,6 @@ class RemoteControlClient {
   private readonly clientVersion: string;
   private readonly relayOrigin: string;
   private readonly deviceId: string;
-  private readonly refreshToken: string;
   private readonly relayToken: string;
   private readonly stderr: Pick<NodeJS.WriteStream, 'write'>;
   private readonly onStatus: (status: RemoteControlStatus) => void;
@@ -436,7 +424,6 @@ class RemoteControlClient {
       readonly localServerToken: () => string;
       readonly relayOrigin: string;
       readonly deviceId: string;
-      readonly refreshToken: string;
       readonly relayToken: string;
     },
   ) {
@@ -445,7 +432,6 @@ class RemoteControlClient {
     this.clientVersion = options.clientVersion;
     this.relayOrigin = options.relayOrigin;
     this.deviceId = options.deviceId;
-    this.refreshToken = options.refreshToken;
     this.relayToken = options.relayToken;
     this.stderr = options.stderr ?? process.stderr;
     this.onStatus = options.onStatus ?? (() => {});

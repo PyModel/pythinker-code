@@ -6,11 +6,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
-import {
-  FileTokenStorage,
-  resolveOAuthTokenStorageName,
-  type TokenInfo,
-} from '@pymodel/pythinker-code-oauth';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 
@@ -27,15 +22,6 @@ import {
 import { remoteControlLockPath } from '../src/lock';
 
 const CLIENT_VERSION = 'pythinker-code/test';
-
-const TOKEN: TokenInfo = {
-  accessToken: 'access-token',
-  refreshToken: 'refresh-token',
-  expiresAt: 0,
-  scope: '',
-  tokenType: 'Bearer',
-  expiresIn: 0,
-};
 
 const cleanups: Array<() => Promise<void> | void> = [];
 
@@ -168,10 +154,6 @@ describe('Remote Control tunnel', () => {
   it('surfaces register_nak details', async () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'pythinker-rc-nak-'));
     cleanups.push(() => rmSync(homeDir, { recursive: true, force: true }));
-    await new FileTokenStorage(join(homeDir, 'credentials')).save(
-      resolveOAuthTokenStorageName('oauth/pythinker-code'),
-      TOKEN,
-    );
     const managementServer = new WebSocketServer({ noServer: true });
     const relayServer = createServer();
     managementServer.on('connection', (ws) => {
@@ -208,8 +190,8 @@ describe('Remote Control tunnel', () => {
     ).rejects.toThrow(/DEVICE_LIMIT_EXCEEDED.*membership allows 3 devices/);
   });
 
-  it('uses only Authorization when the refresh token is not a valid subprotocol token', async () => {
-    const homeDir = await createRemoteControlHome('invalid/token=');
+  it('uses only Authorization when the relay key is not a valid subprotocol token', async () => {
+    const homeDir = await createRemoteControlHome();
     const relay = await startAuthRelay();
     let handle: RemoteControlHandle | undefined;
     cleanups.push(async () => handle?.close());
@@ -232,7 +214,7 @@ describe('Remote Control tunnel', () => {
   });
 
   it('retries with only Authorization when the server does not echo the subprotocol', async () => {
-    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
+    const homeDir = await createRemoteControlHome();
     const relay = await startAuthRelay({ echoProtocol: false });
     let handle: RemoteControlHandle | undefined;
     cleanups.push(async () => handle?.close());
@@ -260,7 +242,7 @@ describe('Remote Control tunnel', () => {
   });
 
   it('keeps the initial start pending through transient failures and recovers', async () => {
-    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
+    const homeDir = await createRemoteControlHome();
     const relay = await startAuthRelay({ rejectUpgrades: 2 });
     let handle: RemoteControlHandle | undefined;
     cleanups.push(async () => handle?.close());
@@ -280,7 +262,7 @@ describe('Remote Control tunnel', () => {
   }, 6000);
 
   it('reconnects when management closes during the HTTP tunnel handshake', async () => {
-    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
+    const homeDir = await createRemoteControlHome();
     const relay = await startAuthRelay({ closeManagementDuringFirstHttpHandshake: true });
     let handle: RemoteControlHandle | undefined;
     cleanups.push(async () => handle?.close());
@@ -301,10 +283,6 @@ describe('Remote Control tunnel', () => {
   it('registers, forwards HTTP and WS with local auth, then reconnects the pair', async () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'pythinker-rc-'));
     cleanups.push(() => rmSync(homeDir, { recursive: true, force: true }));
-    await new FileTokenStorage(join(homeDir, 'credentials')).save(
-      resolveOAuthTokenStorageName('oauth/pythinker-code'),
-      TOKEN,
-    );
 
     let localHttpRequest: IncomingMessage | undefined;
     let localHttpBodyBytes = 0;
@@ -1120,7 +1098,7 @@ describe('Remote Control tunnel', () => {
   });
 
   it('reconnects when the relay goes silent without closing the sockets', async () => {
-    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
+    const homeDir = await createRemoteControlHome();
     const relay = await startAuthRelay();
     let handle: RemoteControlHandle | undefined;
     cleanups.push(async () => handle?.close());
@@ -1149,7 +1127,7 @@ describe('Remote Control tunnel', () => {
   }, 15_000);
 
   it('retries when registration is rejected after a reconnect', async () => {
-    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
+    const homeDir = await createRemoteControlHome();
     const relay = await startAuthRelay({ nakRegistrationsAfterFirst: 1 });
     let handle: RemoteControlHandle | undefined;
     cleanups.push(async () => handle?.close());
@@ -1187,7 +1165,7 @@ describe('Remote Control single-instance lock', () => {
   }
 
   it('refuses a second instance on the same home and reports the running link', async () => {
-    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
+    const homeDir = await createRemoteControlHome();
     const relay = await startAuthRelay();
     let first: RemoteControlHandle | undefined;
     cleanups.push(async () => first?.close());
@@ -1216,7 +1194,7 @@ describe('Remote Control single-instance lock', () => {
   });
 
   it('reaps a stale lock left by a dead process', async () => {
-    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
+    const homeDir = await createRemoteControlHome();
     await mkdir(join(homeDir, 'server'), { recursive: true });
     await writeFile(
       remoteControlLockPath(homeDir),
@@ -1250,7 +1228,7 @@ describe('Remote Control single-instance lock', () => {
   });
 
   it('releases the lock on close and on relay-initiated shutdown', async () => {
-    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
+    const homeDir = await createRemoteControlHome();
     const relay = await startAuthRelay();
     const options = {
       homeDir,
@@ -1277,7 +1255,7 @@ describe('Remote Control single-instance lock', () => {
   });
 
   it('reports a terminal status and close reason on user_requested only', async () => {
-    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
+    const homeDir = await createRemoteControlHome();
     const relay = await startAuthRelay();
     const statuses: string[] = [];
     let handle: RemoteControlHandle | undefined;
@@ -1320,7 +1298,7 @@ describe('Remote Control single-instance lock', () => {
   });
 
   it('does not remove a successor lock when closing', async () => {
-    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
+    const homeDir = await createRemoteControlHome();
     const relay = await startAuthRelay();
     const handle = await startRemoteControl({
       homeDir,
@@ -1353,16 +1331,9 @@ describe('Remote Control single-instance lock', () => {
   });
 });
 
-async function createRemoteControlHome(refreshToken: string): Promise<string> {
+async function createRemoteControlHome(): Promise<string> {
   const homeDir = mkdtempSync(join(tmpdir(), 'pythinker-rc-auth-'));
   cleanups.push(() => rmSync(homeDir, { recursive: true, force: true }));
-  await new FileTokenStorage(join(homeDir, 'credentials')).save(
-    resolveOAuthTokenStorageName('oauth/pythinker-code'),
-    {
-      ...TOKEN,
-      refreshToken,
-    },
-  );
   return homeDir;
 }
 
