@@ -149,13 +149,10 @@ export class PythinkerAuthFacade {
     return { providers: [] };
   }
 
-  async login(providerName?: string, _options?: Record<string, unknown>): Promise<{ readonly ok: true; readonly providerName: string; readonly defaultModel: string; readonly defaultThinking: boolean }> {
-    return {
-      ok: true,
-      providerName: providerName ?? 'openai',
-      defaultModel: 'openai/gpt-4o',
-      defaultThinking: false,
-    };
+  async login(_providerName?: string, _options?: Record<string, unknown>): Promise<{ readonly ok: true; readonly providerName: string; readonly defaultModel: string; readonly defaultThinking: boolean }> {
+    throw new Error(
+      'Pythinker sign-in is no longer available. Add a model provider instead: run /login in the terminal UI, or open Settings → Providers in the web UI.',
+    );
   }
 
   async logout(providerName?: string): Promise<{ readonly ok: true; readonly providerName: string }> {

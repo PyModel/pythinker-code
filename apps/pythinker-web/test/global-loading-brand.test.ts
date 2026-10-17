@@ -6,7 +6,7 @@ const component = readFileSync(join(import.meta.dirname, '../src/components/Glob
 
 describe('global loading brand', () => {
   it('shows the bundled Pythinker logo instead of a Kimi wordmark', () => {
-    expect(component).toContain('src="/logo.png"');
+    expect(component).toContain(`:src="publicAssetUrl('/logo.png')"`);
     expect(component).not.toMatch(/kimi/iu);
     expect(existsSync(join(import.meta.dirname, '../public/logo.png'))).toBe(true);
   });

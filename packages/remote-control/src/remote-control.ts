@@ -1,25 +1,19 @@
 import { createHash } from 'node:crypto';
 import { hostname, platform } from 'node:os';
-import { join } from 'node:path';
 import { request as httpRequest, validateHeaderName, validateHeaderValue } from 'node:http';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { gzip } from 'node:zlib';
 
-import {
-  createPythinkerDeviceId,
-  FileTokenStorage,
-  resolveOAuthTokenStorageName,
-} from '@pymodel/pythinker-code-oauth';
 import { WebSocket, type RawData } from 'ws';
 
 import { acquireRemoteControlLock } from './lock';
+import { loadRemoteControlSecret, remoteControlDeviceId } from './secret';
 
 export const REMOTE_CONTROL_RELAY_ORIGIN = 'https://code-rc.pythinker.com';
 
 export const REMOTE_CONTROL_RELAY_ENV = 'PYTHINKER_CODE_REMOTE_CONTROL_RELAY';
 export const REMOTE_CONTROL_RELAY_URL_ENV = 'PYTHINKER_CODE_REMOTE_CONTROL_RELAY_URL';
-export const REMOTE_CONTROL_RELAY_KEY_ENV = 'PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY';
 
 export function resolveRelayOrigin(
   explicit?: string,
@@ -42,19 +36,6 @@ export function resolveRemoteControlRelayOrigin(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
   return resolveRelayOrigin(undefined, env);
-}
-
-export function resolveRelayKey(
-  explicit?: string,
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): string {
-  const candidate = explicit?.trim() || env[REMOTE_CONTROL_RELAY_KEY_ENV]?.trim() || '';
-  if (candidate.length === 0) {
-    throw new Error(
-      `Remote Control needs a relay key. Pass --relay-key or set ${REMOTE_CONTROL_RELAY_KEY_ENV}.`,
-    );
-  }
-  return candidate;
 }
 
 const MAX_HTTP_HEADER_BYTES = 64 * 1024;
@@ -147,7 +128,6 @@ export interface RemoteControlOptions {
   readonly localOrigin: string;
   readonly localServerToken: string | (() => string);
   readonly clientVersion: string;
-  readonly relayKey: string;
   readonly relayOrigin?: string;
   readonly stderr?: Pick<NodeJS.WriteStream, 'write'>;
   readonly onStatus?: (status: RemoteControlStatus) => void;
@@ -269,7 +249,7 @@ export function rewriteRemoteControlResponse(
       /[<>/\u2028\u2029]/g,
       (char) => `\\u${char.codePointAt(0)?.toString(16).padStart(4, '0')}`,
     );
-    const injected = `<script>(function(){var p=${prefixLiteral};try{sessionStorage.setItem('pythinker-desktop-server-origin',location.origin+p)}catch(e){}var w=function(f){return function(s,t,u){if(typeof u==='string'&&u.charAt(0)==='/'&&u.indexOf(p)!==0)u=p+u;return f.apply(this,[s,t,u])}};history.pushState=w(history.pushState);history.replaceState=w(history.replaceState)})();</script>`;
+    const injected = `<script>(function(){var p=${prefixLiteral};window.__PYTHINKER_RELAY_PREFIX__=p;try{sessionStorage.removeItem('pythinker-desktop-server-origin')}catch(e){}var w=function(f){return function(s,t,u){if(typeof u==='string'&&u.charAt(0)==='/'&&u.indexOf(p)!==0)u=p+u;return f.apply(this,[s,t,u])}};history.pushState=w(history.pushState);history.replaceState=w(history.replaceState)})();</script>`;
     let text = body.toString('utf8');
     const headEnd = findHeadOpenTagEnd(text);
     text = text.slice(0, headEnd) + injected + text.slice(headEnd);
@@ -355,18 +335,9 @@ export async function startRemoteControl(
   if (localServerToken().length === 0) {
     throw new Error('Remote Control requires local server authentication.');
   }
-  if (options.relayKey.length === 0) {
-    throw new Error(
-      `Remote Control needs a relay key. Pass --relay-key or set ${REMOTE_CONTROL_RELAY_KEY_ENV}.`,
-    );
-  }
-  const storage = new FileTokenStorage(join(options.homeDir, 'credentials'));
-  const token = await storage.load(resolveOAuthTokenStorageName('oauth/pythinker-code'));
-  if (token?.refreshToken === undefined || token.refreshToken.length === 0) {
-    throw new Error('Remote Control requires a Pythinker login. Run `pythinker login` first.');
-  }
   const relayOrigin = options.relayOrigin ?? resolveRemoteControlRelayOrigin();
-  const deviceId = createPythinkerDeviceId(options.homeDir);
+  const secret = await loadRemoteControlSecret(options.homeDir);
+  const deviceId = remoteControlDeviceId(secret);
   const deviceName = hostname();
   const url = buildRemoteControlUrl(deviceId, undefined, relayOrigin);
   const lock = await acquireRemoteControlLock(options.homeDir, {
@@ -379,8 +350,7 @@ export async function startRemoteControl(
     localServerToken,
     relayOrigin,
     deviceId,
-    refreshToken: token.refreshToken,
-    relayToken: options.relayKey,
+    relayToken: secret,
   });
   try {
     await client.start();
@@ -410,7 +380,6 @@ class RemoteControlClient {
   private readonly clientVersion: string;
   private readonly relayOrigin: string;
   private readonly deviceId: string;
-  private readonly refreshToken: string;
   private readonly relayToken: string;
   private readonly stderr: Pick<NodeJS.WriteStream, 'write'>;
   private readonly onStatus: (status: RemoteControlStatus) => void;
@@ -436,7 +405,6 @@ class RemoteControlClient {
       readonly localServerToken: () => string;
       readonly relayOrigin: string;
       readonly deviceId: string;
-      readonly refreshToken: string;
       readonly relayToken: string;
     },
   ) {
@@ -445,7 +413,6 @@ class RemoteControlClient {
     this.clientVersion = options.clientVersion;
     this.relayOrigin = options.relayOrigin;
     this.deviceId = options.deviceId;
-    this.refreshToken = options.refreshToken;
     this.relayToken = options.relayToken;
     this.stderr = options.stderr ?? process.stderr;
     this.onStatus = options.onStatus ?? (() => {});

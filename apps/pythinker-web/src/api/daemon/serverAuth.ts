@@ -16,6 +16,8 @@
 // `pythinker web rotate-token` invalidates a stale copy, and the next 401 clears
 // it here.
 
+import { appStorage } from '../../lib/storage';
+
 const STORAGE_KEY = 'pythinker-web.server-credential';
 const FRAGMENT_PARAM = 'token';
 const CREDENTIAL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -87,7 +89,7 @@ function decodeStoredCredential(raw: string): StoredCredential | undefined {
 }
 
 function persistCredential(stored: StoredCredential): void {
-  globalThis.localStorage?.setItem(
+  appStorage()?.setItem(
     STORAGE_KEY,
     encodeStoredCredential(stored),
   );
@@ -95,7 +97,7 @@ function persistCredential(stored: StoredCredential): void {
 
 function loadStored(): StoredCredential | undefined {
   try {
-    const raw = globalThis.localStorage?.getItem(STORAGE_KEY);
+    const raw = appStorage()?.getItem(STORAGE_KEY);
     if (raw) {
       const stored = decodeStoredCredential(raw);
       if (stored === undefined) {
@@ -112,8 +114,8 @@ function loadStored(): StoredCredential | undefined {
         }
         if (!migrationRecorded) {
           try {
-            if (globalThis.localStorage?.getItem(STORAGE_KEY) === raw) {
-              globalThis.localStorage?.removeItem(STORAGE_KEY);
+            if (appStorage()?.getItem(STORAGE_KEY) === raw) {
+              appStorage()?.removeItem(STORAGE_KEY);
             }
             migrationRecorded = true;
           } catch {
@@ -134,8 +136,8 @@ function loadStored(): StoredCredential | undefined {
       // removed, keep the expired local record as a tombstone that prevents
       // the legacy value from receiving a new 7-day window on reload.
       globalThis.sessionStorage?.removeItem(STORAGE_KEY);
-      if (globalThis.localStorage?.getItem(STORAGE_KEY) === raw) {
-        globalThis.localStorage?.removeItem(STORAGE_KEY);
+      if (appStorage()?.getItem(STORAGE_KEY) === raw) {
+        appStorage()?.removeItem(STORAGE_KEY);
       }
       return undefined;
     }
@@ -197,7 +199,7 @@ function clearExpiredCredential(expired: StoredCredential): void {
     // Keep the expired local record as a tombstone if the legacy session copy
     // cannot be cleared; otherwise a reload could migrate it into a fresh TTL.
     globalThis.sessionStorage?.removeItem(STORAGE_KEY);
-    const raw = globalThis.localStorage?.getItem(STORAGE_KEY);
+    const raw = appStorage()?.getItem(STORAGE_KEY);
     const stored = raw === null || raw === undefined
       ? undefined
       : decodeStoredCredential(raw);
@@ -206,7 +208,7 @@ function clearExpiredCredential(expired: StoredCredential): void {
       : stored.credential === expired.credential &&
         stored.expiresAt === expired.expiresAt;
     if (matchesExpired) {
-      globalThis.localStorage?.removeItem(STORAGE_KEY);
+      appStorage()?.removeItem(STORAGE_KEY);
     }
   } catch {
     // ignore
@@ -242,7 +244,7 @@ export function clearCredential(): void {
     // tab was using. localStorage is shared across tabs, so an unconditional
     // removal would let a stale tab erase a newer token another tab stored
     // (e.g. right after `pythinker web rotate-token`).
-    const raw = globalThis.localStorage?.getItem(STORAGE_KEY);
+    const raw = appStorage()?.getItem(STORAGE_KEY);
     const stored = raw === null || raw === undefined
       ? undefined
       : decodeStoredCredential(raw);
@@ -250,7 +252,7 @@ export function clearCredential(): void {
     const matchesRejected = rejected !== undefined &&
       persistedCredential === rejected.credential;
     if (matchesRejected) {
-      globalThis.localStorage?.removeItem(STORAGE_KEY);
+      appStorage()?.removeItem(STORAGE_KEY);
     }
     // sessionStorage is tab-scoped (legacy store) — clearing it cannot
     // affect other tabs.

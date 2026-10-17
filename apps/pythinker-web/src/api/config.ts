@@ -1,7 +1,10 @@
 // apps/pythinker-web/src/api/config.ts
 // Reads Vite env, builds REST/WS URLs, manages stable clientId.
 
+import { relayBasePath } from '../lib/relayPrefix';
 import { safeGetString, safeSetString, STORAGE_KEYS } from '../lib/storage';
+
+export { relayBasePath };
 
 const CLIENT_ID_KEY = STORAGE_KEYS.clientId;
 const WEB_CLIENT_NAME = 'pythinker-code-web';
@@ -35,9 +38,14 @@ export function readPythinkerApiConfig(): PythinkerApiConfig {
 // origin instead (that path does require the server to send CORS headers).
 function defaultServerOrigin(): string {
   if (typeof window !== 'undefined' && window.location?.origin) {
-    return window.location.origin;
+    return window.location.origin + relayBasePath();
   }
   return 'http://127.0.0.1:58627';
+}
+
+/** Resolve a `public/` asset path (`/brand/icon.svg`) against the relay prefix, if any. */
+export function publicAssetUrl(path: string): string {
+  return relayBasePath() + path;
 }
 
 export function normalizeServerOrigin(value: string | undefined): string {
@@ -71,7 +79,9 @@ export function serverEndpointLabel(): string {
   if (import.meta.env.DEV && proxy) return shortOrigin(proxy);
 
   const origin =
-    typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '';
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin + relayBasePath()
+      : '';
   return shortOrigin(origin);
 }
 

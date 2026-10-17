@@ -7,6 +7,7 @@ export const remoteControlStatusSchema = z.object({
   device_id: z.string().optional(),
   device_name: z.string().optional(),
   error: z.string().optional(),
+  started_in_terminal: z.boolean().optional(),
 });
 export type RemoteControlStatusResponse = z.infer<typeof remoteControlStatusSchema>;
 

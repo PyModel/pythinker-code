@@ -44,7 +44,6 @@ import { type NetworkAddress } from './networks';
 import {
   formatRemoteControlOutput,
   formatRemoteControlStatus,
-  resolveRelayKey,
   resolveRelayOrigin,
   startRemoteControl,
   type RemoteControlHandle,
@@ -231,14 +230,12 @@ export async function handleWebCommand(
           if (outputReady) deps.stdout.write(line);
           else pendingStatuses.push(line);
         };
-        const relayKey = resolveRelayKey();
         const relayOrigin = resolveRelayOrigin();
         remoteControl = await (deps.startRemoteControl ?? startRemoteControl)({
           homeDir: dataDir,
           localOrigin: origin,
           localServerToken: () => deps.resolveToken?.() ?? token ?? '',
           clientVersion: `pythinker-code/${getVersion()}`,
-          relayKey,
           relayOrigin,
           stderr: deps.stderr,
           onStatus,
@@ -256,15 +253,14 @@ export async function handleWebCommand(
             controls?.requestShutdown('remote_control_closed');
           },
         );
-        const qrCode = await generateRemoteControlQr(remoteControl.url, dataDir);
+        const qrCode = await generateRemoteControlQr(remoteControl.url);
         deps.stdout.write(
           formatRemoteControlOutput({
             url: remoteControl.url,
             localOrigin: origin,
             localServerToken: token,
             deviceName: remoteControl.deviceName,
-            qrCode: qrCode.terminal,
-            pngPath: qrCode.pngPath,
+            qrCode,
           }),
         );
         outputReady = true;
