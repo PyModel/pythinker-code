@@ -8,12 +8,14 @@
 
 /* Begin PBXBuildFile section */
 		4E38AFD5771792B459DEB027 /* PythinkerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25BDD34DEB5E768B6FA1439D /* PythinkerApp.swift */; };
+		5E62DB559FD028167ECDB6F9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 348A3A60ED5604A7BE11F5CD /* Assets.xcassets */; };
 		B085E373E2059324170FB3E7 /* PythinkerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 69CE4EA62A5A74D8C515C98F /* PythinkerKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		21E87F03F91C0A1CB9A3CD0C /* Pythinker.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Pythinker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		25BDD34DEB5E768B6FA1439D /* PythinkerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythinkerApp.swift; sourceTree = "<group>"; };
+		348A3A60ED5604A7BE11F5CD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		4ED913085A92C2779784895E /* ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ios; path = ..; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -32,6 +34,7 @@
 		00EDB016ED2065281380ACB3 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				348A3A60ED5604A7BE11F5CD /* Assets.xcassets */,
 				25BDD34DEB5E768B6FA1439D /* PythinkerApp.swift */,
 			);
 			path = App;
@@ -70,6 +73,7 @@
 			buildConfigurationList = 3997DB9F2AE7AD00481B9B93 /* Build configuration list for PBXNativeTarget "Pythinker" */;
 			buildPhases = (
 				A6C49C670414441CBB75D847 /* Sources */,
+				592734A120847F4A43261DE0 /* Resources */,
 				76CDB75CBCA674EA71042218 /* Frameworks */,
 			);
 			buildRules = (
@@ -116,6 +120,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		592734A120847F4A43261DE0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5E62DB559FD028167ECDB6F9 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		A6C49C670414441CBB75D847 /* Sources */ = {
@@ -252,6 +267,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Pythinker;
@@ -272,6 +288,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Pythinker;
