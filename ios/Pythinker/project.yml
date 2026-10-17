@@ -1,0 +1,26 @@
+name: Pythinker
+options:
+  bundleIdPrefix: com.pymodel
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  SWIFT_VERSION: "6.2"
+packages:
+  PythinkerKit:
+    path: ..
+targets:
+  Pythinker:
+    type: application
+    platform: iOS
+    sources:
+      - App
+    dependencies:
+      - package: PythinkerKit
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.pymodel.pythinker.phone
+      SUPPORTED_PLATFORMS: iphoneos iphonesimulator
+      GENERATE_INFOPLIST_FILE: YES
+      INFOPLIST_KEY_CFBundleDisplayName: Pythinker
+      INFOPLIST_KEY_NSCameraUsageDescription: Scan the Remote Control code to pair with this Mac.
+      INFOPLIST_KEY_UILaunchScreen_Generation: YES
+      TARGETED_DEVICE_FAMILY: "1,2"
