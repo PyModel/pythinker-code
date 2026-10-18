@@ -657,8 +657,11 @@ import Testing
   desk.state.selectedSessionID = "session_1"
   desk.state.versionAccepted = true
   let listen = desk.listenID
-  transport.handler = { _ in
-    ControlHTTPResult(
+  transport.handler = { request in
+    if request.path == "/workspaces" {
+      return workspacesResponse([])
+    }
+    return ControlHTTPResult(
       status: 200,
       body: envelope(
         code: 0,
@@ -1564,4 +1567,114 @@ private final class SilentSocket: EventSocket, @unchecked Sendable {
   }
 
   func close() {}
+}
+
+private func workspacesResponse(_ items: [[String: Any]]) -> ControlHTTPResult {
+  ControlHTTPResult(
+    status: 200, body: envelope(code: 0, message: "ok", data: ["items": items]))
+}
+
+@Test @MainActor func refreshLoadsWorkspacesAndFiltersSessionsOnTheServer() async throws {
+  let transport = ScriptedTransport()
+  let desk = try pairedDesk(transport)
+  desk.state.versionAccepted = true
+  transport.handler = { request in
+    if request.path == "/workspaces" {
+      return workspacesResponse([
+        ["id": "wd_app_1", "name": "app", "root": "/x/app", "session_count": 2],
+        ["id": "wd_web_2", "name": "web", "root": "/x/web", "session_count": 1],
+      ])
+    }
+    let items: [[String: Any]] =
+      request.path.contains("workspace_id=wd_web_2")
+      ? [["id": "s_web", "title": "W", "busy": false, "workspace_id": "wd_web_2"]]
+      : [
+        ["id": "s_app", "title": "A", "busy": false, "workspace_id": "wd_app_1"],
+        ["id": "s_web", "title": "W", "busy": false, "workspace_id": "wd_web_2"],
+      ]
+    return ControlHTTPResult(
+      status: 200, body: envelope(code: 0, message: "ok", data: ["items": items]))
+  }
+
+  desk.refreshSessions()
+  try await waitUntil { desk.state.sessions.count == 2 }
+  #expect(desk.state.workspaces.map(\.name) == ["app", "web"])
+  #expect(desk.state.workspaces.first?.sessionCount == 2)
+  #expect(desk.state.sessions.first?.workspaceID == "wd_app_1")
+
+  desk.selectWorkspace("wd_web_2")
+  try await waitUntil { desk.state.sessions.map(\.id) == ["s_web"] }
+  #expect(desk.state.sessions.map(\.id) == ["s_web"])
+  #expect(transport.requests.last?.path == "/sessions?workspace_id=wd_web_2")
+  #expect(desk.state.selectedWorkspace?.name == "web")
+}
+
+@Test @MainActor func aWorkspaceThatIsGoneFallsBackToAllSessions() async throws {
+  let transport = ScriptedTransport()
+  let desk = try pairedDesk(transport)
+  desk.state.versionAccepted = true
+  desk.state.selectedWorkspaceID = "wd_gone"
+  transport.handler = { request in
+    if request.path == "/workspaces" {
+      return workspacesResponse([["id": "wd_app_1", "name": "app", "session_count": 0]])
+    }
+    return ControlHTTPResult(
+      status: 200, body: envelope(code: 0, message: "ok", data: ["items": []]))
+  }
+  desk.refreshSessions()
+  try await waitUntil { desk.state.workspaces.count == 1 }
+  #expect(desk.state.selectedWorkspaceID == nil)
+  #expect(transport.requests.last?.path == "/sessions")
+}
+
+@Test @MainActor func newSessionStartsInTheChosenWorkspace() async throws {
+  let transport = ScriptedTransport()
+  let desk = try pairedDesk(transport)
+  desk.state.versionAccepted = true
+  desk.state.workspaces = [WorkspaceRow(id: "wd_app_1", name: "app", sessionCount: 0)]
+  desk.state.selectedWorkspaceID = "wd_app_1"
+  transport.handler = { request in
+    if request.method == "POST" {
+      return ControlHTTPResult(
+        status: 200, body: envelope(code: 0, message: "ok", data: ["id": "session_new"]))
+    }
+    if request.path == "/workspaces" {
+      return workspacesResponse([["id": "wd_app_1", "name": "app", "session_count": 1]])
+    }
+    return ControlHTTPResult(
+      status: 200, body: envelope(code: 0, message: "ok", data: ["items": []]))
+  }
+
+  let id = await desk.createSession()
+  #expect(id == "session_new")
+  let post = try #require(transport.requests.first { $0.method == "POST" })
+  #expect(post.path == "/sessions")
+  let body = try jsonObject(post.body)
+  #expect(body["workspace_id"] as? String == "wd_app_1")
+  #expect(body["metadata"] is [String: Any])
+}
+
+@Test @MainActor func newSessionNeedsAWorkspaceAndSaysSo() async throws {
+  let transport = ScriptedTransport()
+  let desk = try pairedDesk(transport)
+  desk.state.versionAccepted = true
+  let id = await desk.createSession()
+  #expect(id == nil)
+  #expect(desk.state.banner == "Choose a workspace first.")
+  #expect(transport.requests.isEmpty)
+}
+
+@Test @MainActor func aRefusedNewSessionShowsTheServerMessage() async throws {
+  let transport = ScriptedTransport()
+  let desk = try pairedDesk(transport)
+  desk.state.versionAccepted = true
+  desk.state.selectedWorkspaceID = "wd_app_1"
+  transport.handler = { _ in
+    ControlHTTPResult(
+      status: 200,
+      body: envelope(code: 40400, message: "workspace wd_app_1 does not exist", data: [:]))
+  }
+  let id = await desk.createSession()
+  #expect(id == nil)
+  #expect(desk.state.banner == "workspace wd_app_1 does not exist")
 }

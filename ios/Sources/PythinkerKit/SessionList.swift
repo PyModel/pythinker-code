@@ -6,6 +6,7 @@ public struct SessionFacts: Decodable, Equatable, Sendable {
   public let busy: Bool
   public let pendingInteraction: String?
   public let lastTurnReason: String?
+  public let workspaceID: String?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -13,6 +14,7 @@ public struct SessionFacts: Decodable, Equatable, Sendable {
     case busy
     case pendingInteraction = "pending_interaction"
     case lastTurnReason = "last_turn_reason"
+    case workspaceID = "workspace_id"
   }
 
   public var activity: String {
@@ -24,8 +26,34 @@ public struct SessionFacts: Decodable, Equatable, Sendable {
   }
 
   public var row: SessionRow {
-    SessionRow(id: id, title: title, activity: activity)
+    SessionRow(id: id, title: title, activity: activity, workspaceID: workspaceID)
   }
+}
+
+public struct WorkspaceRow: Decodable, Equatable, Sendable, Identifiable {
+  public let id: String
+  public let name: String
+  public let sessionCount: Int
+
+  public init(id: String, name: String, sessionCount: Int) {
+    self.id = id
+    self.name = name
+    self.sessionCount = sessionCount
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case name
+    case sessionCount = "session_count"
+  }
+}
+
+struct WorkspacePage: Decodable, Sendable {
+  let items: [WorkspaceRow]
+}
+
+struct CreatedSession: Decodable, Sendable {
+  let id: String
 }
 
 public struct SessionPage: Decodable, Equatable, Sendable {
@@ -108,6 +136,27 @@ enum SessionListDecoder {
       throw ControlBuildError.badResponse
     }
     return items.map(\.row)
+  }
+}
+
+enum WorkspaceListDecoder {
+  static func rows(status: Int, body: Data) throws -> [WorkspaceRow] {
+    let decoded = ResponsePath.decode(status: status, body: body, dismiss: false)
+    guard case .success = decoded.outcome else {
+      throw ControlBuildError.badResponse
+    }
+    let page = try JSONDecoder().decode(APIEnvelope<WorkspacePage>.self, from: body)
+    guard let items = page.data?.items else {
+      throw ControlBuildError.badResponse
+    }
+    return items
+  }
+}
+
+enum SessionQuery {
+  static func path(workspaceID: String?) throws -> String {
+    guard let workspaceID else { return "/sessions" }
+    return "/sessions?workspace_id=\(try ResourceID.segment(workspaceID))"
   }
 }
 

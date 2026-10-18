@@ -128,6 +128,61 @@ public final class PhoneDesk {
     refreshTask = Task { await self.refreshSessions(seen) }
   }
 
+  public func selectWorkspace(_ id: String?) {
+    guard state.selectedWorkspaceID != id else { return }
+    var next = state
+    next.selectedWorkspaceID = id
+    next.sessions = []
+    state = next
+    refreshSessions()
+  }
+
+  public func createSession() async -> String? {
+    let life = state.generation
+    guard await acceptVersion(life), life == state.generation else { return nil }
+    guard let base = state.activeBase else {
+      showBanner("The phone is not paired with a Mac.")
+      return nil
+    }
+    guard let workspaceID = state.selectedWorkspaceID else {
+      showBanner("Choose a workspace first.")
+      return nil
+    }
+    do {
+      let response = try await transport.perform(
+        try ControlAction.createSession(workspaceID: workspaceID).request(), to: base)
+      guard life == state.generation else { return nil }
+      let decoded = ResponsePath.decode(
+        status: response.status, body: response.body, dismiss: false)
+      guard case .success = decoded.outcome,
+        let created = try? JSONDecoder().decode(
+          APIEnvelope<CreatedSession>.self, from: response.body
+        ).data
+      else {
+        if case .failure(_, let message) = decoded.outcome, !message.isEmpty {
+          showBanner(message)
+        } else {
+          showBanner("The Mac could not start a session.")
+        }
+        return nil
+      }
+      var next = state
+      next.banner = nil
+      if !next.sessions.contains(where: { $0.id == created.id }) {
+        next.sessions.insert(
+          SessionRow(id: created.id, title: "", activity: "idle", workspaceID: workspaceID),
+          at: 0)
+      }
+      state = next
+      refreshSessions()
+      return created.id
+    } catch {
+      if Task.isCancelled || life != state.generation { return nil }
+      applyTransportFailure(generation: life)
+      return nil
+    }
+  }
+
   public func clearBanner() {
     guard state.banner != nil else { return }
     var next = state
@@ -332,13 +387,26 @@ public final class PhoneDesk {
       }
     }
     do {
+      let listed = try await transport.perform(
+        ControlRequest(method: "GET", path: "/workspaces", body: nil),
+        to: base
+      )
+      guard seen == state.generation else { return }
+      let workspaces = try WorkspaceListDecoder.rows(status: listed.status, body: listed.body)
+      var workspaceID = state.selectedWorkspaceID
+      if let id = workspaceID, !workspaces.contains(where: { $0.id == id }) {
+        workspaceID = nil
+      }
       let response = try await transport.perform(
-        ControlRequest(method: "GET", path: "/sessions", body: nil),
+        ControlRequest(
+          method: "GET", path: try SessionQuery.path(workspaceID: workspaceID), body: nil),
         to: base
       )
       guard seen == state.generation else { return }
       let rows = try SessionListDecoder.rows(status: response.status, body: response.body)
       var next = state
+      next.workspaces = workspaces
+      next.selectedWorkspaceID = workspaceID
       next.sessions = rows
       var dropped = false
       if let selected = next.selectedSessionID, !rows.contains(where: { $0.id == selected }) {

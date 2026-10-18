@@ -28,24 +28,29 @@ struct PhoneRoot: View {
   @State private var scanning = false
   @State private var confirmScope = false
   @State private var confirmForget = false
+  @State private var path: [String] = []
+  @State private var creating = false
 
   var body: some View {
-    NavigationStack {
+    NavigationStack(path: $path) {
       switch desk.state.phase {
       case .unpaired:
-        pairForm
+        pairScreen
       case .confirm:
-        confirmForm
+        confirmScreen
       case .paired, .offline:
-        sessionForm
+        sessionsScreen
       case .stopped(_, let message):
-        stoppedForm(message)
+        stoppedScreen(message)
       }
     }
     .confirmationDialog(
       "Forget the link to this Mac?", isPresented: $confirmForget, titleVisibility: .visible
     ) {
-      Button("Forget link", role: .destructive) { desk.forget() }
+      Button("Forget link", role: .destructive) {
+        path = []
+        desk.forget()
+      }
     } message: {
       Text("You will need the Remote Control link again to pair.")
     }
@@ -71,130 +76,337 @@ struct PhoneRoot: View {
     }
   }
 
-  private var pairForm: some View {
-    Form {
-      if let banner = desk.state.banner {
-        Text(banner)
+  private var pairScreen: some View {
+    List {
+      Section {
+        BrandHeader(
+          image: "BrandRobot", size: 120, title: "Pythinker",
+          subtitle: "Follow and steer the coding sessions on your Mac from this phone.")
       }
-      TextField("Remote Control link", text: pasteBinding)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-      Button("Scan code") { scanning = true }
-      Button("Continue") { desk.stagePasted() }
-        .disabled(desk.paste.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      .listRowBackground(Color.clear)
+      if let banner = desk.state.banner {
+        Section {
+          Callout(text: banner, systemImage: "exclamationmark.triangle.fill", tint: .orange)
+        }
+      }
+      Section {
+        PrimaryButton(title: "Scan QR code", systemImage: "qrcode.viewfinder") { scanning = true }
+      }
+      .listRowInsets(EdgeInsets())
+      .listRowBackground(Color.clear)
+      Section {
+        TextField("Paste the Remote Control link", text: pasteBinding)
+          .textInputAutocapitalization(.never)
+          .autocorrectionDisabled()
+          .keyboardType(.URL)
+        Button("Continue") { desk.stagePasted() }
+          .disabled(desk.paste.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      } header: {
+        Text("Or paste the link")
+      } footer: {
+        Text("On your Mac, run pythinker web --remote-control to show the code and the link.")
+      }
     }
-    .navigationTitle("Pair")
+    .listSectionSpacing(.compact)
   }
 
-  private var confirmForm: some View {
-    Form {
-      Text("Anyone with this link can control this Mac. Save it only on your own phone.")
-      if let host = desk.state.relayHost {
-        Text("Relay host: \(host)")
+  private var confirmScreen: some View {
+    List {
+      Section {
+        BrandHeader(
+          image: "MascotWaving", size: 64, title: "Pair with this Mac?",
+          subtitle: desk.state.relayHost.map { "Relay: \($0)" } ?? "")
       }
-      Button("Save") { desk.saveConfirmed() }
-      Button("Back", role: .cancel) { desk.forget() }
+      .listRowBackground(Color.clear)
+      Section {
+        Callout(
+          text: "Anyone with this link can control this Mac. Save it only on your own phone.",
+          systemImage: "lock.shield.fill", tint: .orange)
+      }
+      Section {
+        PrimaryButton(title: "Save link", systemImage: "checkmark") { desk.saveConfirmed() }
+      }
+      .listRowInsets(EdgeInsets())
+      .listRowBackground(Color.clear)
+      Section {
+        Button("Back", role: .cancel) { desk.forget() }
+      }
     }
     .navigationTitle("Confirm")
+    .navigationBarTitleDisplayMode(.inline)
   }
 
-  private var sessionForm: some View {
-    Form {
-      if case .offline = desk.state.phase {
-        Text("Offline")
-        Button("Retry") { desk.refreshSessions() }
-      }
-      if let host = desk.state.relayHost {
-        Text("Relay host: \(host)")
+  private var isOffline: Bool {
+    if case .offline = desk.state.phase { return true }
+    return false
+  }
+
+  private var sessionsScreen: some View {
+    List {
+      if isOffline {
+        Section {
+          Callout(
+            text: "Offline. The phone cannot reach the Mac.", systemImage: "wifi.slash",
+            tint: .orange)
+          Button("Retry") { desk.refreshSessions() }
+        }
       }
       if let banner = desk.state.banner {
-        Text(banner)
-      }
-      Section("Sessions") {
-        if desk.state.isLoading {
-          Text("Loading")
+        Section {
+          Callout(text: banner, systemImage: "exclamationmark.triangle.fill", tint: .orange)
+          Button("OK") { desk.clearBanner() }
         }
+      }
+      if !desk.state.workspaces.isEmpty {
+        Section {
+          workspacePicker
+        }
+      }
+      Section {
         if desk.state.sessions.isEmpty {
-          Text("No sessions")
+          if desk.state.isLoading {
+            HStack {
+              Spacer()
+              ProgressView()
+              Spacer()
+            }
+          } else {
+            EmptyState(
+              image: "MascotIdle", title: "No sessions yet",
+              message: desk.state.selectedWorkspace == nil
+                ? "Start a session on your Mac, or choose a workspace and tap New session."
+                : "Tap New session to start one in this workspace.")
+          }
         }
         ForEach(desk.state.sessions) { row in
-          Button {
-            desk.select(row.id)
-          } label: {
-            HStack {
-              VStack(alignment: .leading) {
-                Text(row.title.isEmpty ? row.id : row.title)
-                Text(row.activity)
-              }
-              Spacer()
-              if desk.state.selectedSessionID == row.id {
-                Image(systemName: "checkmark")
-              }
+          NavigationLink(value: row.id) {
+            HStack(spacing: 12) {
+              Text(row.title.isEmpty ? row.id : row.title)
+                .font(.body.weight(.medium))
+                .lineLimit(2)
+              Spacer(minLength: 8)
+              StatusChip(activity: row.activity)
             }
+            .padding(.vertical, 4)
           }
         }
-        Button("Refresh") { desk.refreshSessions() }
-      }
-      Section("Transcript") {
-        if desk.state.transcript.assistantText.isEmpty {
-          Text("No assistant text yet")
-        } else {
-          Text(desk.state.transcript.assistantText)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .textSelection(.enabled)
-        }
-        ForEach(desk.state.transcript.tools) { tool in
-          VStack(alignment: .leading, spacing: 4) {
-            Text(tool.name)
-              .font(.headline)
-            Text(tool.status)
-              .font(.subheadline)
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(8)
-          .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
+      } header: {
+        Text(desk.state.selectedWorkspace.map { "Sessions in \($0.name)" } ?? "Sessions")
+      } footer: {
+        if let host = desk.state.relayHost {
+          Text("Connected through \(host)")
         }
       }
-      TextField("Prompt", text: draftBinding)
-      Button("Send") { desk.sendPrompt() }
-        .disabled(!desk.state.canSend)
-      Button("Stop") { desk.stop() }
-        .disabled(!desk.state.canStop)
-      Button("Approve") { desk.decide(.approved) }
-        .disabled(!desk.state.canApprove)
-      Button("Reject") { desk.decide(.rejected) }
-        .disabled(!desk.state.canReject)
-      Button("Cancel approval") { desk.decide(.cancelled) }
-        .disabled(!desk.state.canReject)
-      Button("Answer") { desk.answer() }
-        .disabled(!desk.state.canAnswer)
-      Button("Dismiss") { desk.dismiss() }
-        .disabled(!desk.state.canDismiss)
-      Button("Forget link", role: .destructive) { confirmForget = true }
     }
-    .navigationTitle("Sessions")
+    .refreshable { desk.refreshSessions() }
+    .navigationTitle("Pythinker")
+    .navigationDestination(for: String.self) { id in
+      sessionDetail(id)
+        .onAppear { desk.select(id) }
+    }
+    .toolbar {
+      ToolbarItem(placement: .topBarLeading) {
+        ConnectionBadge(online: !isOffline)
+      }
+      ToolbarItem(placement: .topBarTrailing) {
+        newSessionButton
+      }
+      ToolbarItem(placement: .topBarTrailing) {
+        Menu {
+          Button {
+            desk.refreshSessions()
+          } label: {
+            Label("Refresh", systemImage: "arrow.clockwise")
+          }
+          Button(role: .destructive) {
+            confirmForget = true
+          } label: {
+            Label("Forget link", systemImage: "trash")
+          }
+        } label: {
+          Image(systemName: "ellipsis.circle")
+            .accessibilityLabel("More")
+        }
+      }
+    }
   }
 
-  private func stoppedForm(_ message: String) -> some View {
-    Form {
-      Text(message)
-      Button("Try again") { desk.retryAfterStop() }
-      Button("Forget link", role: .destructive) { confirmForget = true }
+  private var workspacePicker: some View {
+    Picker(selection: workspaceSelection) {
+      Text("All workspaces").tag(String?.none)
+      ForEach(desk.state.workspaces) { workspace in
+        Text("\(workspace.name) (\(workspace.sessionCount))").tag(Optional(workspace.id))
+      }
+    } label: {
+      Label("Workspace", systemImage: "folder")
+    }
+    .pickerStyle(.menu)
+  }
+
+  private var workspaceSelection: Binding<String?> {
+    Binding(
+      get: { desk.state.selectedWorkspaceID },
+      set: { desk.selectWorkspace($0) }
+    )
+  }
+
+  @ViewBuilder
+  private var newSessionButton: some View {
+    if desk.state.selectedWorkspace != nil {
+      Button {
+        startSession()
+      } label: {
+        Label("New session", systemImage: "square.and.pencil")
+      }
+      .disabled(creating || isOffline)
+    } else {
+      Menu {
+        ForEach(desk.state.workspaces) { workspace in
+          Button(workspace.name) {
+            desk.selectWorkspace(workspace.id)
+            startSession()
+          }
+        }
+      } label: {
+        Label("New session", systemImage: "square.and.pencil")
+      }
+      .disabled(creating || isOffline || desk.state.workspaces.isEmpty)
+    }
+  }
+
+  private func startSession() {
+    creating = true
+    Task {
+      defer { creating = false }
+      if let id = await desk.createSession() {
+        path.append(id)
+      }
+    }
+  }
+
+  private func sessionTitle(_ id: String) -> String {
+    let title = desk.state.sessions.first { $0.id == id }?.title ?? ""
+    return title.isEmpty ? id : title
+  }
+
+  private func sessionDetail(_ id: String) -> some View {
+    ScrollView {
+      LazyVStack(alignment: .leading, spacing: 12) {
+        if isOffline {
+          Callout(
+            text: "Offline. The phone cannot reach the Mac.", systemImage: "wifi.slash",
+            tint: .orange)
+        }
+        if let banner = desk.state.banner {
+          Callout(text: banner, systemImage: "exclamationmark.triangle.fill", tint: .orange)
+        }
+        let transcript = desk.state.transcript
+        if transcript.assistantText.isEmpty && transcript.tools.isEmpty {
+          EmptyState(
+            image: "MascotIdle", title: "Nothing here yet",
+            message: "Replies and tool calls from the agent show here."
+          )
+          .padding(.top, 48)
+        }
+        ForEach(transcript.tools) { tool in
+          ToolRow(tool: tool)
+        }
+        if !transcript.assistantText.isEmpty {
+          Text(transcript.assistantText)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .textSelection(.enabled)
+            .padding(14)
+            .background(
+              Color(.secondarySystemGroupedBackground),
+              in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+      }
+      .padding()
+    }
+    .defaultScrollAnchor(.bottom)
+    .background(Color(.systemGroupedBackground))
+    .navigationTitle(sessionTitle(id))
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        Button(role: .destructive) {
+          desk.stop()
+        } label: {
+          Label("Stop", systemImage: "stop.circle")
+        }
+        .disabled(!desk.state.canStop)
+      }
+    }
+    .safeAreaInset(edge: .bottom) {
+      composer
+    }
+  }
+
+  private var composer: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      if !desk.state.socketUp && !isOffline {
+        Text("Connecting to the session…")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      HStack(alignment: .bottom, spacing: 8) {
+        TextField("Message Pythinker", text: draftBinding, axis: .vertical)
+          .lineLimit(1...5)
+          .padding(.horizontal, 14)
+          .padding(.vertical, 10)
+          .background(
+            Color(.secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        Button {
+          desk.sendPrompt()
+        } label: {
+          Image(systemName: "arrow.up.circle.fill")
+            .font(.system(size: 34))
+        }
+        .disabled(!desk.state.canSend)
+        .accessibilityLabel("Send")
+      }
+    }
+    .padding(.horizontal)
+    .padding(.vertical, 10)
+    .background(.bar)
+  }
+
+  private func stoppedScreen(_ message: String) -> some View {
+    List {
+      Section {
+        BrandHeader(
+          image: "MascotFailed", size: 64, title: "Cannot use this Mac", subtitle: message)
+      }
+      .listRowBackground(Color.clear)
+      Section {
+        PrimaryButton(title: "Try again", systemImage: "arrow.clockwise") {
+          desk.retryAfterStop()
+        }
+      }
+      .listRowInsets(EdgeInsets())
+      .listRowBackground(Color.clear)
+      Section {
+        Button("Forget link", role: .destructive) { confirmForget = true }
+      }
     }
     .navigationTitle("Stopped")
+    .navigationBarTitleDisplayMode(.inline)
   }
 
   @ViewBuilder
   private var sheetStatus: some View {
-    if case .offline = desk.state.phase {
+    if isOffline {
       Section {
-        Text("Offline. Your choice cannot reach the Mac.")
+        Callout(
+          text: "Offline. Your choice cannot reach the Mac.", systemImage: "wifi.slash",
+          tint: .orange)
         Button("Retry") { desk.refreshSessions() }
       }
     }
     if let banner = desk.state.banner {
       Section {
-        Text(banner)
+        Callout(text: banner, systemImage: "exclamationmark.triangle.fill", tint: .orange)
         Button("OK") { desk.clearBanner() }
       }
     }
@@ -202,38 +414,79 @@ struct PhoneRoot: View {
 
   private var approvalSheet: some View {
     NavigationStack {
-      Form {
+      List {
         sheetStatus
         if let approval = desk.state.approval {
-          if desk.state.approvals.count > 1 {
-            Text("\(desk.state.approvals.count) approvals are waiting.")
+          Section {
+            HStack(spacing: 14) {
+              Image("MascotReview")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 44, height: 48)
+                .accessibilityHidden(true)
+              VStack(alignment: .leading, spacing: 2) {
+                Text(approval.toolName)
+                  .font(.headline)
+                Text(approval.action)
+                  .font(.subheadline)
+                  .foregroundStyle(.secondary)
+              }
+            }
+            if desk.state.approvals.count > 1 {
+              Text("\(desk.state.approvals.count) approvals are waiting.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
           }
-          Text(approval.toolName)
-            .font(.headline)
-          Text(approval.action)
-          ScrollView {
-            Text(approval.inputDisplay)
-              .font(.system(.body, design: .monospaced))
-              .frame(maxWidth: .infinity, alignment: .leading)
-              .textSelection(.enabled)
+          Section("Details") {
+            ScrollView {
+              Text(approval.inputDisplay)
+                .font(.system(.footnote, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+            }
+            .frame(maxHeight: 320)
           }
-          .frame(maxHeight: 320)
-          Button("Approve") { desk.decide(.approved) }
-            .disabled(!desk.state.canApprove)
-          Button("Reject") { desk.decide(.rejected) }
-            .disabled(!desk.state.canReject)
-          Button("Cancel") { desk.decide(.cancelled) }
-            .disabled(!desk.state.canReject)
-          if desk.state.scopeConfirmed {
-            Text(
-              "Approve will also allow \(approval.toolName) like this for the rest of the session.")
-          } else {
-            Button("Remember for this session") { confirmScope = true }
-              .disabled(desk.state.selectedSessionID == nil || !approval.canDecide)
+          Section {
+            if desk.state.scopeConfirmed {
+              Label(
+                "Approve will also allow \(approval.toolName) like this for the rest of the session.",
+                systemImage: "checkmark.seal.fill"
+              )
+              .font(.footnote)
+            } else {
+              Button("Remember for this session") { confirmScope = true }
+                .disabled(desk.state.selectedSessionID == nil || !approval.canDecide)
+            }
           }
         }
       }
-      .navigationTitle("Approval")
+      .navigationTitle("Approval needed")
+      .navigationBarTitleDisplayMode(.inline)
+      .safeAreaInset(edge: .bottom) {
+        VStack(spacing: 10) {
+          PrimaryButton(title: "Approve", systemImage: "checkmark") { desk.decide(.approved) }
+            .disabled(!desk.state.canApprove)
+          HStack(spacing: 10) {
+            Button(role: .destructive) {
+              desk.decide(.rejected)
+            } label: {
+              Text("Reject").frame(maxWidth: .infinity)
+            }
+            .disabled(!desk.state.canReject)
+            Button {
+              desk.decide(.cancelled)
+            } label: {
+              Text("Cancel").frame(maxWidth: .infinity)
+            }
+            .disabled(!desk.state.canReject)
+          }
+          .buttonStyle(.bordered)
+          .controlSize(.large)
+        }
+        .padding()
+        .background(.bar)
+      }
       .alert("Remember this approval for the rest of the session?", isPresented: $confirmScope) {
         Button("Remember") { desk.confirmSessionScope() }
         Button("Not now", role: .cancel) {}
@@ -247,7 +500,7 @@ struct PhoneRoot: View {
 
   private var questionSheet: some View {
     NavigationStack {
-      Form {
+      List {
         sheetStatus
         if let question = desk.state.question {
           ForEach(question.items) { item in
@@ -258,9 +511,11 @@ struct PhoneRoot: View {
                 } label: {
                   HStack {
                     Text(option.label)
+                      .foregroundStyle(.primary)
                     Spacer()
                     if desk.state.isChosen(itemID: item.id, optionID: option.id) {
                       Image(systemName: "checkmark")
+                        .foregroundStyle(Color.accentColor)
                     }
                   }
                 }
@@ -270,19 +525,35 @@ struct PhoneRoot: View {
               }
             } header: {
               Text(item.prompt)
+                .textCase(nil)
+                .font(.headline)
+                .foregroundStyle(.primary)
             } footer: {
               if item.multiSelect {
                 Text("Pick one or more.")
               }
             }
           }
-          Button("Answer") { desk.answer() }
-            .disabled(!desk.state.canAnswer)
-          Button("Dismiss") { desk.dismiss() }
-            .disabled(!desk.state.canDismiss)
         }
       }
       .navigationTitle("Question")
+      .navigationBarTitleDisplayMode(.inline)
+      .safeAreaInset(edge: .bottom) {
+        VStack(spacing: 10) {
+          PrimaryButton(title: "Answer", systemImage: "paperplane.fill") { desk.answer() }
+            .disabled(!desk.state.canAnswer)
+          Button {
+            desk.dismiss()
+          } label: {
+            Text("Dismiss").frame(maxWidth: .infinity)
+          }
+          .buttonStyle(.bordered)
+          .controlSize(.large)
+          .disabled(!desk.state.canDismiss)
+        }
+        .padding()
+        .background(.bar)
+      }
     }
   }
 
@@ -324,6 +595,167 @@ struct PhoneRoot: View {
         desk.state = next
       }
     )
+  }
+}
+
+struct BrandHeader: View {
+  let image: String
+  let size: CGFloat
+  let title: String
+  let subtitle: String
+
+  var body: some View {
+    VStack(spacing: 10) {
+      Image(image)
+        .resizable()
+        .scaledToFit()
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+      Text(title)
+        .font(.title.bold())
+      if !subtitle.isEmpty {
+        Text(subtitle)
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+      }
+    }
+    .multilineTextAlignment(.center)
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 8)
+  }
+}
+
+struct PrimaryButton: View {
+  let title: String
+  let systemImage: String
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      Label(title, systemImage: systemImage)
+        .labelStyle(.titleAndIcon)
+        .font(.headline)
+        .frame(maxWidth: .infinity)
+    }
+    .buttonStyle(.borderedProminent)
+    .controlSize(.large)
+  }
+}
+
+struct Callout: View {
+  let text: String
+  let systemImage: String
+  let tint: Color
+
+  var body: some View {
+    Label {
+      Text(text)
+    } icon: {
+      Image(systemName: systemImage)
+        .foregroundStyle(tint)
+    }
+    .font(.subheadline)
+  }
+}
+
+struct EmptyState: View {
+  let image: String
+  let title: String
+  let message: String
+
+  var body: some View {
+    VStack(spacing: 8) {
+      Image(image)
+        .resizable()
+        .scaledToFit()
+        .frame(width: 48, height: 52)
+        .accessibilityHidden(true)
+      Text(title)
+        .font(.headline)
+      Text(message)
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+    }
+    .multilineTextAlignment(.center)
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 16)
+  }
+}
+
+struct StatusChip: View {
+  let activity: String
+
+  private var style: (label: String, tint: Color) {
+    switch activity {
+    case "running": ("Running", .accentColor)
+    case "approval": ("Needs approval", .orange)
+    case "question": ("Has a question", .orange)
+    case "failed": ("Failed", .red)
+    default: ("Idle", .secondary)
+    }
+  }
+
+  var body: some View {
+    Text(style.label)
+      .font(.caption.weight(.semibold))
+      .foregroundStyle(style.tint)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 3)
+      .background(style.tint.opacity(0.14), in: Capsule())
+  }
+}
+
+struct ConnectionBadge: View {
+  let online: Bool
+
+  var body: some View {
+    HStack(spacing: 5) {
+      Circle()
+        .fill(online ? Color.green : Color.secondary)
+        .frame(width: 8, height: 8)
+      Text(online ? "Online" : "Offline")
+        .font(.caption.weight(.medium))
+        .foregroundStyle(.secondary)
+    }
+    .fixedSize()
+    .accessibilityElement(children: .combine)
+  }
+}
+
+struct ToolRow: View {
+  let tool: ToolCard
+
+  var body: some View {
+    HStack(spacing: 10) {
+      Group {
+        switch tool.status {
+        case "running":
+          ProgressView()
+            .controlSize(.small)
+        case "failed":
+          Image(systemName: "xmark.octagon.fill")
+            .foregroundStyle(.red)
+        default:
+          Image(systemName: "checkmark.circle.fill")
+            .foregroundStyle(.green)
+        }
+      }
+      .frame(width: 22)
+      Text(tool.name)
+        .font(.system(.subheadline, design: .monospaced).weight(.medium))
+        .lineLimit(1)
+      Spacer()
+      Text(tool.status.capitalized)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 10)
+    .background(
+      Color(.secondarySystemGroupedBackground),
+      in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+    )
+    .accessibilityElement(children: .combine)
   }
 }
 
