@@ -47,6 +47,7 @@ import {
 } from '@pymodel/transcript';
 
 import { WireRecordCache, type ContextRecord } from './wireCache';
+import { resolveStoragePath } from '../../lib/storagePath';
 import { toWireQuestion } from '../../protocol/question-wire';
 import { projectPromptContentParts } from '../messages/messageProjection';
 import {
@@ -528,7 +529,7 @@ export class TranscriptService {
     let meta: SessionMeta;
     try {
       const raw = await readFile(
-        join(this.deps.homeDir, SESSIONS_ROOT, summary.workspaceId, sessionId, STATE_FILE),
+        resolveStoragePath(this.deps.homeDir, SESSIONS_ROOT, summary.workspaceId, sessionId, STATE_FILE),
         'utf-8',
       );
       meta = JSON.parse(raw) as SessionMeta;
@@ -549,7 +550,7 @@ export class TranscriptService {
     if (!isPlainAgentId(agentId)) {
       return groupMessagesIntoSnapshot([]);
     }
-    const wirePath = join(
+    const wirePath = resolveStoragePath(
       this.deps.homeDir,
       SESSIONS_ROOT,
       summary.workspaceId,
