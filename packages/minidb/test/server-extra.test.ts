@@ -203,6 +203,27 @@ test('RESP: an oversized request gets -ERR and the connection recovers', { timeo
   }
 });
 
+test('RESP: a bulk value split across many small writes is reassembled', async () => {
+  const dir = await tmpDir();
+  const srv = await startServer({ dir, port: 0, fsyncPolicy: 'no' });
+  try {
+    const sock = await connect(srv.port);
+    sock.setNoDelay(true);
+    const value = 'abcdefghij'.repeat(50);
+    const wire = Buffer.from(encode('SET', 'split', value) + encode('GET', 'split'));
+    const reply = collectUntil(sock, (s) => s.endsWith(`$${value.length}\r\n${value}\r\n`));
+    for (let i = 0; i < wire.length; i += 7) {
+      sock.write(wire.subarray(i, i + 7));
+      await new Promise((r) => setImmediate(r));
+    }
+    assert.equal(await reply, `+OK\r\n$${value.length}\r\n${value}\r\n`);
+    sock.end();
+  } finally {
+    await srv.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('RESP: one bad command does not starve its pipelined siblings', async () => {
   const dir = await tmpDir();
   const srv = await startServer({ dir, port: 0, fsyncPolicy: 'no' });
