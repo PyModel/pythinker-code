@@ -1,5 +1,37 @@
 # @pymodel/pythinker-code
 
+## 2.9.0
+
+### Minor Changes
+
+- [#390](https://github.com/PyModel/pythinker-code/pull/390) [`21e9d44`](https://github.com/PyModel/pythinker-code/commit/21e9d44fdaaca8c4f9214e5cc65f6a470cde9150) Thanks [@elkaix](https://github.com/elkaix)! - New chats started without a project folder now open in `~/PythinkerCode/Default`, which is created on first use; set `path` under `[default_workspace]` in config.toml to use a different folder.
+
+- [#385](https://github.com/PyModel/pythinker-code/pull/385) [`a5a9cd3`](https://github.com/PyModel/pythinker-code/commit/a5a9cd3363135522f5bedc7bef1e90444f31242c) Thanks [@elkaix](https://github.com/elkaix)! - Remote Control now connects without a relay key: each machine creates its own secret, and only that machine can use its link address. `PYTHINKER_CODE_REMOTE_CONTROL_RELAY_KEY` is no longer read, and existing Remote Control links change once.
+
+- [#390](https://github.com/PyModel/pythinker-code/pull/390) [`21e9d44`](https://github.com/PyModel/pythinker-code/commit/21e9d44fdaaca8c4f9214e5cc65f6a470cde9150) Thanks [@elkaix](https://github.com/elkaix)! - When the same session is open in more than one client, only one can write at a time: sending from a second client now shows a retry/cancel prompt, or reloads changes made elsewhere first and resends your message, and two clients can no longer write to one session at once. Set PYTHINKER_CODE_SESSION_LOCK=0 to allow concurrent writers again.
+
+- [#385](https://github.com/PyModel/pythinker-code/pull/385) [`a5a9cd3`](https://github.com/PyModel/pythinker-code/commit/a5a9cd3363135522f5bedc7bef1e90444f31242c) Thanks [@elkaix](https://github.com/elkaix)! - Add a Remote Control tab to web Settings that turns Remote Control on or off and shows its link as a QR code.
+
+### Patch Changes
+
+- [#390](https://github.com/PyModel/pythinker-code/pull/390) [`21e9d44`](https://github.com/PyModel/pythinker-code/commit/21e9d44fdaaca8c4f9214e5cc65f6a470cde9150) Thanks [@elkaix](https://github.com/elkaix)! - Fix session events stopping after a session is archived and restored.
+
+- [#385](https://github.com/PyModel/pythinker-code/pull/385) [`a5a9cd3`](https://github.com/PyModel/pythinker-code/commit/a5a9cd3363135522f5bedc7bef1e90444f31242c) Thanks [@elkaix](https://github.com/elkaix)! - Fix `pythinker login` reporting "Logged in" without signing in; it now explains that Pythinker sign-in is no longer available and points to provider login.
+
+- [#385](https://github.com/PyModel/pythinker-code/pull/385) [`a5a9cd3`](https://github.com/PyModel/pythinker-code/commit/a5a9cd3363135522f5bedc7bef1e90444f31242c) Thanks [@elkaix](https://github.com/elkaix)! - Fix Remote Control refusing to start with a "requires a Pythinker login" error.
+
+- [#385](https://github.com/PyModel/pythinker-code/pull/385) [`a5a9cd3`](https://github.com/PyModel/pythinker-code/commit/a5a9cd3363135522f5bedc7bef1e90444f31242c) Thanks [@elkaix](https://github.com/elkaix)! - The web app opened through a Remote Control link no longer saves settings, drafts or prompt history in the browser, so pages from other machines on the relay cannot read them; these now reset when the page reloads.
+
+- [#385](https://github.com/PyModel/pythinker-code/pull/385) [`a5a9cd3`](https://github.com/PyModel/pythinker-code/commit/a5a9cd3363135522f5bedc7bef1e90444f31242c) Thanks [@elkaix](https://github.com/elkaix)! - Remote Control now links its QR code to a page in the web app instead of saving it as a PNG file.
+
+- [#385](https://github.com/PyModel/pythinker-code/pull/385) [`a5a9cd3`](https://github.com/PyModel/pythinker-code/commit/a5a9cd3363135522f5bedc7bef1e90444f31242c) Thanks [@elkaix](https://github.com/elkaix)! - Fix the web app hanging on "Connecting" when opened through a Remote Control link.
+
+- [#387](https://github.com/PyModel/pythinker-code/pull/387) [`59e2383`](https://github.com/PyModel/pythinker-code/commit/59e2383c8663dd6bc987ee59b73b21bd35f7ac9f) Thanks [@elkaix](https://github.com/elkaix)! - Fix the subagent model settings in web Settings → Agent, which were hidden because the server no longer answered their requests.
+
+- [#390](https://github.com/PyModel/pythinker-code/pull/390) [`21e9d44`](https://github.com/PyModel/pythinker-code/commit/21e9d44fdaaca8c4f9214e5cc65f6a470cde9150) Thanks [@elkaix](https://github.com/elkaix)! - Move the session rating opt-out from tui.toml to `disable_feedback_survey` in config.toml; an existing tui.toml setting is moved over on the next start.
+
+- [#390](https://github.com/PyModel/pythinker-code/pull/390) [`21e9d44`](https://github.com/PyModel/pythinker-code/commit/21e9d44fdaaca8c4f9214e5cc65f6a470cde9150) Thanks [@elkaix](https://github.com/elkaix)! - Fix the conversation view freezing at an old point after restarting when a turn had been interrupted; interrupted turns are now marked as failed instead of shown as completed.
+
 ## 2.8.0
 
 ### Minor Changes
