@@ -1,0 +1,1 @@
+import e from"./CodeBlockNode-DE19fqJQ.js";e.install=t=>{t.component(e.__name,e)};export{e as default};
