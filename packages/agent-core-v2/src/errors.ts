@@ -128,6 +128,8 @@ export type PythinkerErrorCode =
   | 'session.state_not_found'
   | 'session.state_invalid'
   | 'session.fork_active_turn'
+  | 'session.occupied'
+  | 'session.stale'
   | 'session.undo_unavailable'
   | 'session.export_not_found'
   | 'session.export_missing_version'

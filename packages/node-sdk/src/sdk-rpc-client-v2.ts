@@ -143,6 +143,8 @@ import {
   drainSessionIndexMirror,
   ensurePythinkerHome,
   ensureMainAgent,
+  getOrRestoreAgent,
+  reloadOnStale,
   agentContextOf,
   IAgentChangeNotifierService,
   IAgentContextMemoryService,
@@ -994,6 +996,30 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     }
   }
 
+  /**
+   * Runs a call that may start a session run. When another client updated the
+   * session (`session.stale`), the engine reloads it from disk, this client
+   * re-wires it and lets the host refresh through the stale-reload handler,
+   * then the call is retried once (or rejected again when `retry` is false).
+   */
+  private async withStaleReload<T>(
+    sessionId: string,
+    run: () => Promise<T>,
+    retry = true,
+  ): Promise<T> {
+    try {
+      return await reloadOnStale(this.engineAccessor, sessionId, run, {
+        retry,
+        onReloaded: async (handle) => {
+          this.wireSession(handle);
+          await this.notifyStaleReload(sessionId, await this.resumedSessionSummary(handle));
+        },
+      });
+    } catch (error) {
+      throw restateEngineError(error);
+    }
+  }
+
   /** v1's `requireSession` / store lookup failure shape. */
   private static sessionNotFound(sessionId: string): PythinkerError {
     return new PythinkerError(ErrorCodes.SESSION_NOT_FOUND, `Session "${sessionId}" was not found`, {
@@ -1814,8 +1840,10 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   // reached through the live session handle. Every override requires a live
   // session (v1's `requireSession`) and resolves the target agent from
   // `interactiveAgentId`: the main agent materializes on first use with the
-  // default profile bound (v1's eager equivalent); any other agent must
-  // already exist (v1's `AGENT_NOT_FOUND`).
+  // default profile bound (v1's eager equivalent); any other agent is lazily
+  // rebuilt from its persisted session metadata when the live scope is gone
+  // (session reload), falling back to v1's `AGENT_NOT_FOUND` only when the
+  // agent was never registered.
   // -----------------------------------------------------------------------
 
   /**
@@ -1864,7 +1892,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     const session = this.requireLiveSession(sessionId);
     const agentId = this.interactiveAgentId;
     if (agentId === MAIN_AGENT_ID) return this.materializeMainAgent(session);
-    const agent = session.accessor.get(IAgentLifecycleService).handleOf(agentId);
+    const agent = await getOrRestoreAgent(session, agentId);
     if (agent === undefined) {
       throw new PythinkerError(ErrorCodes.AGENT_NOT_FOUND, `Agent "${agentId}" was not found`);
     }
@@ -2029,10 +2057,12 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * `compaction.unable` on an empty history or an active turn.
    */
   override async compact(input: SessionIdRpcInput & CompactOptions): Promise<void> {
-    const agent = await this.agentScope(input.sessionId);
-    agent.accessor.get(IAgentFullCompactionService).begin({
-      source: 'manual',
-      instruction: input.instruction,
+    await this.withStaleReload(input.sessionId, async () => {
+      const agent = await this.agentScope(input.sessionId);
+      agent.accessor.get(IAgentFullCompactionService).begin({
+        source: 'manual',
+        instruction: input.instruction,
+      });
     });
   }
 
@@ -2064,8 +2094,14 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   override async undoHistory(input: SessionIdRpcInput & { count: number }): Promise<void> {
-    const agent = await this.agentScope(input.sessionId);
-    await agent.accessor.get(IAgentConversationUndoService).undo(input.count);
+    await this.withStaleReload(
+      input.sessionId,
+      async () => {
+        const agent = await this.agentScope(input.sessionId);
+        await agent.accessor.get(IAgentConversationUndoService).undo(input.count);
+      },
+      false,
+    );
   }
 
   /**
@@ -2126,10 +2162,12 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * where v2 queues it FIFO.
    */
   override async prompt(input: SessionPromptRpcInput): Promise<void> {
-    const agent = await this.agentFacade(input.sessionId);
-    await agent.prompt({
-      input: input.input,
-      promptId: input.promptId,
+    await this.withStaleReload(input.sessionId, async () => {
+      const agent = await this.agentFacade(input.sessionId);
+      await agent.prompt({
+        input: input.input,
+        promptId: input.promptId,
+      });
     });
   }
 
@@ -2140,11 +2178,13 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * anchor. v2-only: the base class rejects this method on the v1 engine.
    */
   override async promptWithSkills(input: SessionPromptWithSkillsRpcInput): Promise<void> {
-    const agent = await this.agentFacade(input.sessionId);
-    await agent.promptWithSkills({
-      input: input.input,
-      skills: input.skills,
-      steerIfActive: input.steerIfActive,
+    await this.withStaleReload(input.sessionId, async () => {
+      const agent = await this.agentFacade(input.sessionId);
+      await agent.promptWithSkills({
+        input: input.input,
+        skills: input.skills,
+        steerIfActive: input.steerIfActive,
+      });
     });
   }
 
@@ -2155,8 +2195,10 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * title/lastPrompt are updated like a prompt's.
    */
   override async steer(input: SessionPromptRpcInput): Promise<void> {
-    const agent = await this.agentFacade(input.sessionId);
-    await agent.steer({ input: input.input });
+    await this.withStaleReload(input.sessionId, async () => {
+      const agent = await this.agentFacade(input.sessionId);
+      await agent.steer({ input: input.input });
+    });
   }
 
   /**
@@ -2214,11 +2256,13 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * v1 drops the activation while a turn runs where v2 queues it.
    */
   override async activatePluginCommand(input: ActivatePluginCommandRpcInput): Promise<void> {
-    const agent = await this.agentScope(input.sessionId);
-    await agent.accessor.get(IAgentPluginCommandService).activate({
-      pluginId: input.pluginId,
-      commandName: input.commandName,
-      args: input.args,
+    await this.withStaleReload(input.sessionId, async () => {
+      const agent = await this.agentScope(input.sessionId);
+      await agent.accessor.get(IAgentPluginCommandService).activate({
+        pluginId: input.pluginId,
+        commandName: input.commandName,
+        args: input.args,
+      });
     });
   }
 
@@ -2927,7 +2971,7 @@ function normalizeRequiredWorkDir(operation: string, workDir: string): string {
 
 /**
  * Restate an engine `Error2` in the SDK's public error shape (`PythinkerError`,
- * what `isPythinkerError` branches on) so the delegated management plane throws
+ * what `isPythinkerError` branches on) so the engine-backed entry points throw
  * the same class the v1 client throws for the same failure. Non-Error2
  * failures (DI resolution bugs, aborts) pass through untouched.
  *

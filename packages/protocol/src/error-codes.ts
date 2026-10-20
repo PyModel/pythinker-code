@@ -128,7 +128,7 @@ export const ErrorCode = {
   /** Unclassified internal error. */
   CODEX_LOGIN_NOT_FOUND: 40421,
 
-  EXPERT_TALK_RUN_NOT_FOUND: 40420,
+  EXPERT_TALK_RUN_NOT_FOUND: 40422,
 
   EXPERT_TALK_FEATURE_DISABLED: 40930,
 
