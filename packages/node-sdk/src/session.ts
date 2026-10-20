@@ -3,7 +3,12 @@ import type { DynamicWorkflowModeTrigger } from '@pymodel/agent-core-v2/features
 import type { AgentContextData } from '#/context';
 import { ErrorCodes, PythinkerError, type PythinkerErrorCode } from '#/errors';
 
-import { type ApprovalHandler, type Event, type QuestionHandler } from '#/events';
+import {
+  type ApprovalHandler,
+  type Event,
+  type QuestionHandler,
+  type StaleReloadHandler,
+} from '#/events';
 import type { SDKRpcClientBase } from '#/rpc';
 import type {
   AddAdditionalDirOptions,
@@ -197,6 +202,25 @@ export class Session {
   setQuestionHandler(handler: QuestionHandler | undefined): void {
     this.ensureOpen();
     this.rpc.setQuestionHandler(this.id, handler);
+  }
+
+  /**
+   * When another client has updated this session, calls that start a run
+   * (prompt, steer, compact, …) reload the session from disk and retry once;
+   * `undoHistory` reloads and still rejects with `session.stale`. The handler
+   * runs after the reload, before the retry, so the host can refresh its view.
+   */
+  setStaleReloadHandler(handler: StaleReloadHandler | undefined): void {
+    this.ensureOpen();
+    if (handler === undefined) {
+      this.rpc.setStaleReloadHandler(this.id, undefined);
+      return;
+    }
+    this.rpc.setStaleReloadHandler(this.id, async (summary) => {
+      this.summary = summary;
+      this.resumeState = resumeStateFromSummary(summary);
+      await handler();
+    });
   }
 
   async prompt(

@@ -17,6 +17,7 @@ export {
   type ValidatePythinkerConfigTomlInput,
 } from '#/config-rpc';
 export { SDKRpcClientBase } from '#/rpc';
+export type { ConfigSectionChange } from '#/rpc';
 export { removeProviderFromConfig } from '#/v2/config-mapper';
 
 export {

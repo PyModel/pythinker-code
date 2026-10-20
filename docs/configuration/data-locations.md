@@ -42,6 +42,8 @@ $PYTHINKER_CODE_HOME  (default: ~/.pythinker-code)
 │       └── <key>-<suffix>.json
 ├── sessions/               # Session data (see below)
 │   └── <workDirKey>/<sessionId>/
+├── locks/
+│   └── sessions/           # Cross-process occupancy locks while a client writes a session
 ├── bin/
 │   ├── rg                  # managed ripgrep binary for Grep (rg.exe on Windows)
 │   └── fd                  # managed fd binary for file references (fd.exe on Windows)

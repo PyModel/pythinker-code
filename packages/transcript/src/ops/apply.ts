@@ -188,7 +188,8 @@ function turnEquals(turn: TranscriptTurn, header: TurnHeader): boolean {
       ('taskId' in header.origin ? header.origin.taskId : undefined) &&
     turn.usage === header.usage &&
     turn.durationMs === header.durationMs &&
-    turn.error === header.error
+    turn.error === header.error &&
+    turn.wedged === header.wedged
   );
 }
 

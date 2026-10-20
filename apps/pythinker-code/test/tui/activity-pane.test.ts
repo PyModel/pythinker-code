@@ -48,7 +48,10 @@ function makeDriverWithTerminalProgress(): {
   setProgress: ReturnType<typeof vi.fn<(active: boolean) => void>>;
 } {
   const setProgress = vi.fn<(active: boolean) => void>();
-  const driver = new PythinkerTUI({} as never, makeStartupInput()) as unknown as ActivityDriver;
+  const driver = new PythinkerTUI(
+    { onConfigSectionChanged: () => () => {} } as never,
+    makeStartupInput(),
+  ) as unknown as ActivityDriver;
   vi.spyOn(driver.state.ui, 'requestRender').mockImplementation(() => {});
   driver.state.terminal = { columns: 80, setProgress } as unknown as TUIState['terminal'];
   driver.state.terminalState.supportsProgress = true;

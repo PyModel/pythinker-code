@@ -1191,6 +1191,86 @@ describe('Remote Control tunnel', () => {
   }, 15_000);
 });
 
+describe('Remote Control HTTP tunnel limits', () => {
+  const limits = {
+    maxRequestBytes: 64,
+    maxRetainedBytes: 4096,
+    maxSingleFrameResponseBytes: 4,
+    responseChunkBytes: 4,
+  };
+
+  function makeTunnel(overrides: Partial<typeof limits> = {}) {
+    const frames: Record<string, unknown>[] = [];
+    const socket = {
+      readyState: 1,
+      send(frame: string, callback: (error?: Error | null) => void): void {
+        frames.push(JSON.parse(frame) as Record<string, unknown>);
+        callback(null);
+      },
+      terminate(): void {},
+    } as unknown as WebSocket;
+    const responders = new Map<string, (response: Buffer[]) => void>();
+    const tunnel = new HttpTunnel(
+      socket,
+      (request) =>
+        new Promise((respond) => {
+          responders.set(request.path, respond);
+        }),
+      { write: () => true },
+      { ...limits, ...overrides },
+    );
+    const request = (requestId: string, raw: string): void =>
+      tunnel.handleMessage(
+        Buffer.from(
+          JSON.stringify({
+            request_id: requestId,
+            type: 'request',
+            is_last: true,
+            body_base64: Buffer.from(raw).toString('base64'),
+          }),
+        ),
+      );
+    return { frames, responders, request };
+  }
+
+  const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it('splits a response with the injected chunk size', async () => {
+    const { frames, responders, request } = makeTunnel();
+    request('a', 'GET /a HTTP/1.1\r\n\r\n');
+    await flush();
+    responders.get('/a')!([Buffer.from('0123456789')]);
+    for (let index = 0; index < 4; index += 1) await flush();
+    expect(frames.map((frame) => [frame['type'], frame['is_last']])).toEqual([
+      ['response_chunk', false],
+      ['response_chunk', false],
+      ['response_chunk', true],
+    ]);
+    expect(
+      Buffer.concat(
+        frames.map((frame) => Buffer.from(String(frame['body_base64']), 'base64')),
+      ).toString(),
+    ).toBe('0123456789');
+  });
+
+  it('refuses a request over the injected request limit', async () => {
+    const { frames, responders, request } = makeTunnel({ maxRequestBytes: 8 });
+    request('a', 'GET /too-long HTTP/1.1\r\n\r\n');
+    await flush();
+    expect(responders.size).toBe(0);
+    expect(frames.some((frame) => frame['request_id'] === 'a')).toBe(true);
+  });
+
+  it.each([
+    { responseChunkBytes: 0 },
+    { responseChunkBytes: 1.5 },
+    { maxRequestBytes: -1 },
+    { maxRetainedBytes: Number.NaN },
+  ])('rejects invalid limits %j', (overrides) => {
+    expect(() => makeTunnel(overrides)).toThrow(/HTTP tunnel/);
+  });
+});
+
 describe('Remote Control single-instance lock', () => {
   async function deadPid(): Promise<number> {
     const child = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' });

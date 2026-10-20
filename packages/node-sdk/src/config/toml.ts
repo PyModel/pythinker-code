@@ -445,6 +445,7 @@ export function configToTomlData(config: PythinkerConfig): Record<string, unknow
     'extraSkillDirs',
     'extraAgentDirs',
     'telemetry',
+    'disableFeedbackSurvey',
   ];
   for (const key of scalarFields) {
     setDefined(out, camelToSnake(key), config[key]);

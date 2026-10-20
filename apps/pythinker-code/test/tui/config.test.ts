@@ -9,6 +9,7 @@ import {
   INVALID_TUI_CONFIG_MESSAGE,
   loadTuiConfig,
   parseTuiConfig,
+  removeLegacySurveySetting,
   saveTuiConfig,
   TuiConfigParseError,
 } from '#/tui/config';
@@ -36,7 +37,7 @@ describe('TUI config', () => {
     expect(text).toContain('Client preferences for pythinker-code.');
     expect(text).toContain('theme = "auto"');
     expect(text).toContain('cache_expiry_hint = true');
-    expect(text).toContain('disable_feedback_survey = false');
+    expect(text).not.toContain('disable_feedback_survey');
     expect(text).toContain('command = ""');
     expect(text).toContain('[upgrade]');
     expect(text).toContain('auto_install = true');
@@ -66,7 +67,6 @@ auto_install = false
       renderLatex: true,
       disablePasteBurst: false,
       cacheExpiryHint: true,
-      disableFeedbackSurvey: false,
       editorCommand: 'code --wait',
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
@@ -103,8 +103,8 @@ cache_expiry_hint = false
     expect(config.cacheExpiryHint).toBe(false);
   });
 
-  it('defaults disable_feedback_survey to false and parses true', () => {
-    expect(parseTuiConfig('').disableFeedbackSurvey).toBe(false);
+  it('keeps a legacy disable_feedback_survey value only when the file sets it', () => {
+    expect(parseTuiConfig('').disableFeedbackSurvey).toBeUndefined();
 
     const config = parseTuiConfig(`
 disable_feedback_survey = true
@@ -125,7 +125,6 @@ command = "   "
       renderLatex: true,
       disablePasteBurst: false,
       cacheExpiryHint: true,
-      disableFeedbackSurvey: false,
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
@@ -161,7 +160,6 @@ command = "   "
         theme: 'light',
         disablePasteBurst: false,
         cacheExpiryHint: true,
-        disableFeedbackSurvey: false,
         editorCommand: 'vim',
         notifications: { enabled: false, condition: 'always' },
         upgrade: { autoInstall: false },
@@ -176,7 +174,6 @@ command = "   "
       renderLatex: true,
       disablePasteBurst: false,
       cacheExpiryHint: true,
-      disableFeedbackSurvey: false,
       editorCommand: 'vim',
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
@@ -185,14 +182,80 @@ command = "   "
     });
   });
 
-  it('round-trips a disable_feedback_survey opt-out', async () => {
-    await saveTuiConfig(
-      { ...DEFAULT_TUI_CONFIG, disableFeedbackSurvey: true },
-      filePath,
-    );
+  it('preserves the legacy opt-out when an unrelated preference is saved', async () => {
+    writeFileSync(filePath, 'disable_feedback_survey = true\nrender_latex = false\n');
+    const previous = await loadTuiConfig(filePath);
+    await saveTuiConfig({ ...previous, disableFeedbackSurvey: undefined, theme: 'light' }, filePath);
 
-    expect(readFileSync(filePath, 'utf-8')).toContain('disable_feedback_survey = true');
-    expect((await loadTuiConfig(filePath)).disableFeedbackSurvey).toBe(true);
+    expect(await loadTuiConfig(filePath)).toMatchObject({
+      theme: 'light', disableFeedbackSurvey: true, renderLatex: false,
+    });
+  });
+
+  it.each([
+    { source: '[[[', legacy: undefined },
+    { source: 'render_latex = "false"\ndisable_feedback_survey = true', legacy: true },
+    { source: 'theme = 42\ndisable_feedback_survey = false', legacy: false },
+    { source: 'disable_feedback_survey = "true"', legacy: undefined },
+  ])('saves valid preferences after falling back from $source', async ({ source, legacy }) => {
+    writeFileSync(filePath, source);
+    await expect(loadTuiConfig(filePath)).rejects.toBeInstanceOf(TuiConfigParseError);
+    await saveTuiConfig({ ...DEFAULT_TUI_CONFIG, theme: 'light' }, filePath);
+    const saved = await loadTuiConfig(filePath);
+    expect(saved.theme).toBe('light');
+    expect(saved.disableFeedbackSurvey).toBe(legacy);
+  });
+
+  it('removes only the migrated survey setting and can repeat the cleanup', async () => {
+    writeFileSync(filePath, 'disable_feedback_survey = true\nrender_latex = false\ntheme = "light"\n[custom]\nvalue = 42\n');
+    await removeLegacySurveySetting(filePath);
+    const cleaned = readFileSync(filePath, 'utf-8');
+    expect(cleaned).not.toContain('disable_feedback_survey');
+    expect(cleaned).toContain('value = 42');
+    expect(await loadTuiConfig(filePath)).toMatchObject({ theme: 'light', renderLatex: false });
+    await removeLegacySurveySetting(filePath);
+    expect(readFileSync(filePath, 'utf-8')).toBe(cleaned);
+    await saveTuiConfig({ ...DEFAULT_TUI_CONFIG, theme: 'dark' }, filePath);
+    expect(readFileSync(filePath, 'utf-8')).not.toContain('disable_feedback_survey');
+  });
+
+  it('removes the survey setting line without disturbing comments or tables', async () => {
+    writeFileSync(filePath, [
+      '# ~/.pythinker-code/tui.toml',
+      '# Client preferences for pythinker-code.',
+      'theme = "dark" # "auto" | "dark" | "light"',
+      '# my own note',
+      'disable_feedback_survey = true',
+      '# disable_feedback_survey = false',
+      '',
+      '[custom]',
+      'disable_feedback_survey = true',
+      'value = 42',
+      '',
+    ].join('\n'));
+
+    await removeLegacySurveySetting(filePath);
+
+    expect(readFileSync(filePath, 'utf-8')).toBe([
+      '# ~/.pythinker-code/tui.toml',
+      '# Client preferences for pythinker-code.',
+      'theme = "dark" # "auto" | "dark" | "light"',
+      '# my own note',
+      '# disable_feedback_survey = false',
+      '',
+      '[custom]',
+      'disable_feedback_survey = true',
+      'value = 42',
+      '',
+    ].join('\n'));
+  });
+
+  it('removes a quoted spelling of the survey setting key', async () => {
+    writeFileSync(filePath, '"disable_feedback_survey" = true\ntheme = "dark"\n');
+
+    await removeLegacySurveySetting(filePath);
+
+    expect(readFileSync(filePath, 'utf-8')).toBe('theme = "dark"\n');
   });
 
   it('escapes special characters in a custom theme name so the TOML round-trips', async () => {
@@ -202,7 +265,6 @@ command = "   "
         theme,
         disablePasteBurst: DEFAULT_TUI_CONFIG.disablePasteBurst,
         cacheExpiryHint: DEFAULT_TUI_CONFIG.cacheExpiryHint,
-        disableFeedbackSurvey: DEFAULT_TUI_CONFIG.disableFeedbackSurvey,
         editorCommand: null,
         notifications: DEFAULT_TUI_CONFIG.notifications,
         upgrade: DEFAULT_TUI_CONFIG.upgrade,

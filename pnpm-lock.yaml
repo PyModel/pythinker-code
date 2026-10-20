@@ -180,6 +180,9 @@ importers:
       '@pymodel/pythinker-code-oauth':
         specifier: workspace:^
         version: link:../../packages/oauth
+      '@pymodel/pythinker-code-product':
+        specifier: workspace:^
+        version: link:../../packages/product
       '@pymodel/pythinker-code-sdk':
         specifier: workspace:^
         version: link:../../packages/node-sdk
@@ -823,6 +826,9 @@ importers:
       '@pymodel/pythinker-code-oauth':
         specifier: workspace:^
         version: link:../oauth
+      '@pymodel/pythinker-code-product':
+        specifier: workspace:^
+        version: link:../product
       '@pymodel/remote-control':
         specifier: workspace:^
         version: link:../remote-control
@@ -963,6 +969,9 @@ importers:
       '@pymodel/pythinker-code-oauth':
         specifier: workspace:^
         version: link:../oauth
+      '@pymodel/pythinker-code-product':
+        specifier: workspace:^
+        version: link:../product
       '@types/yazl':
         specifier: ^2.4.6
         version: 2.4.6
@@ -1001,6 +1010,18 @@ importers:
       chalk:
         specifier: ^5.4.1
         version: 5.6.2
+
+  packages/product:
+    dependencies:
+      '@pymodel/agent-core-v2':
+        specifier: workspace:^
+        version: link:../agent-core-v2
+      '@pymodel/pythinker-code-oauth':
+        specifier: workspace:^
+        version: link:../oauth
+      zod:
+        specifier: 'catalog:'
+        version: 4.4.3
 
   packages/protocol:
     dependencies:
