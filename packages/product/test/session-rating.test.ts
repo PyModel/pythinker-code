@@ -318,12 +318,6 @@ function trackedEvent(harness: Harness, eventType: string): Record<string, unkno
   return call![1] as Record<string, unknown>;
 }
 
-function appearedCount(harness: Harness): number {
-  return harness.track.mock.calls.filter(
-    (call) => (call[1] as { event_type?: string }).event_type === 'appeared',
-  ).length;
-}
-
 const OPEN_CONFIG: SurveyPopupPayload = {
   ...DEFAULT_SURVEY_POPUP_PAYLOAD,
   probability: 1,

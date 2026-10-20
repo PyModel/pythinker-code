@@ -320,7 +320,7 @@ describe('survey counts across journal transformations', () => {
   });
 
   it('counts only the turns a fork from a history point inherits', async () => {
-    const { ctx, counter } = await freshAgent();
+    const { ctx } = await freshAgent();
     await runUserTurn(ctx, 'one');
     await runUserTurn(ctx, 'two');
     await runUserTurn(ctx, 'three');
