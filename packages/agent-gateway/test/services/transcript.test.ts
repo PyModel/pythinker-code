@@ -2793,6 +2793,43 @@ describe('AgentTranscriptProjector', () => {
     }
   });
 
+  it('cold reads stay inside the sessions root when the index names an escaping workspace', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'transcript-cold-escape-'));
+    try {
+      const outside = join(home, 'outside', 's1');
+      await mkdir(join(outside, 'agents', 'main'), { recursive: true });
+      await writeFile(
+        join(outside, 'state.json'),
+        JSON.stringify({ agents: { main: { type: 'main' } } }),
+      );
+      await writeFile(
+        join(outside, 'agents', 'main', 'wire.jsonl'),
+        `${JSON.stringify({ type: 'metadata', protocol_version: 1 })}\n`,
+      );
+      const service = new TranscriptService({
+        homeDir: home,
+        core: {
+          accessor: {
+            get: (token: unknown) => {
+              if (token === ISessionManager) {
+                return { get: () => undefined, list: () => [] };
+              }
+              if (token === IWorkspaceInstanceManager) {
+                return { list: () => [], onDidChange: () => ({ dispose: () => undefined }) };
+              }
+              if (token === ISessionIndex) return { get: async () => ({ workspaceId: '../outside' }) };
+              return undefined;
+            },
+          },
+        } as unknown as Scope,
+      });
+      expect(await service.readColdRoster('s1')).toEqual([]);
+      await expect(service.readColdSnapshot('s1', 'main')).rejects.toThrow('Storage path escapes its root');
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it('readColdSnapshot folds task/todo/goal/plan/interaction records into the cold snapshot', async () => {
     const home = await mkdtemp(join(tmpdir(), 'transcript-cold-facts-'));
     try {

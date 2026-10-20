@@ -87,6 +87,24 @@ describe('server-v2 /api/v1/config', () => {
     expect(cfg.yolo).toBe(false);
   });
 
+  it('POST rejects bodies with prototype-poisoning keys before they reach the config', async () => {
+    await boot();
+    for (const body of [
+      '{"providers":{"__proto__":{"type":"openai","base_url":"https://api.example.com/v1"}}}',
+      '{"__proto__":{"default_model":"x"}}',
+      '{"thinking":{"constructor":{"prototype":{"enabled":true}}}}',
+    ]) {
+      const res = await authedFetch(server as RunningServer, base, '/api/v1/config', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+      });
+      const envelope = (await res.json()) as Envelope<unknown>;
+      expect(envelope.code).not.toBe(0);
+      expect(envelope.msg).toContain('not valid JSON');
+    }
+  });
+
   it('POST { yolo: true } sets default_permission_mode = yolo and echoes yolo = true', async () => {
     await boot();
     const cfg = await patchConfig({ yolo: true });
