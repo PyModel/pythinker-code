@@ -33,6 +33,12 @@ const reply = {
 
 class RespParser {
   private buf: Buffer = Buffer.alloc(0);
+  // Chunks received while a bulk string is still incomplete. Joining them only
+  // once enough bytes are in keeps a large request linear instead of copying
+  // the whole buffer on every chunk.
+  private pending: Buffer[] = [];
+  private size = 0;
+  private need = 0;
   private readonly maxBuf: number;
 
   constructor({ maxBuf = 64 * 1024 * 1024 }: { maxBuf?: number } = {}) {
@@ -40,16 +46,25 @@ class RespParser {
   }
 
   *feed(chunk: Buffer): Generator<Buffer[]> {
-    this.buf = this.buf.length ? Buffer.concat([this.buf, chunk]) : chunk;
-    if (this.buf.length > this.maxBuf) {
+    this.pending.push(chunk);
+    this.size += chunk.length;
+    if (this.size > this.maxBuf) {
       // Drop the buffered oversized request before reporting: without the
       // reset every later chunk would fail with the same error and the giant
       // buffer would be retained for the life of the connection.
       this.buf = Buffer.alloc(0);
+      this.pending = [];
+      this.size = 0;
+      this.need = 0;
       throw new Error(`RESP request too large (>${this.maxBuf} bytes)`);
     }
+    if (this.size < this.need) return;
+    this.buf = this.buf.length || this.pending.length > 1 ? Buffer.concat([this.buf, ...this.pending]) : chunk;
+    this.pending = [];
+    this.need = 0;
     while (this.buf.length) {
       const parsed = this.tryParse();
+      this.size = this.buf.length;
       if (!parsed) break;
       yield parsed;
     }
@@ -78,7 +93,10 @@ class RespParser {
       if (end === -1) return null;
       const len = Number(this.buf.subarray(pos, end).toString());
       pos = end + 2;
-      if (this.buf.length - pos < len + 2) return null;
+      if (this.buf.length - pos < len + 2) {
+        this.need = pos + len + 2;
+        return null;
+      }
       args.push(this.buf.subarray(pos, pos + len));
       pos += len + 2;
     }
