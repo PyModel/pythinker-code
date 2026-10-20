@@ -2,17 +2,27 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { ClientConfigClient } from '#/client-configs/node/client-configs';
 import {
-  DEFAULT_SURVEY_POPUP_CONFIG,
-  DEFAULT_SURVEY_POPUP_PAYLOAD,
+  cloudSurveyPopupConfigFeed,
   getSurveyPopupConfig,
   peekSurveyPopupConfig,
   resetSurveyPopupConfigCache,
+} from '#/session-rating/node/survey-popup-config-feed';
+import {
+  DEFAULT_SURVEY_POPUP_CONFIG,
+  DEFAULT_SURVEY_POPUP_PAYLOAD,
   resolveSurveyPopupConfig,
   type SurveyPopupPayload,
-} from '#/utils/survey-popup-config';
+} from '#/session-rating/common/survey-popup-config';
+
+const client = new ClientConfigClient({
+  region: () => 'mainland-cn',
+  baseUrlOverride: () => 'https://api.example.com/coding/v1',
+  cacheDir: () => undefined,
+});
 
 const CLOUD_CONFIG = {
   probability: 0.5,
@@ -44,13 +54,8 @@ async function makeCacheFile(): Promise<string> {
   return join(dir, 'cache.json');
 }
 
-beforeEach(() => {
-  vi.stubEnv('CUSTOM_API_BASE_URL', 'https://api.example.test/coding/v1');
-});
-
 afterEach(async () => {
-  vi.unstubAllEnvs();
-  resetSurveyPopupConfigCache();
+  resetSurveyPopupConfigCache(client);
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -75,7 +80,7 @@ describe('getSurveyPopupConfig', () => {
   it('POSTs the survey_popup name and returns the cloud config over the defaults', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
 
-    const result = await getSurveyPopupConfig({
+    const result = await getSurveyPopupConfig(client, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
@@ -95,7 +100,7 @@ describe('getSurveyPopupConfig', () => {
       jsonResponse({ name: 'survey_popup', config: { probability: 0.5 } }),
     );
 
-    const result = await getSurveyPopupConfig({
+    const result = await getSurveyPopupConfig(client, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
@@ -116,7 +121,7 @@ describe('getSurveyPopupConfig', () => {
       }),
     );
 
-    const result = await getSurveyPopupConfig({
+    const result = await getSurveyPopupConfig(client, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
@@ -144,7 +149,7 @@ describe('getSurveyPopupConfig', () => {
       }),
     );
 
-    const result = await getSurveyPopupConfig({
+    const result = await getSurveyPopupConfig(client, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
@@ -166,7 +171,7 @@ describe('getSurveyPopupConfig', () => {
       }),
     );
 
-    const result = await getSurveyPopupConfig({
+    const result = await getSurveyPopupConfig(client, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
@@ -189,7 +194,7 @@ describe('getSurveyPopupConfig', () => {
       }),
     );
 
-    const result = await getSurveyPopupConfig({
+    const result = await getSurveyPopupConfig(client, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
@@ -205,7 +210,7 @@ describe('getSurveyPopupConfig', () => {
       jsonResponse({ name: 'survey_popup', config: { long_context_survey_threshold: 'never' } }),
     );
 
-    const result = await getSurveyPopupConfig({
+    const result = await getSurveyPopupConfig(client, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
@@ -220,7 +225,7 @@ describe('getSurveyPopupConfig', () => {
       jsonResponse({ name: 'survey_popup', config: { long_context_survey_threshold: 0 } }),
     );
 
-    const result = await getSurveyPopupConfig({
+    const result = await getSurveyPopupConfig(client, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
@@ -231,7 +236,7 @@ describe('getSurveyPopupConfig', () => {
   it('falls back to the defaults when the payload is not an object', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ name: 'survey_popup', config: 'nope' }));
 
-    const result = await getSurveyPopupConfig({
+    const result = await getSurveyPopupConfig(client, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
@@ -244,7 +249,7 @@ describe('getSurveyPopupConfig', () => {
       throw new Error('offline');
     });
 
-    const result = await getSurveyPopupConfig({
+    const result = await getSurveyPopupConfig(client, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
@@ -256,8 +261,8 @@ describe('getSurveyPopupConfig', () => {
     const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getSurveyPopupConfig({ fetchImpl: fetchImpl as typeof fetch, now, cacheFile: null });
-    const cached = await getSurveyPopupConfig({
+    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as typeof fetch, now, cacheFile: null });
+    const cached = await getSurveyPopupConfig(client, {
       fetchImpl: fetchImpl as typeof fetch,
       now: now + 60_000,
       cacheFile: null,
@@ -265,7 +270,7 @@ describe('getSurveyPopupConfig', () => {
     expect(cached).toEqual({ ...CLOUD_CONFIG, model_overrides: {} });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
 
-    await getSurveyPopupConfig({
+    await getSurveyPopupConfig(client, {
       fetchImpl: fetchImpl as typeof fetch,
       now: now + 25 * 60 * 60 * 1000,
       cacheFile: null,
@@ -278,13 +283,13 @@ describe('getSurveyPopupConfig', () => {
     const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getSurveyPopupConfig({ fetchImpl: fetchImpl as typeof fetch, now, cacheFile });
+    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as typeof fetch, now, cacheFile });
 
     const persisted = JSON.parse(await readFile(cacheFile, 'utf-8')) as { config: unknown };
     expect(persisted.config).toEqual(CLOUD_CONFIG);
 
-    resetSurveyPopupConfigCache();
-    const result = await getSurveyPopupConfig({
+    resetSurveyPopupConfigCache(client);
+    const result = await getSurveyPopupConfig(client, {
       fetchImpl: vi.fn(async () => {
         throw new Error('must not fetch');
       }) as unknown as typeof fetch,
@@ -299,10 +304,10 @@ describe('getSurveyPopupConfig', () => {
     const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getSurveyPopupConfig({ fetchImpl: fetchImpl as typeof fetch, now, cacheFile });
-    resetSurveyPopupConfigCache();
+    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as typeof fetch, now, cacheFile });
+    resetSurveyPopupConfigCache(client);
 
-    const result = await getSurveyPopupConfig({
+    const result = await getSurveyPopupConfig(client, {
       fetchImpl: vi.fn(async () => jsonResponse('no', 503)) as unknown as typeof fetch,
       now: now + 25 * 60 * 60 * 1000,
       cacheFile,
@@ -313,17 +318,17 @@ describe('getSurveyPopupConfig', () => {
 
 describe('peekSurveyPopupConfig', () => {
   it('returns the defaults while the cache is cold', () => {
-    expect(peekSurveyPopupConfig()).toEqual(DEFAULT_SURVEY_POPUP_PAYLOAD);
+    expect(peekSurveyPopupConfig(client)).toEqual(DEFAULT_SURVEY_POPUP_PAYLOAD);
   });
 
   it('sees the fetched config once the cache is warm', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getSurveyPopupConfig({ fetchImpl: fetchImpl as typeof fetch, now, cacheFile: null });
+    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as typeof fetch, now, cacheFile: null });
 
-    expect(peekSurveyPopupConfig(now + 60_000)).toEqual({ ...CLOUD_CONFIG, model_overrides: {} });
-    expect(peekSurveyPopupConfig(now + 25 * 60 * 60 * 1000)).toEqual(DEFAULT_SURVEY_POPUP_PAYLOAD);
+    expect(peekSurveyPopupConfig(client, now + 60_000)).toEqual({ ...CLOUD_CONFIG, model_overrides: {} });
+    expect(peekSurveyPopupConfig(client, now + 25 * 60 * 60 * 1000)).toEqual(DEFAULT_SURVEY_POPUP_PAYLOAD);
   });
 });
 
@@ -339,7 +344,7 @@ describe('model_overrides parsing', () => {
       }),
     );
 
-    const result = await getSurveyPopupConfig({
+    const result = await getSurveyPopupConfig(client, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
@@ -360,7 +365,7 @@ describe('model_overrides parsing', () => {
       }),
     );
 
-    const result = await getSurveyPopupConfig({
+    const result = await getSurveyPopupConfig(client, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
@@ -382,7 +387,7 @@ describe('model_overrides parsing', () => {
       }),
     );
 
-    const result = await getSurveyPopupConfig({
+    const result = await getSurveyPopupConfig(client, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
@@ -401,7 +406,7 @@ describe('model_overrides parsing', () => {
       }),
     );
 
-    const result = await getSurveyPopupConfig({
+    const result = await getSurveyPopupConfig(client, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
@@ -417,17 +422,17 @@ describe('model_overrides parsing', () => {
       }),
     );
 
-    const result = await getSurveyPopupConfig({
+    const result = await getSurveyPopupConfig(client, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
     expect(result.model_overrides).toEqual({ 'other-model': { probability: 0.5 } });
 
-    resetSurveyPopupConfigCache();
+    resetSurveyPopupConfigCache(client);
     const stringTable = vi.fn(async () =>
       jsonResponse({ name: 'survey_popup', config: { ...CLOUD_CONFIG, model_overrides: 'yes' } }),
     );
-    const fallback = await getSurveyPopupConfig({
+    const fallback = await getSurveyPopupConfig(client, {
       fetchImpl: stringTable as typeof fetch,
       cacheFile: null,
     });
@@ -456,5 +461,92 @@ describe('resolveSurveyPopupConfig', () => {
       probability: 0.5,
       min_user_turns_before_feedback: 1,
     });
+  });
+});
+
+describe('cloudSurveyPopupConfigFeed', () => {
+  function stubClient() {
+    return {
+      get: vi.fn(async () => undefined),
+      peek: vi.fn(() => undefined),
+      region: () => 'mainland-cn' as const,
+      reset: vi.fn(),
+    };
+  }
+
+  async function flush(): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+
+  it('resolves the access token before refreshing the named config', async () => {
+    const stub = stubClient();
+    cloudSurveyPopupConfigFeed(stub, async () => 'tok');
+    await flush();
+    expect(stub.get).toHaveBeenCalledWith('survey_popup', expect.anything(), {
+      accessToken: 'tok',
+    });
+  });
+
+  it('refreshes anonymously when no token is cached', async () => {
+    const stub = stubClient();
+    cloudSurveyPopupConfigFeed(stub, async () => undefined);
+    await flush();
+    expect(stub.get).toHaveBeenCalledWith('survey_popup', expect.anything(), {
+      accessToken: undefined,
+    });
+  });
+
+  it.each([
+    [
+      'rejects',
+      async (): Promise<string | undefined> => {
+        throw new Error('no facade');
+      },
+    ],
+    [
+      'throws synchronously',
+      () => {
+        throw new Error('no facade');
+      },
+    ],
+  ])('skips the fetch when the token provider %s', async (_kind, accessToken) => {
+    const stub = stubClient();
+    const feed = cloudSurveyPopupConfigFeed(
+      stub,
+      accessToken as () => Promise<string | undefined>,
+    );
+    await flush();
+    expect(stub.get).not.toHaveBeenCalled();
+    expect(feed.readyForEvaluation()).toBe(true);
+  });
+
+  it('does not fetch without a token provider', async () => {
+    const stub = stubClient();
+    const feed = cloudSurveyPopupConfigFeed(stub, undefined);
+    await flush();
+    expect(stub.get).not.toHaveBeenCalled();
+    expect(feed.payload()).toEqual(DEFAULT_SURVEY_POPUP_PAYLOAD);
+  });
+
+  it('holds evaluations until the startup refresh settles', async () => {
+    const stub = stubClient();
+    let settle!: () => void;
+    stub.get.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          settle = () => {
+            resolve(undefined);
+          };
+        }),
+    );
+    const feed = cloudSurveyPopupConfigFeed(stub, async () => 'tok');
+    await flush();
+    expect(feed.readyForEvaluation()).toBe(false);
+
+    settle();
+    await flush();
+    expect(feed.readyForEvaluation()).toBe(true);
   });
 });

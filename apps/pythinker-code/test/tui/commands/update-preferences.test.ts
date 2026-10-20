@@ -45,7 +45,6 @@ describe('update preference commands', () => {
       disablePasteBurst: false,
       renderLatex: true,
       cacheExpiryHint: true,
-      disableFeedbackSurvey: false,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: false },
       statusLine: { items: null, command: null },
@@ -56,7 +55,7 @@ describe('update preference commands', () => {
     expect(showStatus).toHaveBeenCalledWith('Automatic updates disabled.');
   });
 
-  it('preserves a render_latex opt-out when saving an unrelated preference', async () => {
+  it('preserves the rendering opt-out when saving another preference', async () => {
     mocks.saveTuiConfig.mockClear();
     const host = {
       state: {

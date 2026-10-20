@@ -67,7 +67,6 @@ export const PYTHINKER_CODE_UPDATE_REEXEC_ENV = 'PYTHINKER_CODE_UPDATE_REEXEC';
 export const PYTHINKER_CODE_INPUT_HISTORY_DIR_NAME = 'user-history';
 export const PYTHINKER_CODE_BANNER_DIR_NAME = 'banner';
 export const PYTHINKER_CODE_BANNER_STATE_FILE_NAME = 'state.json';
-export const PYTHINKER_CODE_SURVEY_STATE_FILE_NAME = 'feedback-survey-state.json';
 export const PYTHINKER_CODE_RECOMMENDED_EFFORT_STATE_FILE_NAME = 'recommended-effort-state.json';
 export const PYTHINKER_CODE_MODEL_MIGRATION_STATE_FILE_NAME = 'model-migrations.json';
 

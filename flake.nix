@@ -73,6 +73,7 @@
         ./packages/oauth
         ./packages/protocol
         ./packages/pi-tui
+        ./packages/product
         ./packages/remote-control
         ./packages/telemetry
         ./packages/transcript
@@ -100,6 +101,7 @@
         "@pymodel/protocol"
         "@pymodel/klient"
         "@pymodel/pi-tui"
+        "@pymodel/pythinker-code-product"
         "@pymodel/remote-control"
         "@pymodel/pythinker-telemetry"
         "@pymodel/transcript"

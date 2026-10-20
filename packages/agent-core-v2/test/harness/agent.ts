@@ -1006,7 +1006,10 @@ class PersistenceAppendLogStore implements IAppendLogStore {
   flush(): Promise<void> {
     return this.persistence.flush();
   }
-  async flushLog(_scope: string, _key: string): Promise<void> {}
+
+  flushLog(): Promise<void> {
+    return this.persistence.flush();
+  }
 
   close(): Promise<void> {
     return this.persistence.close();

@@ -1,6 +1,7 @@
+import type { ClientConfigFetchOptions } from '@pymodel/pythinker-code-product/client-configs/node';
 import { z } from 'zod';
 
-import { fetchClientConfig, type ClientConfigFetchOptions } from '#/utils/client-configs';
+import { clientConfigs } from '#/utils/client-configs';
 
 /** The tips/banner payload is one named config on the client-configs endpoint. */
 const CONFIG_NAME = 'client_banner';
@@ -20,5 +21,5 @@ export type BannerConfigFetchOptions = ClientConfigFetchOptions;
 export async function getBannerConfig(
   options: BannerConfigFetchOptions = {},
 ): Promise<BannerConfig | undefined> {
-  return fetchClientConfig(CONFIG_NAME, bannerConfigSchema, options);
+  return clientConfigs.fetch(CONFIG_NAME, bannerConfigSchema, options);
 }

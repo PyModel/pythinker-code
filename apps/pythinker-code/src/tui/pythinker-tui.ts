@@ -19,6 +19,7 @@ import type {
   TokenUsage,
   TurnEndedEvent,
   TurnStartedEvent,
+  Unsubscribe,
   WorkspaceTrustInfo,
 } from '@pymodel/pythinker-code-sdk';
 import { isTelemetryDisabledByEnv } from '@pymodel/pythinker-telemetry';
@@ -46,6 +47,7 @@ import { getInputHistoryFile } from '#/utils/paths';
 import { applyRecommendedEffort } from '#/utils/recommended-effort';
 import { getRecommendedEffortConfig } from '#/utils/recommended-effort-config';
 import { managedAccessToken } from '#/utils/managed-access-token';
+import { migrateLegacySurveySetting } from '#/utils/survey-setting';
 import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { quoteShellArg } from '#/utils/shell-quote';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
@@ -113,7 +115,7 @@ import {
 } from './components/messages/user-message';
 import { ActivityPaneComponent, type ActivityPaneMode } from './components/panes/activity-pane';
 import { QueuePaneComponent } from './components/panes/queue-pane';
-import type { TuiConfig } from './config';
+import { removeLegacySurveySetting, type TuiConfig } from './config';
 import {
   LLM_NOT_SET_MESSAGE,
   MAIN_AGENT_ID,
@@ -327,21 +329,6 @@ interface SendMessageOptions {
 /** How long the one-shot "moved to background" footer hint stays visible. */
 const DETACH_HINT_DISPLAY_MS = 4_000;
 
-function isUserSubmittedTurnOrigin(origin: TurnStartedEvent['origin'] | undefined): boolean {
-  if (origin === undefined) return false;
-  switch (origin.kind) {
-    case 'user':
-      return true;
-    case 'skill_activation':
-    case 'plugin_command':
-      return origin.trigger === 'user-slash';
-    case 'shell_command':
-      return origin.phase === 'input';
-    default:
-      return false;
-  }
-}
-
 export class PythinkerTUI {
   readonly harness: PythinkerHarness;
   readonly options: PythinkerTUIOptions;
@@ -358,6 +345,7 @@ export class PythinkerTUI {
   private readonly approvalController = new ApprovalController();
   private readonly questionController = new QuestionController();
   private readonly reverseRpcDisposers: Array<() => void> = [];
+  private surveySettingSubscription: Unsubscribe | undefined;
   private skillCommands: readonly PythinkerSlashCommand[] = [];
   readonly skillCommandMap = new Map<string, string>();
   private pluginCommands: readonly PythinkerSlashCommand[] = [];
@@ -509,6 +497,10 @@ export class PythinkerTUI {
         },
       }),
     );
+    this.surveySettingSubscription = this.harness.onConfigSectionChanged((change) => {
+      if (change.domain !== 'disableFeedbackSurvey') return;
+      this.setAppState({ disableFeedbackSurvey: change.value === true ? true : undefined });
+    });
     this.streamingUI = new StreamingUIController(this);
     this.authFlow = new AuthFlowController(this);
     this.btwPanelController = new BtwPanelController(this, this.imageStore, this.staging);
@@ -858,12 +850,35 @@ export class PythinkerTUI {
     }
   }
 
+  private async migrateLegacySurveySetting(): Promise<void> {
+    const legacyValue = this.state.appState.disableFeedbackSurvey;
+    try {
+      const outcome = await migrateLegacySurveySetting({
+        legacyValue,
+        getConfig: () => this.harness.getConfig(),
+        setConfig: (patch) => this.harness.setConfig(patch),
+        dropLegacy: removeLegacySurveySetting,
+        warn: (message) => {
+          this.showStatus(message, 'warning');
+        },
+      });
+      this.setAppState({ disableFeedbackSurvey: outcome.value });
+      if (outcome.action === undefined) return;
+      this.track('survey_setting_migration', {
+        legacy: legacyValue,
+        configured: outcome.configured ?? 'absent',
+        action: outcome.action,
+      });
+    } catch {}
+  }
+
   private async finishStartup(shouldReplayHistory: boolean): Promise<void> {
     if (this.startupNotice !== undefined) {
       this.showStatus(this.startupNotice);
       this.startupNotice = undefined;
     }
     void this.showTmuxKeyboardWarningIfNeeded();
+    void this.migrateLegacySurveySetting();
     // Config diagnostics (deprecated keys/env vars, invalid sections) in
     // warning yellow at boot; `run-prompt`/`run-v2-print` print them to
     // stderr for non-interactive runs.
@@ -1070,6 +1085,8 @@ export class PythinkerTUI {
     this.disposeTranscriptChildren();
     this.editorKeyboard.dispose();
     this.surveyController.dispose();
+    this.surveySettingSubscription?.();
+    this.surveySettingSubscription = undefined;
     this.state.footer.dispose();
     for (const dispose of this.reverseRpcDisposers) {
       dispose();
@@ -1920,7 +1937,7 @@ export class PythinkerTUI {
 
   handleTurnStarted(event: TurnStartedEvent): void {
     this.staging.handleTurnStarted(event);
-    this.surveyController.notifyTurnStarted(isUserSubmittedTurnOrigin(event.origin));
+    this.surveyController.notifyTurnStarted(event.origin);
   }
 
   handleTurnEnded(event: TurnEndedEvent): void {

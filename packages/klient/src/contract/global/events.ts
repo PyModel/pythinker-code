@@ -56,8 +56,8 @@ export type KlientEventName = keyof KlientEventPayloads;
 const configChangedSchema = z.object({
   domain: z.string(),
   source: z.enum(['load', 'reload', 'set']),
-  value: z.unknown(),
-  previousValue: z.unknown(),
+  value: z.unknown().optional(),
+  previousValue: z.unknown().optional(),
 });
 
 const reloadSummarySchema = z.object({
