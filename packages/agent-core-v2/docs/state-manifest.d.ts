@@ -79,6 +79,7 @@
 //     mcp.discoveryWritesReady                        src/agent/mcp/mcpService.ts
 //     mcp.failures                                    src/agent/mcp/mcpFailureOps.ts
 //     mcp.mcpToolsByServer                            src/agent/mcp/mcpService.ts
+//     media.budgetDropped                             src/agent/media/mediaResolverService.ts
 //     media.registeredKey                             src/agent/media/mediaToolsRegistrar.ts
 //     media.resolved                                  src/agent/media/mediaResolverService.ts
 //     permissionMode                                  src/agent/permissionMode/permissionModeOps.ts
@@ -1721,6 +1722,7 @@ export interface AgentStateSnapshot {
   'mcp.discoveryWritesReady': boolean;
   'mcp.mcpToolsByServer': Map<string, string[]>;
   // src/agent/media/mediaResolverService.ts
+  'media.budgetDropped': Set<string>;
   'media.resolved': Map<string, /* ContentPart — packages/agent-core-v2/src/human/llm/message.ts */ /* TextPart — packages/agent-core-v2/src/human/llm/message.ts */ {
     type: 'text';
     text: string;
@@ -1962,7 +1964,7 @@ export interface AgentStateSnapshot {
   }>;
   // src/features/dynamic_workflow/dynamicWorkflowOps.ts
   // replayable · durable — folds: DynamicWorkflowModeEnter, DynamicWorkflowModeExit
-  'dynamic_workflow': 'tool' | 'task' | 'manual' | null;
+  'dynamic_workflow': 'task' | 'manual' | 'tool' | null;
   // src/features/externalHooks/agent/agentExternalHooksService.ts
   'externalHooks.stopHookContinuationUsed': boolean;
   // src/features/fileHistory/fileHistoryOps.ts
@@ -1991,9 +1993,6 @@ export interface AgentStateSnapshot {
     readonly id?: string;
     readonly revisionCount?: Readonly<Record<string, number>>;
   };
-  // src/features/dynamic_workflow/dynamicWorkflowOps.ts
-  // replayable · durable — folds: DynamicWorkflowModeEnter, DynamicWorkflowModeExit
-  'dynamic_workflow': 'task' | 'manual' | 'tool' | null;
   // src/features/tower/towerOps.ts
   // replayable · durable — folds: TowerModeEnter, TowerModeExit
   'tower': boolean;

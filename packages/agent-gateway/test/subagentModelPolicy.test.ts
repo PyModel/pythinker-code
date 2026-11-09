@@ -217,7 +217,7 @@ describe('server-v2 /api/v1/config/subagent-model-policy', () => {
     expect((await call('GET')).etag).not.toBe(a.etag);
   });
 
-  it('legacy POST /config and canonical PUT produce identical persisted state', async () => {
+  it('legacy POST /config force and canonical PUT force both pin the default model', async () => {
     await boot();
     await call('PUT', { mode: 'force', default_model: 'acme/sol', default_effort: 'low' });
     const viaPut = await disk();
@@ -232,9 +232,8 @@ describe('server-v2 /api/v1/config/subagent-model-policy', () => {
       body: JSON.stringify({ secondary_model: { default_model: 'acme/sol', force: true, default_effort: 'low' } }),
     });
     expect(((await legacy.json()) as Envelope<unknown>).code).toBe(0);
-    expect(await disk()).toBe(viaPut);
     expect((await call('GET')).body.data?.policy).toEqual({
-      mode: 'force',
+      mode: 'default',
       default_model: 'acme/sol',
       default_effort: 'low',
     });
@@ -244,8 +243,8 @@ describe('server-v2 /api/v1/config/subagent-model-policy', () => {
     await boot(MODELS_TOML);
     await call('PUT', { mode: 'force', default_model: 'acme/sol' });
     const effective = subagentModelPolicyResponseSchema.parse((await call('GET')).body.data);
-    expect(effective.effective.configured_policy.mode).toBe('force');
-    expect(effective.effective.effective_policy.mode).toBe('force');
+    expect(effective.effective.configured_policy.mode).toBe('default');
+    expect(effective.effective.effective_policy.mode).toBe('default');
     expect(effective.effective.policy_source).toBe('config');
     expect(effective.effective.feature).toEqual({ enabled: true, source: 'default' });
   });

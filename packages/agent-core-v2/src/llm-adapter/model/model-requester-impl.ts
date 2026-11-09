@@ -16,12 +16,14 @@ import {
 import type { LlmModel } from '#human/llm-requester/model';
 import type { ProtocolName } from '#human/llm-requester/requester';
 import { applyCredential } from '#human/credentials/credentials';
+import { opencodeSessionHeaders } from './opencode-session';
 import {
   type ExtraParams,
   type LlmRequestConfig,
   type LlmRequestContent,
   type LlmRequestEvent,
   type LlmRequester,
+  mergeRequestHeaders,
 } from '#human/llm-requester/requester';
 import type { TokenUsage } from '#human/llm-requester/usage';
 
@@ -181,8 +183,23 @@ export class ModelRequesterImpl implements ModelRequester {
     };
 
     const credential = await this.model.credentialProvider?.resolve();
+    const credentialed = applyCredential(resolved.model, credential);
+    const sessionHeaders = opencodeSessionHeaders(
+      credentialed.baseUrl,
+      params?.cacheKey,
+      credentialed.defaultHeaders,
+    );
     await requester.generate(
-      { ...config, model: applyCredential(resolved.model, credential) },
+      {
+        ...config,
+        model:
+          sessionHeaders === undefined
+            ? credentialed
+            : {
+                ...credentialed,
+                defaultHeaders: mergeRequestHeaders(credentialed.defaultHeaders, sessionHeaders),
+              },
+      },
       content,
       {
         signal: signal ?? new AbortController().signal,

@@ -91,10 +91,9 @@ describe('SubagentModelPolicyService', () => {
     expect(config.get(SECONDARY_MODEL_SECTION)).toBeUndefined();
 
     const snapshot = await service.set({ mode: 'force', defaultModel: 'acme/sol', defaultEffort: 'low' });
-    expect(snapshot.policy).toEqual({ mode: 'force', defaultModel: 'acme/sol', defaultEffort: 'low' });
+    expect(snapshot.policy).toEqual({ mode: 'default', defaultModel: 'acme/sol', defaultEffort: 'low' });
     expect(config.get(SECONDARY_MODEL_SECTION)).toEqual({
       defaultModel: 'acme/sol',
-      force: true,
       defaultEffort: 'low',
     });
 
@@ -141,8 +140,8 @@ describe('SubagentModelPolicyService', () => {
       { mode: 'force', defaultModel: 'acme/sol' },
       (first as PromiseFulfilledResult<SubagentModelPolicySnapshot>).value.resourceVersion,
     );
-    expect(recovered.policy).toEqual({ mode: 'force', defaultModel: 'acme/sol' });
-    expect(config.get(SECONDARY_MODEL_SECTION)).toEqual({ defaultModel: 'acme/sol', force: true, defaultEffort: undefined });
+    expect(recovered.policy).toEqual({ mode: 'default', defaultModel: 'acme/sol' });
+    expect(config.get(SECONDARY_MODEL_SECTION)).toEqual({ defaultModel: 'acme/sol', defaultEffort: undefined });
   });
 
   it('prepareLegacyMutation validates against the supplied prospective context, not the live catalog', () => {

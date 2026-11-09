@@ -760,13 +760,13 @@ describe('WsConnectionV1 resource limits', () => {
     const conn = makeConn(socket);
     for (let i = 0; i < WS_MAX_SUBSCRIPTIONS; i += 1) {
       socket.emit('message', subscribeV2(`s${String(i)}`, `f${String(i)}`));
+      await vi.advanceTimersByTimeAsync(0);
     }
-    await vi.advanceTimersByTimeAsync(0);
     expect(conn.subscriptionSessionIds).toHaveLength(WS_MAX_SUBSCRIPTIONS);
+    expect(socket.closeCalls).toEqual([]);
 
     socket.emit('message', subscribeV2('extra', 'f-extra'));
-    await vi.advanceTimersByTimeAsync(0);
-
+    await vi.waitFor(() => expect(socket.closeCalls).toHaveLength(1));
     expect(socket.closeCalls).toEqual([
       { code: WS_CLOSE_POLICY, reason: 'subscription limit exceeded' },
     ]);

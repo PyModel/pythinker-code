@@ -421,8 +421,8 @@ describe('openai requester thinking', () => {
         messages: [
           createUserMessage('hi'),
           createAssistantMessage([
-            { type: 'think', think: 'zh2', detailsIndex: 0 },
-            { type: 'think', think: 'zh5', detailsIndex: 1 },
+            { type: 'think', think: '\u7B2C\u4E00\u6BB5\u7EED', detailsIndex: 0 },
+            { type: 'think', think: '\u7B2C\u4E8C\u6BB5', detailsIndex: 1 },
             { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 2 },
             { type: 'text', text: 'ok' },
           ]),
@@ -432,19 +432,19 @@ describe('openai requester thinking', () => {
     );
     const markedAssistant = bodyMessages(marked.body())[1]!;
     expect(markedAssistant['reasoning_details']).toEqual([
-      { type: 'summary', summary: 'zh2' },
-      { type: 'summary', summary: 'zh5' },
+      { type: 'summary', summary: '\u7B2C\u4E00\u6BB5\u7EED' },
+      { type: 'summary', summary: '\u7B2C\u4E8C\u6BB5' },
       { type: 'encrypted', encrypted: 'cipher' },
     ]);
-    expect(markedAssistant['reasoning_content']).toBe('zh2zh5');
+    expect(markedAssistant['reasoning_content']).toBe('\u7B2C\u4E00\u6BB5\u7EED\u7B2C\u4E8C\u6BB5');
 
     const inbound = stubOpenAIClient(
       chatCompletionChunks([
-        { reasoning_content: 'zh6' },
-        { reasoning_content: 'zh4' },
+        { reasoning_content: '\u539F\u6587\u4E00' },
+        { reasoning_content: '\u539F\u6587\u4E8C' },
         {
           reasoning_details: [
-            { index: 0, type: 'summary', summary: 'zh11' },
+            { index: 0, type: 'summary', summary: '\u6458' },
             { index: 1, type: 'encrypted', encrypted: 'cipher' },
           ],
         },
@@ -470,12 +470,24 @@ describe('openai requester thinking', () => {
     );
     const finished = accumulator.finish();
     expect(finished.content).toEqual([
-      { type: 'think', think: 'zh6zh4' , reasoningKey: 'reasoning_content' },
-      { type: 'think', think: 'zh11', detailsIndex: 0, hidden: true , reasoningKey: 'reasoning_details' },
-      { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 1 , reasoningKey: 'reasoning_details' },
+      { type: 'think', think: '\u539F\u6587\u4E00\u539F\u6587\u4E8C', reasoningKey: 'reasoning_content' },
+      {
+        type: 'think',
+        think: '\u6458',
+        detailsIndex: 0,
+        hidden: true,
+        reasoningKey: 'reasoning_details',
+      },
+      {
+        type: 'think',
+        think: '',
+        encrypted: 'cipher',
+        detailsIndex: 1,
+        reasoningKey: 'reasoning_details',
+      },
       { type: 'text', text: 'ok' },
     ]);
-    finished.content.splice(1, 0, { type: 'think', think: '\u7eed' });
+    finished.content.splice(1, 0, { type: 'think', think: '\u7EED' });
 
     const outbound = stubOpenAIClient(chatCompletionChunks());
     const outboundRequester = createPythinkerOpenAIRequester({
@@ -489,10 +501,10 @@ describe('openai requester thinking', () => {
     );
     const continued = bodyMessages(outbound.body())[1]!;
     expect(continued['reasoning_details']).toEqual([
-      { type: 'summary', summary: 'zh11' },
+      { type: 'summary', summary: '\u6458' },
       { type: 'encrypted', encrypted: 'cipher' },
     ]);
-    expect(continued['reasoning_content']).toBe('\u539f\u6587\u4e00\u539f\u6587\u4e8c\u7eed');
+    expect(continued['reasoning_content']).toBe('\u539F\u6587\u4E00\u539F\u6587\u4E8C\u7EED');
     expect(continued['content']).toBe('ok');
 
     const dual = stubOpenAIClient(
@@ -849,13 +861,13 @@ describe('openai requester thinking', () => {
       collect(
         chatCompletionChunks([
           {
-            reasoning_content: 'zh7',
-            reasoning_details: [{ index: 0, type: 'summary', summary: 'zh7' }],
+            reasoning_content: '\u7B2C\u4E00\u6BB5',
+            reasoning_details: [{ index: 0, type: 'summary', summary: '\u7B2C\u4E00\u6BB5' }],
           },
           {
             reasoning_details: [
-              { index: 0, summary: 'zh12' },
-              { index: 1, type: 'summary', summary: 'zh5' },
+              { index: 0, summary: '\u7EED' },
+              { index: 1, type: 'summary', summary: '\u7B2C\u4E8C\u6BB5' },
             ],
           },
           { reasoning_details: [{ index: 2, type: 'encrypted', encrypted: 'cipher' }] },
@@ -863,10 +875,28 @@ describe('openai requester thinking', () => {
         ]),
       ),
     ).resolves.toEqual([
-      { type: 'think', think: 'zh7', reasoningKey: 'reasoning_content' },
-      { type: 'think', think: 'zh7zh12', detailsIndex: 0, hidden: true, reasoningKey: 'reasoning_details' },
-      { type: 'think', think: 'zh5', detailsIndex: 1, hidden: true, reasoningKey: 'reasoning_details' },
-      { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 2, reasoningKey: 'reasoning_details' },
+      { type: 'think', think: '\u7B2C\u4E00\u6BB5', reasoningKey: 'reasoning_content' },
+      {
+        type: 'think',
+        think: '\u7B2C\u4E00\u6BB5\u7EED',
+        detailsIndex: 0,
+        hidden: true,
+        reasoningKey: 'reasoning_details',
+      },
+      {
+        type: 'think',
+        think: '\u7B2C\u4E8C\u6BB5',
+        detailsIndex: 1,
+        hidden: true,
+        reasoningKey: 'reasoning_details',
+      },
+      {
+        type: 'think',
+        think: '',
+        encrypted: 'cipher',
+        detailsIndex: 2,
+        reasoningKey: 'reasoning_details',
+      },
       { type: 'text', text: 'ok' },
     ]);
     await expect(
@@ -889,9 +919,9 @@ describe('openai requester thinking', () => {
       collect(
         chatCompletionChunks([
           {
-            reasoning_content: 'zh9',
+            reasoning_content: '\u539F\u6587',
             reasoning_details: [
-              { index: 0, type: 'summary', summary: 'zh11' },
+              { index: 0, type: 'summary', summary: '\u6458' },
               { index: 1, type: 'encrypted', encrypted: 'cipher' },
             ],
           },
@@ -899,20 +929,32 @@ describe('openai requester thinking', () => {
         ]),
       ),
     ).resolves.toEqual([
-      { type: 'think', think: 'zh9' , reasoningKey: 'reasoning_content'},
-      { type: 'think', think: 'zh11', detailsIndex: 0, hidden: true, reasoningKey: 'reasoning_details' },
-      { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 1, reasoningKey: 'reasoning_details' },
+      { type: 'think', think: '\u539F\u6587', reasoningKey: 'reasoning_content' },
+      {
+        type: 'think',
+        think: '\u6458',
+        detailsIndex: 0,
+        hidden: true,
+        reasoningKey: 'reasoning_details',
+      },
+      {
+        type: 'think',
+        think: '',
+        encrypted: 'cipher',
+        detailsIndex: 1,
+        reasoningKey: 'reasoning_details',
+      },
       { type: 'text', text: 'ok' },
     ]);
     await expect(
       collect(
         chatCompletionChunks([
-          { reasoning_content: 'zh6' },
-          { reasoning_content: 'zh4' },
-          { reasoning_details: [{ index: 0, type: 'summary', summary: 'zh10' }] },
+          { reasoning_content: '\u539F\u6587\u4E00' },
+          { reasoning_content: '\u539F\u6587\u4E8C' },
+          { reasoning_details: [{ index: 0, type: 'summary', summary: '\u6458\u4E00' }] },
           {
             reasoning_details: [
-              { index: 0, type: 'summary', summary: 'zh8' },
+              { index: 0, type: 'summary', summary: '\u6458\u4E8C' },
               { index: 1, type: 'encrypted', encrypted: 'cipher' },
             ],
           },
@@ -920,9 +962,21 @@ describe('openai requester thinking', () => {
         ]),
       ),
     ).resolves.toEqual([
-      { type: 'think', think: 'zh6zh4' , reasoningKey: 'reasoning_content'},
-      { type: 'think', think: 'zh10zh8', detailsIndex: 0, hidden: true, reasoningKey: 'reasoning_details' },
-      { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 1, reasoningKey: 'reasoning_details' },
+      { type: 'think', think: '\u539F\u6587\u4E00\u539F\u6587\u4E8C', reasoningKey: 'reasoning_content' },
+      {
+        type: 'think',
+        think: '\u6458\u4E00\u6458\u4E8C',
+        detailsIndex: 0,
+        hidden: true,
+        reasoningKey: 'reasoning_details',
+      },
+      {
+        type: 'think',
+        think: '',
+        encrypted: 'cipher',
+        detailsIndex: 1,
+        reasoningKey: 'reasoning_details',
+      },
       { type: 'text', text: 'ok' },
     ]);
     await expect(
@@ -930,7 +984,7 @@ describe('openai requester thinking', () => {
         chatCompletionChunks([
           {
             reasoning_details: [
-              { index: 0, type: 'summary', summary: 'zh11' },
+              { index: 0, type: 'summary', summary: '\u6458' },
               { index: 1, type: 'encrypted', encrypted: 'cipher' },
             ],
           },
@@ -938,8 +992,30 @@ describe('openai requester thinking', () => {
         ]),
       ),
     ).resolves.toEqual([
-      { type: 'think', think: 'zh11', detailsIndex: 0, reasoningKey: 'reasoning_details' },
-      { type: 'think', think: '', encrypted: 'cipher', detailsIndex: 1, reasoningKey: 'reasoning_details' },
+      { type: 'think', think: '\u6458', detailsIndex: 0, reasoningKey: 'reasoning_details' },
+      {
+        type: 'think',
+        think: '',
+        encrypted: 'cipher',
+        detailsIndex: 1,
+        reasoningKey: 'reasoning_details',
+      },
+      { type: 'text', text: 'ok' },
+    ]);
+    await expect(
+      collect(
+        chatCompletionChunks([
+          {
+            reasoning: 'We',
+            reasoning_details: [
+              { index: 0, type: 'reasoning.text', text: 'We', format: 'unknown' },
+            ],
+          },
+          { content: 'ok' },
+        ]),
+      ),
+    ).resolves.toEqual([
+      { type: 'think', think: 'We', reasoningKey: 'reasoning' },
       { type: 'text', text: 'ok' },
     ]);
   });
