@@ -1108,14 +1108,14 @@ describe('fullscreen layout', () => {
     expect(rows.join('\n')).toContain('Do not start');
     expect(rows.join('\n')).toContain('↑↓ navigate · Enter select · Esc cancel');
     expect(rows.join('\n')).toContain('Best if you want Pythinker Code to keep working while you are away');
-    expect(rows.join('\n')).not.toContain('Tools are approved automatically. Pythinker Code may still ask you questions.');
+    expect(rows.join('\n')).not.toContain('Tools are approved automatically. Pythinker Code may still ask you');
 
     vt.sendInput(`\u001B[<35;5;${String(secondChoice + 1)}M`);
     await vt.waitForRender();
     rows = screenRows(vt);
     expect(rows.findIndex((row) => row.includes('Switch to Ask When Needed and start'))).toBe(secondChoice);
     expect(rows[secondChoice - 1]).toContain('❯ Switch to Never Ask and start');
-    expect(rows.join('\n')).toContain('Tools are approved automatically. Pythinker Code may still ask you questions.');
+    expect(rows.join('\n')).toContain('Tools are approved automatically. Pythinker Code may still ask you');
     expect(rows.join('\n')).not.toContain('Best if you want Pythinker Code to keep working while you are away');
 
     vt.sendInput(`\u001B[<0;5;${String(secondChoice + 1)}M`);
@@ -1291,7 +1291,7 @@ describe('fullscreen layout', () => {
 
     rows = screenRows(vt);
     expect(rows.findIndex((row) => row.includes('esc close'))).toBeGreaterThanOrEqual(0);
-    const prompt = rows.findIndex((row) => /│\s*>/.test(row));
+    const prompt = rows.findIndex((row) => /^\s*>\s*$/.test(row));
     vt.sendInput(`\u001B[<0;10;${String(prompt + 1)}M`);
     vt.sendInput(`\u001B[<0;10;${String(prompt + 1)}m`);
     await vt.waitForRender();

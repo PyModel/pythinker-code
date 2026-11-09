@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Session } from '@pymodel/pythinker-code-sdk';
 
@@ -46,7 +46,12 @@ function fakeHost(session: Session) {
   } as unknown as SlashCommandHost;
 }
 
+beforeEach(() => {
+  vi.stubEnv('CUSTOM_API_BASE_URL', 'https://api.example.test/coding/v1');
+});
+
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -177,7 +182,7 @@ function makeSwitchHost(provider = 'custom') {
       activeDialog: null,
     },
     session,
-    harness: { auth: { getCachedAccessToken: vi.fn(async () => 'test-token') } },
+    harness: { auth: { getCachedAccessToken: vi.fn(async () => 'test-token') }, getConfig: vi.fn(async () => ({})) },
     authFlow: { activateModelAfterLogin: vi.fn(async () => true) },
     waitForSessionAssembly: vi.fn(async () => {}),
     setAppState: vi.fn((patch: Record<string, unknown>) => Object.assign(appState, patch)),
@@ -342,7 +347,7 @@ describe('confirmThenPerformModelSwitch', () => {
   });
 
   it('gates a pure effort switch for an OAuth subscription model', async () => {
-    const { host, session, mountEditorReplacement } = makeSwitchHost('managed:pythinker-code');
+    const { host, session, mountEditorReplacement } = makeSwitchHost('openai');
     await enableEffortConfig();
 
     confirmThenPerformModelSwitch(host, 'old-alias', 'high', 'session');
@@ -363,7 +368,7 @@ describe('confirmThenPerformModelSwitch', () => {
   });
 
   it('shows hint and warning for a new-session effort switch and keeps effort on cancel', async () => {
-    const { host, session, mountEditorReplacement } = makeSwitchHost('managed:pythinker-code');
+    const { host, session, mountEditorReplacement } = makeSwitchHost('openai');
     host.state.transcriptEntries = [];
     await enableEffortConfig('new');
 
@@ -391,7 +396,7 @@ describe('confirmThenPerformModelSwitch', () => {
   });
 
   it('ignores effort rules when the model changes at the same time', async () => {
-    const { host, session, mountEditorReplacement } = makeSwitchHost('managed:pythinker-code');
+    const { host, session, mountEditorReplacement } = makeSwitchHost('openai');
     await enableEffortConfig();
 
     confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
@@ -401,7 +406,7 @@ describe('confirmThenPerformModelSwitch', () => {
   });
 
   it('gates a direct /effort argument before applying the new effort', async () => {
-    const { host, session, mountEditorReplacement } = makeSwitchHost('managed:pythinker-code');
+    const { host, session, mountEditorReplacement } = makeSwitchHost('openai');
     await enableEffortConfig();
 
     await handleEffortCommand(host, 'high');
@@ -414,7 +419,7 @@ describe('confirmThenPerformModelSwitch', () => {
   });
 
   it('shows cloud descriptions and gates Alt+S while preserving session-only scope', async () => {
-    const { host, session, mountEditorReplacement } = makeSwitchHost('managed:pythinker-code');
+    const { host, session, mountEditorReplacement } = makeSwitchHost('openai');
     await enableEffortConfig();
 
     await handleEffortCommand(host, '');

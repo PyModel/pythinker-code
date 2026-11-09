@@ -317,6 +317,7 @@ describe('server-v2 /api/v1/workspaces', () => {
       const toml = await readFile(body.data.config_path, 'utf8');
       expect(toml).toContain('additional_dir');
       expect(toml).toContain(extra);
+      await postJson(`/api/v1/workspaces/${id}/trust`);
       const manager = (server as RunningServer).core.accessor.get(IWorkspaceInstanceManager);
       expect(manager.get(id)).toBeUndefined();
       const lease = await manager.acquire({ workspaceId: id, root });

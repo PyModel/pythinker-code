@@ -30,7 +30,7 @@ function createMockSpinner(initialText = 'working') {
 }
 
 describe('ActivityPaneComponent', () => {
-  it.each(['waiting', 'tool', 'composing', 'thinking'] as const)(
+  it.each(['waiting', 'tool', 'composing', 'thinking', 'compacting'] as const)(
     'keeps one spacer row for %s; the spinner is drawn in the editor rule',
     (mode) => {
       const { spinner, getTip } = createMockSpinner('working');
@@ -55,54 +55,9 @@ describe('ActivityPaneComponent', () => {
     expect(lines).toEqual(['', '    429 · rate limited']);
   });
 
-  it.each(['waiting', 'tool', 'composing', 'thinking', 'compacting'] as const)(
-    'renders the %s spinner with tip after a spacer',
-    (mode) => {
-      const { spinner } = createMockSpinner('working');
-      const component = new ActivityPaneComponent({
-        mode,
-        spinner,
-        tip: 'ctrl+s: steer mid-turn',
-      });
-
-      expect(component.render(80).map((line) => line.trimEnd())).toEqual([
-        '',
-        'working · Tip: ctrl+s: steer mid-turn',
-      ]);
-    },
-  );
-
-  it.each(['waiting', 'tool', 'composing', 'compacting'] as const)(
-    'does not render a tip for %s when none is provided',
-    (mode) => {
-      const { spinner } = createMockSpinner('working');
-      const component = new ActivityPaneComponent({
-        mode,
-        spinner,
-      });
-
-      expect(component.render(80).map((line) => line.trimEnd())).toEqual(['', 'working']);
-    },
-  );
-
   it('renders nothing for hidden, or for thinking without a spinner', () => {
     expect(new ActivityPaneComponent({ mode: 'hidden' }).render(80)).toEqual([]);
     expect(new ActivityPaneComponent({ mode: 'thinking' }).render(80)).toEqual([]);
   });
-
-  it.each(['waiting', 'tool', 'composing', 'compacting'] as const)(
-    'hides the tip for %s when the terminal is too narrow',
-    (mode) => {
-      const { spinner } = createMockSpinner('working');
-      const component = new ActivityPaneComponent({
-        mode,
-        spinner,
-        tip: 'ctrl+s: steer mid-turn',
-      });
-
-      // Width 8 is exactly the width of "working" (no spinner frame in the mock).
-      expect(component.render(8).map((line) => line.trimEnd())).toEqual(['', 'working']);
-    },
-  );
 });
 

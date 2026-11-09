@@ -135,8 +135,7 @@ describe('updateActivityPane terminal progress', () => {
 
       driver.updateActivityPane();
 
-      const workingOutput = state.activityContainer
-        .render(200)
+      const workingOutput = (state.activitySpinner?.render(200) ?? [])
         .map((line) => line.trimEnd())
         .join('\n');
       expect(workingOutput).toContain('Working… · Tip: ');
@@ -145,16 +144,14 @@ describe('updateActivityPane terminal progress', () => {
       state.appState.streamingPhase = 'waiting';
       driver.updateActivityPane();
 
-      const output = state.activityContainer
-        .render(200)
+      const output = (state.activitySpinner?.render(200) ?? [])
         .map((line) => line.trimEnd())
         .join('\n');
       expect(output).toBe(workingOutput.replace('Working…', 'Compacting…'));
 
       driver.updateActivityPane();
 
-      const refreshedOutput = state.activityContainer
-        .render(200)
+      const refreshedOutput = (state.activitySpinner?.render(200) ?? [])
         .map((line) => line.trimEnd())
         .join('\n');
       expect(refreshedOutput).toBe(output);
@@ -165,7 +162,7 @@ describe('updateActivityPane terminal progress', () => {
       state.appState.streamingPhase = 'idle';
       driver.updateActivityPane();
 
-      const idleOutput = strip(state.activityContainer.render(80).join('\n'));
+      const idleOutput = strip((state.activitySpinner?.render(80) ?? []).join('\n'));
       expect(idleOutput).not.toContain('Compacting…');
       expect(setProgress).toHaveBeenCalledTimes(2);
       expect(setProgress).toHaveBeenLastCalledWith(false);
@@ -189,14 +186,14 @@ describe('updateActivityPane terminal progress', () => {
 
       driver.updateActivityPane();
 
-      expect(state.activityContainer.render(80)).toEqual([]);
+      expect(state.activitySpinner).toBeNull();
       expect(setProgress).toHaveBeenCalledTimes(1);
       expect(setProgress).toHaveBeenLastCalledWith(true);
 
       state.livePane = { ...state.livePane, pendingQuestion: null };
       driver.updateActivityPane();
 
-      const output = strip(state.activityContainer.render(80).join('\n'));
+      const output = strip((state.activitySpinner?.render(80) ?? []).join('\n'));
       expect(output).toContain('⠋ Compacting…');
 
       state.appState.isCompacting = false;

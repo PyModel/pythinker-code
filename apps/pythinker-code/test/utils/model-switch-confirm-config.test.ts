@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   matchModelSwitchRule,
@@ -29,7 +29,12 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+beforeEach(() => {
+  vi.stubEnv('CUSTOM_API_BASE_URL', 'https://api.example.test/coding/v1');
+});
+
 afterEach(() => {
+  vi.unstubAllEnvs();
   resetModelSwitchConfirmConfigCache();
 });
 

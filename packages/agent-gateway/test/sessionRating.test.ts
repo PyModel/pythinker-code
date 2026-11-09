@@ -514,7 +514,7 @@ describe('session rating lifecycle', () => {
 
   it('resumes and evaluates a completed turn for a cold session', async () => {
     const id = await client.createSession(home);
-    await (await client.mainAgent(id)).accessor.get(IAgentProfileService).setModel('pythinker-code/k3');
+    await (await client.mainAgent(id)).accessor.get(IAgentProfileService).setModel('acme/k3');
     await client.finishUserTurn(id, undefined, 0);
     const agent = await client.mainAgent(id);
     const dispatcher = agent.accessor.get(IEventDispatcher);

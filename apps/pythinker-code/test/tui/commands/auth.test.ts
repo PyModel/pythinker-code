@@ -97,6 +97,7 @@ describe('handleLoginCommand OpenAI Codex OAuth', () => {
       restoreEditor: vi.fn(),
       mountEditorReplacement: vi.fn(),
       cancelInFlight: undefined,
+      beginAuthBlock: () => () => undefined,
     } as unknown as SlashCommandHost;
 
     await handleLoginCommand(host);
@@ -143,6 +144,7 @@ describe('handleLoginCommand OpenAI Codex OAuth', () => {
       showStatus: vi.fn(),
       track: vi.fn(),
       cancelInFlight: undefined,
+      beginAuthBlock: () => () => undefined,
     } as unknown as SlashCommandHost;
 
     await handleLoginCommand(host);
@@ -202,6 +204,7 @@ describe('handleLoginCommand OpenAI Codex OAuth', () => {
       showLoginProgressSpinner: vi.fn(),
       track: vi.fn(),
       cancelInFlight: undefined,
+      beginAuthBlock: () => () => undefined,
     } as unknown as SlashCommandHost;
 
     await handleLoginCommand(host);

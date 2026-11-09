@@ -7772,7 +7772,7 @@ capabilities = ["image_in", "video_in"]
       sendQueued,
     );
 
-    const activity = driver.state.activityContainer.render(120).map(stripSgr).join('\n');
+    const activity = (driver.state.activitySpinner?.render(120) ?? []).map(stripSgr).join('\n');
     const inProgress = driver.state.transcriptContainer.render(120).map(stripSgr).join('\n');
     expect(activity).toContain('Compacting…');
     expect(inProgress).not.toContain('Compacting context…');
@@ -11188,14 +11188,14 @@ capabilities = ["image_in", "video_in"]
         getConfig: vi.fn(async () => ({
           models: {
             k2: {
-              provider: 'managed:pythinker-code',
+              provider: 'openai',
               model: 'kimi-k2',
               maxContextSize: 100,
               displayName: 'Kimi K2',
               capabilities: ['thinking'],
             },
             turbo: {
-              provider: 'managed:pythinker-code',
+              provider: 'openai',
               model: 'k3.1-pro-highspeed',
               maxContextSize: 100,
               displayName: 'K3.1 Pro Highspeed',
@@ -11249,14 +11249,14 @@ capabilities = ["image_in", "video_in"]
         getConfig: vi.fn(async () => ({
           models: {
             k2: {
-              provider: 'managed:pythinker-code',
+              provider: 'openai',
               model: 'kimi-k2',
               maxContextSize: 100,
               displayName: 'Kimi K2',
               capabilities: ['thinking'],
             },
             turbo: {
-              provider: 'managed:pythinker-code',
+              provider: 'openai',
               model: 'k3.1-pro-highspeed',
               maxContextSize: 100,
               displayName: 'K3.1 Pro Highspeed',

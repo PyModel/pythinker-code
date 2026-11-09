@@ -295,6 +295,7 @@ async function confirmThenPerformEffortSwitch(
   const alias = host.state.appState.model;
   const model = host.state.appState.availableModels[alias];
   if (
+    host.session === undefined ||
     model?.provider !== DEFAULT_OAUTH_PROVIDER_NAME ||
     thinking === host.state.appState.thinkingEffort ||
     host.state.appState.streamingPhase !== 'idle'

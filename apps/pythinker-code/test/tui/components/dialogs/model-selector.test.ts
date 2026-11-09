@@ -1,4 +1,5 @@
 import type { ModelAlias } from '@pymodel/pythinker-code-sdk';
+import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
 import { visibleWidth } from '@pymodel/pi-tui';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -546,7 +547,7 @@ describe('ModelSelectorComponent effort descriptions', () => {
   it('updates descriptions for the highlighted effort and hides them for other providers', () => {
     const picker = new ModelSelectorComponent({
       models: {
-        pythinker: effortModel('Kimi K3', ['low', 'high', 'max'], 'high'),
+        pythinker: { ...effortModel('Kimi K3', ['low', 'high', 'max'], 'high'), provider: DEFAULT_OAUTH_PROVIDER_NAME },
         custom: { ...effortModel('Custom K3', ['low', 'high', 'max'], 'high'), provider: 'custom' },
       },
       currentValue: 'pythinker',

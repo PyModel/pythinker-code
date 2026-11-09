@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   matchEffortSwitchRule,
@@ -37,7 +37,12 @@ function response(config: unknown): Response {
   return new Response(JSON.stringify({ name: 'effort_switch_confirm', config }));
 }
 
+beforeEach(() => {
+  vi.stubEnv('CUSTOM_API_BASE_URL', 'https://api.example.test/coding/v1');
+});
+
 afterEach(() => {
+  vi.unstubAllEnvs();
   resetEffortSwitchConfigCache();
 });
 

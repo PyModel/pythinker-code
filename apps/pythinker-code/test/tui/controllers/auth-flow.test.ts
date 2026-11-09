@@ -73,6 +73,7 @@ function makeHost(
 }
 
 beforeEach(() => {
+  vi.stubEnv('CUSTOM_API_BASE_URL', 'https://api.example.test/coding/v1');
   resetModelSwitchConfirmConfigCache();
   vi.stubGlobal(
     'fetch',
@@ -85,6 +86,7 @@ beforeEach(() => {
 afterEach(() => {
   resetModelSwitchConfirmConfigCache();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('login-required startup', () => {
@@ -180,9 +182,9 @@ describe('refreshConfigAfterLogin with a matching cloud rule', () => {
     host.harness.getConfig = vi.fn(async () => ({
       defaultModel: 'k2',
       models: {
-        'old-model': { provider: 'managed:pythinker-code', model: 'upstream-old', maxContextSize: 200_000 },
+        'old-model': { provider: 'openai', model: 'upstream-old', maxContextSize: 200_000 },
         k2: {
-          provider: 'managed:pythinker-code',
+          provider: 'openai',
           model: 'upstream-new',
           maxContextSize: 200_000,
           capabilities: ['thinking'],

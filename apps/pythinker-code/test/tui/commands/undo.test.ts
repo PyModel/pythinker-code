@@ -100,4 +100,3 @@ describe('/undo with bundled prompts', () => {
     expect(entries).toHaveLength(0);
   });
 });
-

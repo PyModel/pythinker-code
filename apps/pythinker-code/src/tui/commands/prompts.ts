@@ -132,7 +132,9 @@ function promptAuthenticationMethodSelection(
         resolve(undefined);
       },
     });
-    host.mountEditorReplacement(selector);
+    host.mountEditorReplacement(selector, undefined, () => {
+      resolve(undefined);
+    });
   });
 }
 
@@ -187,7 +189,9 @@ export function promptLogoutProviderSelection(
         resolve(undefined);
       },
     });
-    host.mountEditorReplacement(picker);
+    host.mountEditorReplacement(picker, undefined, () => {
+      resolve(undefined);
+    });
   });
 }
 
@@ -235,7 +239,9 @@ export function promptBaseUrl(host: SlashCommandHost, platformName: string): Pro
         emptyHint: 'Base URL cannot be empty.',
       },
     );
-    host.mountEditorReplacement(dialog);
+    host.mountEditorReplacement(dialog, undefined, () => {
+      resolve(undefined);
+    });
   });
 }
 
@@ -270,7 +276,9 @@ export function promptCatalogProviderSelection(host: SlashCommandHost, catalog: 
         resolve(undefined);
       },
     });
-    host.mountEditorReplacement(picker);
+    host.mountEditorReplacement(picker, undefined, () => {
+      resolve(undefined);
+    });
   });
 }
 
@@ -359,7 +367,9 @@ export function runModelSelector(
         resolve(undefined);
       },
     });
-    host.mountEditorReplacement(selector);
+    host.mountEditorReplacement(selector, undefined, () => {
+      resolve(undefined);
+    });
   });
 }
 
@@ -371,7 +381,9 @@ export function promptFeedbackInput(host: SlashCommandHost): Promise<FeedbackPro
       host.restoreEditor();
       resolve(result.kind === 'ok' ? { value: result.value } : undefined);
     });
-    host.mountEditorReplacement(dialog);
+    host.mountEditorReplacement(dialog, undefined, () => {
+      resolve(undefined);
+    });
   });
 }
 
@@ -409,6 +421,8 @@ export function promptFeedbackAttachment(
         resolve(undefined);
       },
     });
-    host.mountEditorReplacement(picker);
+    host.mountEditorReplacement(picker, undefined, () => {
+      resolve(undefined);
+    });
   });
 }
