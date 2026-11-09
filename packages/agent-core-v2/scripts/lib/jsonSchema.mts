@@ -71,6 +71,9 @@ export function describeType(
     }
     return 'object';
   }
+  if (Array.isArray(s.type)) {
+    return s.type.map((type) => describeType({ ...s, type }, quoteString)).join(' | ');
+  }
   if (typeof s.type === 'string') return s.type;
   return 'any';
 }
