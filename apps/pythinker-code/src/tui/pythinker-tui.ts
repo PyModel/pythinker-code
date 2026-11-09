@@ -45,11 +45,9 @@ import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { appendInputHistory, loadInputHistory } from '#/utils/history/input-history';
 import { openUrl } from '#/utils/open-url';
 import { getInputHistoryFile } from '#/utils/paths';
-import { refreshEffortSwitchConfig } from '#/utils/effort-switch-config';
-import { refreshModelSwitchConfirmConfig } from '#/utils/model-switch-confirm-config';
 import { applyRecommendedEffort } from '#/utils/recommended-effort';
 import { getRecommendedEffortConfig } from '#/utils/recommended-effort-config';
-import { defaultModelManagedAccessToken, managedAccessToken } from '#/utils/managed-access-token';
+import { managedAccessToken } from '#/utils/managed-access-token';
 import { migrateLegacySurveySetting } from '#/utils/survey-setting';
 import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { quoteShellArg } from '#/utils/shell-quote';
@@ -778,7 +776,6 @@ export class PythinkerTUI {
     setEditorSlot(this.state, this.state.editor);
     this.state.ui.setFocus(this.state.editor);
     this.applyRecommendedEffortInBackground();
-    this.refreshSwitchConfigsInBackground();
     return shouldReplayHistory;
   }
 
@@ -851,19 +848,6 @@ export class PythinkerTUI {
     });
   }
 
-  private refreshSwitchConfigsInBackground(): void {
-    void (async () => {
-      try {
-        const accessToken = await defaultModelManagedAccessToken(this.harness);
-        await Promise.all([
-          refreshModelSwitchConfirmConfig({ accessToken }),
-          refreshEffortSwitchConfig({ accessToken }),
-        ]);
-      } catch {
-        // Best-effort warm-up: failures leave cloud-gated features disabled.
-      }
-    })();
-  }
 
   private async refreshProviderModelsInBackground(): Promise<void> {
     try {
@@ -4408,7 +4392,6 @@ export class PythinkerTUI {
     this.editorReplacementOnReplaced = onReplaced;
     this.editorReplacementOwner = owner;
     this.surveyController.notifyDisplaced();
-    if (this.state.activeDialog === 'model-switch-confirm') this.state.activeDialog = null;
     this.state.editorReplacementMounted = true;
     setEditorSlot(this.state, panel);
     if (!this.state.notifyPanel.focused) this.state.ui.setFocus(panel);

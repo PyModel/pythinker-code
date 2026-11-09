@@ -1,13 +1,9 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   AuthFlowController,
   type AuthFlowHost,
 } from '#/tui/controllers/auth-flow';
-import {
-  refreshModelSwitchConfirmConfig,
-  resetModelSwitchConfirmConfigCache,
-} from '#/utils/model-switch-confirm-config';
 
 function makeHost(
   options: {
@@ -71,23 +67,6 @@ function makeHost(
   };
   return { host, appState, session };
 }
-
-beforeEach(() => {
-  vi.stubEnv('CUSTOM_API_BASE_URL', 'https://api.example.test/coding/v1');
-  resetModelSwitchConfirmConfigCache();
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () =>
-      new Response(JSON.stringify({ name: 'model_switch_confirm', config: { enable: false, rules: [] } })),
-    ),
-  );
-});
-
-afterEach(() => {
-  resetModelSwitchConfirmConfigCache();
-  vi.unstubAllGlobals();
-  vi.unstubAllEnvs();
-});
 
 describe('login-required startup', () => {
   it('marks the application as blocked until authentication is resolved', () => {
@@ -168,121 +147,6 @@ describe('refreshConfigAfterLogin', () => {
     const reachedLazy = await new AuthFlowController(lazy.host).refreshConfigAfterLogin();
     expect(reachedLazy).toBe(false);
     expect(lazy.host.harness.createSession).not.toHaveBeenCalled();
-  });
-});
-
-describe('refreshConfigAfterLogin with a matching cloud rule', () => {
-  async function makeGateHost(
-    options: { withSession?: boolean; sessionType?: 'old' | 'new' | 'all' } = {},
-  ) {
-    const withSession = options.withSession ?? true;
-    const sessionType = options.sessionType ?? 'old';
-    const { host, session, appState } = makeHost({ withSession, defaultModel: 'k2' });
-    (appState as Record<string, unknown>)['streamingPhase'] = 'idle';
-    host.harness.getConfig = vi.fn(async () => ({
-      defaultModel: 'k2',
-      models: {
-        'old-model': { provider: 'openai', model: 'upstream-old', maxContextSize: 200_000 },
-        k2: {
-          provider: 'openai',
-          model: 'upstream-new',
-          maxContextSize: 200_000,
-          capabilities: ['thinking'],
-          supportEfforts: ['low', 'high'],
-          defaultEffort: 'high',
-        },
-      },
-      providers: {},
-    }));
-    (host as unknown as { state: Record<string, unknown> }).state['transcriptEntries'] = withSession
-      ? [{ kind: 'user', bullet: 'hi' }]
-      : [];
-    const mountEditorReplacement = vi.fn();
-    (host as unknown as Record<string, unknown>)['mountEditorReplacement'] = mountEditorReplacement;
-    (host as unknown as Record<string, unknown>)['restoreEditor'] = vi.fn();
-    (host as unknown as Record<string, unknown>)['showStatus'] = vi.fn();
-    (host as unknown as Record<string, unknown>)['showError'] = vi.fn();
-    (host as unknown as Record<string, unknown>)['showNotice'] = vi.fn();
-    (host as unknown as Record<string, unknown>)['track'] = vi.fn();
-    (host as unknown as Record<string, unknown>)['authFlow'] = new AuthFlowController(host);
-    await refreshModelSwitchConfirmConfig({
-      fetchImpl: vi.fn(async () =>
-        new Response(JSON.stringify({ name: 'model_switch_confirm', config: { enable: false, rules: [] } })),
-      ) as unknown as typeof fetch,
-    });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            name: 'model_switch_confirm',
-            config: {
-              enable: true,
-              rules: [{ from: 'upstream-old', to: 'upstream-new', session_type: sessionType }],
-            },
-          }),
-        ),
-      ),
-    );
-    return { host, session, appState, mountEditorReplacement };
-  }
-
-  it('gates the activation through the confirmation dialog and skips setModel', async () => {
-    const { host, session, mountEditorReplacement } = await makeGateHost();
-
-    const result = await new AuthFlowController(host).refreshConfigAfterLogin();
-
-    expect(result).toBe('gated');
-    expect(session!.setModel).not.toHaveBeenCalled();
-    expect(mountEditorReplacement).toHaveBeenCalledTimes(1);
-  });
-
-  it('gates an alias introduced by this login that the stale catalog lacks', async () => {
-    const { host, session, appState, mountEditorReplacement } = await makeGateHost();
-    // The pre-refresh catalog knows nothing about k2 — only the freshly loaded
-    // config introduces it, so the match must run against the new catalog.
-    (appState as Record<string, unknown>)['availableModels'] = {
-      'old-model': { model: 'upstream-old', displayName: 'Old' },
-    };
-
-    const result = await new AuthFlowController(host).refreshConfigAfterLogin();
-
-    expect(result).toBe('gated');
-    expect(session!.setModel).not.toHaveBeenCalled();
-    expect(mountEditorReplacement).toHaveBeenCalledTimes(1);
-  });
-
-  it('hydrates non-model defaults and uses the target effort after a session-less confirmation', async () => {
-    const { host, appState, mountEditorReplacement } = await makeGateHost({
-      withSession: false,
-      sessionType: 'new',
-    });
-
-    const result = await new AuthFlowController(host).refreshConfigAfterLogin();
-
-    expect(result).toBe('gated');
-    expect(host.hydrateLazyConfigDefaults).toHaveBeenCalledWith(false);
-    expect(appState.model).toBe('old-model');
-    const dialog = mountEditorReplacement.mock.calls[0]?.[0] as unknown as {
-      opts: { onSelect: (action: string) => void };
-    };
-    dialog.opts.onSelect('continue');
-    await vi.waitFor(() => {
-      expect(appState).toMatchObject({ model: 'k2', thinkingEffort: 'high', lazySessionThinking: 'high' });
-    });
-  });
-
-  it('forwards the caller picked effort to the gated dialog', async () => {
-    const { host, session, mountEditorReplacement } = await makeGateHost();
-
-    const result = await new AuthFlowController(host).refreshConfigAfterLogin('max');
-
-    expect(result).toBe('gated');
-    const dialog = mountEditorReplacement.mock.calls[0]?.[0] as unknown as {
-      opts: { onSelect: (action: string) => void };
-    };
-    dialog.opts.onSelect('continue');
-    await vi.waitFor(() => expect(session!.setThinking).toHaveBeenCalledWith('max'));
   });
 });
 

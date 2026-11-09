@@ -20,16 +20,3 @@ export async function managedAccessToken(
   if (!isManagedPythinkerCodeBaseUrl(entry.baseUrl ?? provider.baseUrl)) return undefined;
   return auth.getCachedAccessToken(provider.oauth);
 }
-
-/** {@link managedAccessToken} for the configured default model. */
-export async function defaultModelManagedAccessToken(harness: {
-  readonly auth: Pick<PythinkerAuthFacade, 'getCachedAccessToken'>;
-  getConfig(): Promise<{
-    readonly defaultModel?: string;
-    readonly models?: Readonly<Record<string, ModelAlias>>;
-    readonly providers?: Readonly<Record<string, ProviderConfig>>;
-  }>;
-}): Promise<string | undefined> {
-  const config = await harness.getConfig();
-  return managedAccessToken(harness.auth, config.defaultModel, config.models, config.providers ?? {});
-}

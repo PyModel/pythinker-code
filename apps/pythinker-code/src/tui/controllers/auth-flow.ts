@@ -6,16 +6,7 @@ import {
   type ThinkingEffort,
 } from '@pymodel/pythinker-code-sdk';
 
-import { managedAccessToken } from '#/utils/managed-access-token';
-import {
-  confirmThenPerformModelSwitch,
-  matchedModelSwitchRule,
-} from '../commands/config';
-import type { SlashCommandHost } from '../commands/dispatch';
 import { OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE } from '../constant/pythinker-tui';
-import { refreshEffortSwitchConfig } from '#/utils/effort-switch-config';
-import { refreshModelSwitchConfirmConfig } from '#/utils/model-switch-confirm-config';
-import { lazyModelSelection } from '../utils/model-switch';
 import { thinkingEffortFromConfig } from '../utils/thinking-config';
 import type { AppState, PythinkerTUIOptions } from '../types';
 
@@ -98,26 +89,16 @@ export class AuthFlowController {
 
   /**
    * Re-read config and reactivate the persisted model after login or a
-   * config-refreshing command. `effortOverride` is the caller's picked effort
-   * and wins over the config-derived one when the confirmation gate mounts.
-   * Returns whatever the activation reports (see {@link
-   * activateModelAfterLogin}), 'gated' when a cloud rule handed the switch to
-   * the confirmation dialog instead, and `false` when no activation ran.
+   * config-refreshing command. Returns whatever the activation reports (see
+   * {@link activateModelAfterLogin}); `false` when no activation ran.
    */
-  async refreshConfigAfterLogin(effortOverride?: ThinkingEffort): Promise<boolean | 'gated'> {
+  async refreshConfigAfterLogin(): Promise<boolean> {
     const { host } = this;
     const config = await host.harness.getConfig({ reload: true });
     const availableModels = config.models ?? {};
     const availableProviders = config.providers ?? {};
     const defaultModel = host.options.startup.model ?? config.defaultModel;
     const selected = defaultModel !== undefined ? availableModels[defaultModel] : undefined;
-    try {
-      const accessToken = await managedAccessToken(host.harness.auth, defaultModel, availableModels, availableProviders);
-      await Promise.all([
-        refreshModelSwitchConfirmConfig({ accessToken }),
-        refreshEffortSwitchConfig({ accessToken }),
-      ]);
-    } catch {}
 
     if (defaultModel === undefined || selected === undefined) {
       if (host.session === undefined) {
@@ -129,29 +110,10 @@ export class AuthFlowController {
       return false;
     }
 
-    const configuredEffort = thinkingEffortFromConfig(config.thinking);
-    const slashHost = this.host as unknown as SlashCommandHost;
-    host.setAppState({ availableModels, availableProviders });
-    if (matchedModelSwitchRule(slashHost, defaultModel) !== undefined) {
-      // A matching cloud rule gates the activation exactly like a picker
-      // switch: the dialog's actions own the session switch ('session' scope —
-      // the persisted default is already in config), so this refresh must not
-      // force the model patch over the user's choice. The catalog refresh must
-      // land BEFORE the match above, or an alias introduced by this login is
-      // invisible to the matcher and the gate never fires.
-      if (host.session === undefined) await host.hydrateLazyConfigDefaults(false);
-      const targetDefaultEffort =
-        host.session === undefined ? lazyModelSelection(config, defaultModel).thinkingEffort : undefined;
-      confirmThenPerformModelSwitch(
-        slashHost,
-        defaultModel,
-        effortOverride ?? configuredEffort ?? targetDefaultEffort ?? slashHost.state.appState.thinkingEffort,
-        'session',
-      );
-      return 'gated';
-    }
-
-    const activated = await this.activateModelAfterLogin(defaultModel, configuredEffort);
+    const activated = await this.activateModelAfterLogin(
+      defaultModel,
+      thinkingEffortFromConfig(config.thinking),
+    );
     if (host.session === undefined) {
       // Session-less v2: also hydrate permission/plan defaults from the
       // refreshed config, same as startup.

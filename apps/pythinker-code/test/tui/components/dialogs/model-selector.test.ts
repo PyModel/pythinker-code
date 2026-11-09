@@ -1,5 +1,4 @@
 import type { ModelAlias } from '@pymodel/pythinker-code-sdk';
-import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
 import { visibleWidth } from '@pymodel/pi-tui';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -540,37 +539,6 @@ describe('ModelSelectorComponent', () => {
     // Word-wrapped: nothing dropped — the full warning survives across lines.
     const squashed = lines.join('').replaceAll(/\s+/g, '');
     expect(squashed).toContain(warning.replaceAll(/\s+/g, ''));
-  });
-});
-
-describe('ModelSelectorComponent effort descriptions', () => {
-  it('updates descriptions for the highlighted effort and hides them for other providers', () => {
-    const picker = new ModelSelectorComponent({
-      models: {
-        pythinker: { ...effortModel('Kimi K3', ['low', 'high', 'max'], 'high'), provider: DEFAULT_OAUTH_PROVIDER_NAME },
-        custom: { ...effortModel('Custom K3', ['low', 'high', 'max'], 'high'), provider: 'custom' },
-      },
-      currentValue: 'pythinker',
-      currentThinkingEffort: 'high',
-      effortDescriptions: {
-        low: 'Light reasoning.',
-        high: 'Deeper reasoning.',
-        max: 'Maximum reasoning.',
-      },
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
-    });
-
-    expect(text(picker)).toContain('Deeper reasoning.');
-    picker.handleInput(RIGHT);
-    expect(text(picker)).toContain('Maximum reasoning.');
-    picker.handleInput(LEFT);
-    picker.handleInput(LEFT);
-    expect(text(picker)).toContain('Light reasoning.');
-    picker.handleInput(LEFT);
-    expect(text(picker)).not.toContain('Light reasoning.');
-    picker.handleInput(DOWN);
-    expect(text(picker)).not.toContain('Deeper reasoning.');
   });
 });
 

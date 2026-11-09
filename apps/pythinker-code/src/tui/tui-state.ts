@@ -84,7 +84,6 @@ export interface TUIState {
     | 'help'
     | 'trust-prompt'
     | 'cache-hint'
-    | 'model-switch-confirm'
     | 'goal-start'
     | null;
   /**
