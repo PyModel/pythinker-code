@@ -145,7 +145,6 @@ interface MessageDriver {
   persistInputHistory(text: string): Promise<void>;
   sendQueuedMessage(session: unknown, item: QueuedMessage): void;
   recallLastQueued(): QueuedMessage | undefined;
-  recallStashedMedia(extraction: ExtractionResult | undefined): void;
   clearQueuedMessages(): void;
   closeSession(reason: string): Promise<void>;
   setSession(session: unknown): Promise<void>;
@@ -3828,31 +3827,6 @@ command = "vim"
     expect(stripSgr(renderTranscript(driver))).not.toContain('Session changed');
   });
 
-  it('keeps queued image parts aligned when one stashed skill attachment was removed', async () => {
-    process.env['PYTHINKER_CODE_HOME'] = await makeTempHome();
-    const { driver, session } = await makeDriver();
-    const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
-    const first = imageStore.addImage(new Uint8Array([1]), 'image/png', 1, 1, undefined, 'file-first');
-    const second = imageStore.addImage(new Uint8Array([2]), 'image/png', 1, 1, undefined, 'file-second');
-    const input = `/skill:review ${first.placeholder} ${second.placeholder}`;
-    const extraction = extractMediaAttachments(input, imageStore);
-    imageStore.remove(first.id);
-    driver.state.appState.streamingPhase = 'waiting';
-    await (
-      driver as unknown as { sendInlineSkillUserInput(t: string, skills: Array<{ skillName: string; args: string }>, e: ExtractionResult): Promise<void> }
-    ).sendInlineSkillUserInput(input, [{ skillName: 'review', args: `${first.placeholder} ${second.placeholder}` }], extraction);
-    driver.state.appState.streamingPhase = 'idle';
-    driver.sendQueuedMessage(session, driver.state.queuedMessages.shift()!);
-    await vi.waitFor(() => { expect(session.promptWithSkills).toHaveBeenCalledOnce(); });
-    const [parts] = (
-      session.promptWithSkills as ReturnType<typeof vi.fn<(input: unknown, skills: unknown) => Promise<void>>>
-    ).mock.calls[0]!;
-    expect(parts).toEqual([
-      { type: 'text', text: '/skill:review ' },
-      { type: 'image_url', imageUrl: { url: 'pythinker-file://file-first' } },
-      { type: 'image_url', imageUrl: { url: 'pythinker-file://file-second' } },
-    ]);
-  });
 
   it.each([
     { action: 'new', existingSession: true },

@@ -68,7 +68,6 @@ auto_install = false
     expect(host.state.appState).toMatchObject({
       theme: 'light',
       editorCommand: 'vim',
-      cacheExpiryHint: false,
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
     });
