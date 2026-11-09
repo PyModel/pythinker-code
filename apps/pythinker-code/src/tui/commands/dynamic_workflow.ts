@@ -139,7 +139,7 @@ async function setDynamicWorkflowMode(
     await host.requireSession().setDynamicWorkflowMode(enabled, trigger);
   } catch (error) {
     host.showError(
-      `Failed to ${enabled ? 'enable' : 'disable'} dynamic_workflow mode: ${formatErrorMessage(error)}`,
+      `Failed to ${enabled ? 'enable' : 'disable'} Dynamic Workflow mode: ${formatErrorMessage(error)}`,
     );
     return false;
   }

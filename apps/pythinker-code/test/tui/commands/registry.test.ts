@@ -51,7 +51,7 @@ describe('built-in slash command registry', () => {
     expect(resolveSlashCommandAvailability(plan!, 'clear')).toBe('idle-only');
   });
 
-  it('keeps dynamic_workflow mode changes and dynamic_workflow tasks idle-only', () => {
+  it('keeps Dynamic Workflow mode changes and Dynamic Workflow tasks idle-only', () => {
     const dynamic_workflow = findBuiltInSlashCommand('dynamic_workflow');
     expect(dynamic_workflow).toBeDefined();
     expect((dynamic_workflow as PythinkerSlashCommand).experimentalFlag).toBeUndefined();
@@ -69,7 +69,7 @@ describe('built-in slash command registry', () => {
     expect(values('')).toEqual(['on', 'off']);
     expect(values('O')).toEqual(['on', 'off']);
     expect(dynamicWorkflowArgumentCompletions('of')).toEqual([
-      { value: 'off', label: 'off', description: 'Turn dynamic_workflow mode off' },
+      { value: 'off', label: 'off', description: 'Turn Dynamic Workflow mode off' },
     ]);
     expect(values('on')).toBeNull();
     expect(values('off')).toBeNull();

@@ -22,8 +22,8 @@ const GOAL_NEXT_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
 ];
 
 const DYNAMIC_WORKFLOW_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'on', description: 'Turn dynamic_workflow mode on' },
-  { value: 'off', description: 'Turn dynamic_workflow mode off' },
+  { value: 'on', description: 'Turn Dynamic Workflow mode on' },
+  { value: 'off', description: 'Turn Dynamic Workflow mode off' },
 ];
 
 const TOWER_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
@@ -183,7 +183,7 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'dynamic_workflow',
     aliases: [],
-    description: 'Toggle dynamic_workflow mode or run one task in dynamic_workflow mode',
+    description: 'Toggle Dynamic Workflow mode or run one task in Dynamic Workflow mode',
     priority: 100,
     argumentHint: '[on|off] | <task>',
     completeArgs: dynamicWorkflowArgumentCompletions,

@@ -37,7 +37,7 @@ function delegationText(name: string, args: Record<string, unknown>): string | u
       : 0;
   const total = newCount + resumedCount;
   if (total === 0) return undefined;
-  return `▸ Delegated to a dynamic_workflow of ${String(total)} subagents`;
+  return `▸ Delegated to a Dynamic Workflow of ${String(total)} subagents`;
 }
 
 export class NotifyController {

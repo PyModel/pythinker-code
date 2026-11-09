@@ -683,7 +683,7 @@ describe('NotifyController', () => {
     });
     expect(h.texts()).toEqual([
       '▸ Delegated to explore: **zh example zh**',
-      '▸ Delegated to a dynamic_workflow of 3 subagents',
+      '▸ Delegated to a Dynamic Workflow of 3 subagents',
     ]);
   });
 
@@ -694,7 +694,7 @@ describe('NotifyController', () => {
       name: 'AgentDynamicWorkflow',
       args: { resume_agent_ids: { 'agent-1': 'continue the review', 'agent-2': 'keep going' } },
     });
-    expect(h.texts()).toEqual(['▸ Delegated to a dynamic_workflow of 2 subagents']);
+    expect(h.texts()).toEqual(['▸ Delegated to a Dynamic Workflow of 2 subagents']);
 
     h.emit('tool.call.started', {
       toolCallId: 'a2',
@@ -702,8 +702,8 @@ describe('NotifyController', () => {
       args: { items: ['x', 'y'], resume_agent_ids: { 'agent-3': 'resume' } },
     });
     expect(h.texts()).toEqual([
-      '▸ Delegated to a dynamic_workflow of 2 subagents',
-      '▸ Delegated to a dynamic_workflow of 3 subagents',
+      '▸ Delegated to a Dynamic Workflow of 2 subagents',
+      '▸ Delegated to a Dynamic Workflow of 3 subagents',
     ]);
   });
 

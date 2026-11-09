@@ -9023,7 +9023,7 @@ capabilities = ["image_in", "video_in"]
     expect(stripSgr(renderTranscript(driver))).not.toContain('Tower mode ended');
   });
 
-  it('renders dynamic_workflow mode markers from /dynamic_workflow commands, not tool-triggered status updates', async () => {
+  it('renders Dynamic Workflow mode markers from /dynamic_workflow commands, not tool-triggered status updates', async () => {
     const { driver } = await makeDriver();
 
     driver.sessionEventHandler.handleEvent(
@@ -10139,7 +10139,7 @@ capabilities = ["image_in", "video_in"]
     expect(transcript).not.toContain('002 [');
   });
 
-  it('does not render an AgentDynamicWorkflow call that is rejected while dynamic_workflow mode is off', async () => {
+  it('does not render an AgentDynamicWorkflow call that is rejected while Dynamic Workflow mode is off', async () => {
     const { driver } = await makeDriver();
     const sendQueued = vi.fn();
 
@@ -10240,7 +10240,7 @@ capabilities = ["image_in", "video_in"]
     expect(transcript).not.toContain('requires at least 2 items');
   });
 
-  it('shows a dynamic_workflow whose subagents start while dynamic_workflow mode still shows as off', async () => {
+  it('shows a dynamic_workflow whose subagents start while Dynamic Workflow mode still shows as off', async () => {
     const { driver } = await makeDriver();
     const sendQueued = vi.fn();
 
