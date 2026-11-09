@@ -1,0 +1,211 @@
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+import { z } from 'zod';
+
+import type { PythinkerErrorPayload } from '#/_base/errors/serialize';
+import {
+  ContextAppendLoopEvent,
+  ContextApplyCompaction,
+  ContextClear,
+  ContextUndo,
+} from '#/agent/contextMemory/contextEvents';
+import { isUndoAnchorOrigin } from '#/agent/contextMemory/conversationTime';
+import type { PromptOrigin } from '#/agent/contextMemory/types';
+import { AgentEvent2, type SerializedEvent2 } from '#/app/event/event2';
+import type { ContentPart } from '#human/llm/message';
+import { defineState } from '#/state/state';
+
+import type { TurnEndReason, TurnInterruptReason } from './turnEvents';
+
+export interface TurnModelState {
+  readonly nextTurnId: number;
+  readonly cancelledTurnIds: readonly number[];
+  readonly anchorTurnIds: readonly number[];
+  readonly lastEnded?: {
+    readonly turnId: number;
+    readonly reason: 'completed' | 'cancelled' | 'failed' | 'blocked';
+    readonly durationMs?: number;
+  };
+}
+
+const turnPromptSchema = z.object({
+  agentId: z.string(),
+  input: z.custom<readonly ContentPart[]>(),
+  origin: z.custom<PromptOrigin>(),
+  promptId: z.string().optional(),
+  turnId: z.number().optional(),
+});
+
+export class TurnPrompt extends AgentEvent2<z.infer<typeof turnPromptSchema>> {
+  static override readonly type = 'turn.prompt';
+  static override readonly durable = true;
+  static override readonly schema = turnPromptSchema;
+}
+export interface TurnPrompt {
+  readonly agentId: string;
+  readonly input: readonly ContentPart[];
+  readonly origin: PromptOrigin;
+  readonly promptId?: string;
+  readonly turnId?: number;
+}
+
+const turnSteerSchema = z.object({
+  agentId: z.string(),
+  input: z.custom<readonly ContentPart[]>(),
+  origin: z.custom<PromptOrigin>(),
+  messageId: z.string().optional(),
+  promptIds: z.array(z.string()).optional(),
+  turnId: z.number().optional(),
+});
+
+export class TurnSteer extends AgentEvent2<z.infer<typeof turnSteerSchema>> {
+  static override readonly type = 'turn.steer';
+  static override readonly durable = true;
+  static override readonly observable = true;
+  static override readonly schema = turnSteerSchema;
+}
+export interface TurnSteer {
+  readonly agentId: string;
+  readonly input: readonly ContentPart[];
+  readonly origin: PromptOrigin;
+  readonly messageId?: string;
+  readonly promptIds?: readonly string[];
+  readonly turnId?: number;
+}
+
+const turnCancelSchema = z.object({
+  agentId: z.string(),
+  turnId: z.number().optional(),
+  target: z.enum(['active', 'queued']).optional(),
+  reason: z.enum(['user_cancelled', 'aborted']).optional(),
+});
+
+export class TurnCancel extends AgentEvent2<z.infer<typeof turnCancelSchema>> {
+  static override readonly type = 'turn.cancel';
+  static override readonly durable = true;
+  static override readonly schema = turnCancelSchema;
+}
+export interface TurnCancel {
+  readonly agentId: string;
+  readonly turnId?: number;
+  readonly target?: 'active' | 'queued';
+  readonly reason?: 'user_cancelled' | 'aborted';
+}
+
+const turnEndedSchema = z.object({
+  agentId: z.string(),
+  turnId: z.number(),
+  reason: z.enum(['completed', 'cancelled', 'failed', 'blocked']),
+  error: z.custom<PythinkerErrorPayload>().optional(),
+  durationMs: z.number().optional(),
+  stopReason: z.string().optional(),
+  traceId: z.string().optional(),
+});
+
+export interface TurnEndedPayload {
+  readonly agentId: string;
+  readonly turnId: number;
+  readonly reason: 'completed' | 'cancelled' | 'failed' | 'blocked';
+  readonly error?: PythinkerErrorPayload;
+  readonly durationMs?: number;
+  readonly interruptReason?: TurnInterruptReason;
+  readonly stopReason?: string;
+  readonly traceId?: string;
+}
+
+export class TurnEnded extends AgentEvent2<TurnEndedPayload> {
+  static override readonly type = 'turn.ended';
+  static override readonly durable = true;
+  static override readonly observable = true;
+  static override readonly schema = turnEndedSchema;
+
+  override serialize(): SerializedEvent2 {
+    const record: Record<string, unknown> = {
+      type: this.type,
+      agentId: this.agentId,
+      turnId: this.turnId,
+      reason: this.reason,
+    };
+    if (this.error !== undefined) record['error'] = this.error;
+    if (this.durationMs !== undefined) record['durationMs'] = this.durationMs;
+    if (this.stopReason !== undefined) record['stopReason'] = this.stopReason;
+    if (this.traceId !== undefined) record['traceId'] = this.traceId;
+    record['time'] = this.time;
+    return record as SerializedEvent2;
+  }
+}
+export interface TurnEnded extends TurnEndedPayload {}
+
+export const turnKey = defineState(
+  'turn',
+  (): TurnModelState => ({ nextTurnId: 0, cancelledTurnIds: [], anchorTurnIds: [] }),
+).replayable({ schema: z.custom<TurnModelState>() })
+  .on(ContextAppendLoopEvent, (s, e) => {
+    const { event } = e;
+    if (event.type === 'tool.result' || event.turnId === undefined) return;
+    const turnId = Number.parseInt(event.turnId, 10);
+    if (!Number.isInteger(turnId)) return;
+    let next: TurnModelState = s;
+    if (turnId >= next.nextTurnId) next = advanceTurnClock(next, turnId + 1);
+    if (next.lastEnded !== undefined && turnId > next.lastEnded.turnId) {
+      next = { ...next, lastEnded: undefined };
+    }
+    if (next !== s) return next;
+  })
+  .on(TurnPrompt, (s, e) => {
+    const assigned = e.turnId ?? s.nextTurnId;
+    const next = advanceTurnClock(s, assigned + 1);
+    if (!isUndoAnchorOrigin(e.origin)) return next;
+    return { ...next, anchorTurnIds: [...s.anchorTurnIds, assigned] };
+  })
+  .on(TurnSteer, () => {})
+  .on(ContextUndo, (s, e) => {
+    const firstRemoved = s.anchorTurnIds[s.anchorTurnIds.length - e.count];
+    const lastEnded = s.lastEnded;
+    return {
+      ...s,
+      anchorTurnIds: s.anchorTurnIds.slice(0, Math.max(0, s.anchorTurnIds.length - e.count)),
+      lastEnded:
+        lastEnded !== undefined &&
+        (firstRemoved === undefined || lastEnded.turnId >= firstRemoved)
+          ? undefined
+          : lastEnded,
+    };
+  })
+  .on(ContextApplyCompaction, (s) => ({ ...s, anchorTurnIds: [] }))
+  .on(ContextClear, (s) => ({ ...s, anchorTurnIds: [] }))
+  .on(TurnCancel, (s, e) => {
+    if (e.target === undefined || e.turnId === undefined) return;
+    if (e.turnId < s.nextTurnId) return;
+    return advanceTurnClock(s, s.nextTurnId, [...s.cancelledTurnIds, e.turnId]);
+  })
+  .on(TurnEnded, (s, e) => ({
+    ...s,
+    lastEnded: { turnId: e.turnId, reason: e.reason, durationMs: e.durationMs },
+  }));
+
+export interface TurnEndedEvent {
+  readonly type: 'turn.ended';
+  readonly time?: number;
+  readonly turnId: number;
+  readonly reason: TurnEndReason;
+  readonly error?: PythinkerErrorPayload;
+  readonly durationMs?: number;
+  readonly interruptReason?: TurnInterruptReason;
+  readonly traceId?: string;
+}
+
+function advanceTurnClock(
+  state: TurnModelState,
+  nextTurnId: number,
+  cancelledTurnIds: readonly number[] = state.cancelledTurnIds,
+): TurnModelState {
+  const pendingCancellations = new Set(
+    cancelledTurnIds.filter((turnId) => turnId >= nextTurnId),
+  );
+  while (pendingCancellations.delete(nextTurnId)) nextTurnId += 1;
+  return {
+    ...state,
+    nextTurnId,
+    cancelledTurnIds: [...pendingCancellations].toSorted((a, b) => a - b),
+  };
+}

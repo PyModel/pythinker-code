@@ -1,0 +1,561 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  foldAppendMessage,
+  foldLoopEvent,
+  type LoopRecordedEvent,
+} from '#/agent/contextMemory/loopEventFold';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+
+describe('loop-event fold parity', () => {
+  function appendAll(
+    state: readonly ContextMessage[],
+    messages: readonly ContextMessage[],
+  ): readonly ContextMessage[] {
+    let next = state;
+    for (const message of messages) {
+      next = foldAppendMessage(next, message);
+    }
+    return next;
+  }
+
+  function foldAll(
+    state: readonly ContextMessage[],
+    events: readonly LoopRecordedEvent[],
+  ): readonly ContextMessage[] {
+    let next = state;
+    for (const event of events) {
+      next = foldLoopEvent(next, event);
+    }
+    return next;
+  }
+
+  function comparable(messages: readonly ContextMessage[]): unknown {
+    return messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+      toolCalls: m.role === 'assistant' ? m.toolCalls : undefined,
+      toolCallId: m.role === 'tool' ? m.toolCallId : undefined,
+      isError: m.isError,
+      note: m.note,
+      durationMs: m.durationMs,
+    }));
+  }
+
+  it('folds a text + tool-call + tool-result step into the append_message shape', () => {
+    const baseline = comparable(
+      appendAll([], [
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'I will call.' }],
+          toolCalls: [{ type: 'function', id: 'c1', name: 'Bash', arguments: '{"q":"moon"}' }],
+        },
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'lookup result' }],
+          toolCallId: 'c1',
+          isError: false,
+          durationMs: 42,
+        },
+        {
+          role: 'assistant',
+          content: [],
+          toolCalls: [{ type: 'function', id: 'c2', name: 'Lookup', arguments: '{"q":"mars"}' }],
+        },
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'other result' }],
+          toolCallId: 'c2',
+          isError: false,
+        },
+      ]),
+    );
+
+    const folded = comparable(
+      foldAll([], [
+        { type: 'step.begin', uuid: 's1' },
+        {
+          type: 'content.part',
+          stepUuid: 's1',
+          part: { type: 'text', text: 'I will call.' },
+        },
+        {
+          type: 'tool.call',
+          stepUuid: 's1',
+          toolCallId: 'c1',
+          name: 'Bash',
+          args: { q: 'moon' },
+        },
+        {
+          type: 'tool.result',
+          toolCallId: 'c1',
+          result: { output: 'lookup result', isError: false, durationMs: 42 },
+        },
+        { type: 'step.end', uuid: 's1' },
+        { type: 'step.begin', uuid: 's2' },
+        {
+          type: 'tool.call',
+          stepUuid: 's2',
+          toolCallId: 'c2',
+          name: 'Lookup',
+          args: { q: 'mars' },
+        },
+        {
+          type: 'tool.result',
+          toolCallId: 'c2',
+          result: { output: 'other result', isError: false, durationMs: 7 },
+        },
+        { type: 'step.end', uuid: 's2' },
+      ]),
+    );
+
+    expect(folded).toEqual(baseline);
+  });
+
+  it('folds an errored tool result into the append_message shape', () => {
+    const baseline = comparable(
+      appendAll([], [
+        {
+          role: 'assistant',
+          content: [],
+          toolCalls: [{ type: 'function', id: 'c2', name: 'Bash', arguments: '{}' }],
+        },
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'boom' }],
+          toolCallId: 'c2',
+          isError: true,
+        },
+      ]),
+    );
+
+    const folded = comparable(
+      foldAll([], [
+        { type: 'step.begin', uuid: 's2' },
+        {
+          type: 'tool.call',
+          stepUuid: 's2',
+          toolCallId: 'c2',
+          name: 'Bash',
+          args: {},
+        },
+        {
+          type: 'tool.result',
+          toolCallId: 'c2',
+          result: { output: 'boom', isError: true },
+        },
+        { type: 'step.end', uuid: 's2' },
+      ]),
+    );
+
+    expect(folded).toEqual(baseline);
+  });
+
+  function shapes(messages: readonly ContextMessage[]) {
+    return messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+      toolCalls: m.role === 'assistant' ? m.toolCalls : undefined,
+      toolCallId: m.role === 'tool' ? m.toolCallId : undefined,
+      isError: m.isError,
+      partial: m.partial,
+    }));
+  }
+
+  it('drops an empty partial assistant left by a failed attempt when the retry begins', () => {
+    const folded = foldAll([], [
+      { type: 'step.begin', uuid: 's1' },
+      { type: 'step.begin', uuid: 's2' },
+      {
+        type: 'content.part',
+        stepUuid: 's2',
+        part: { type: 'text', text: 'recovered' },
+      },
+      { type: 'step.end', uuid: 's2' },
+    ]);
+
+    expect(shapes(folded)).toEqual([
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'recovered' }],
+        toolCalls: [],
+        toolCallId: undefined,
+        isError: undefined,
+        partial: undefined,
+      },
+    ]);
+  });
+
+  it('seals a failed attempt’s partial assistant and closes its tool exchange on the next step.begin', () => {
+    const folded = foldAll([], [
+      { type: 'step.begin', uuid: 's1' },
+      {
+        type: 'content.part',
+        stepUuid: 's1',
+        part: { type: 'text', text: 'half' },
+      },
+      {
+        type: 'tool.call',
+        stepUuid: 's1',
+        toolCallId: 'c1',
+        name: 'Bash',
+        args: {},
+      },
+      { type: 'step.begin', uuid: 's2' },
+    ]);
+
+    expect(shapes(folded)).toEqual([
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'half' }],
+        toolCalls: [{ type: 'function', id: 'c1', name: 'Bash', arguments: '{}' }],
+        toolCallId: undefined,
+        isError: undefined,
+        partial: undefined,
+      },
+      {
+        role: 'tool',
+        content: expect.any(Array),
+        toolCalls: undefined,
+        toolCallId: 'c1',
+        isError: true,
+        partial: undefined,
+      },
+      {
+        role: 'assistant',
+        content: [],
+        toolCalls: [],
+        toolCallId: undefined,
+        isError: undefined,
+        partial: true,
+      },
+    ]);
+  });
+
+  it('drops an assistant that produced no output at step.end', () => {
+    const folded = foldAll([], [
+      { type: 'step.begin', uuid: 's1' },
+      { type: 'step.end', uuid: 's1' },
+    ]);
+
+    expect(folded).toEqual([]);
+  });
+
+  it('keeps the open assistant untouched when step.end reports an interruption', () => {
+    const folded = foldAll([], [
+      { type: 'step.begin', uuid: 's1' },
+      {
+        type: 'content.part',
+        stepUuid: 's1',
+        part: { type: 'text', text: 'partial' },
+      },
+      { type: 'step.end', uuid: 's1', finishReason: 'interrupted' },
+    ]);
+
+    expect(shapes(folded)).toEqual([
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'partial' }],
+        toolCalls: [],
+        toolCallId: undefined,
+        isError: undefined,
+        partial: true,
+      },
+    ]);
+  });
+
+  it('settles a failed step at the next step.begin as before', () => {
+    const folded = foldAll([], [
+      { type: 'step.begin', uuid: 's1' },
+      { type: 'step.end', uuid: 's1', finishReason: 'error' },
+      { type: 'step.begin', uuid: 's2' },
+      {
+        type: 'content.part',
+        stepUuid: 's2',
+        part: { type: 'text', text: 'recovered' },
+      },
+      { type: 'step.end', uuid: 's2' },
+    ]);
+
+    expect(shapes(folded)).toEqual([
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'recovered' }],
+        toolCalls: [],
+        toolCallId: undefined,
+        isError: undefined,
+        partial: undefined,
+      },
+    ]);
+  });
+
+  it('drops an assistant whose only recorded part is an empty thinking block at step.end', () => {
+    const folded = foldAll([], [
+      { type: 'step.begin', uuid: 's1' },
+      {
+        type: 'content.part',
+        stepUuid: 's1',
+        part: { type: 'think', think: '' },
+      },
+      { type: 'step.end', uuid: 's1' },
+    ]);
+
+    expect(folded).toEqual([]);
+  });
+
+  it('drops a vacuous partial assistant left by a failed attempt when the retry begins', () => {
+    const folded = foldAll([], [
+      { type: 'step.begin', uuid: 's1' },
+      {
+        type: 'content.part',
+        stepUuid: 's1',
+        part: { type: 'think', think: '   ' },
+      },
+      { type: 'step.begin', uuid: 's2' },
+      {
+        type: 'content.part',
+        stepUuid: 's2',
+        part: { type: 'text', text: 'recovered' },
+      },
+      { type: 'step.end', uuid: 's2' },
+    ]);
+
+    expect(shapes(folded)).toEqual([
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'recovered' }],
+        toolCalls: [],
+        toolCallId: undefined,
+        isError: undefined,
+        partial: undefined,
+      },
+    ]);
+  });
+
+  it('seals a step whose thinking block has real content', () => {
+    const folded = foldAll([], [
+      { type: 'step.begin', uuid: 's1' },
+      {
+        type: 'content.part',
+        stepUuid: 's1',
+        part: { type: 'think', think: 'real reasoning' },
+      },
+      { type: 'step.end', uuid: 's1' },
+    ]);
+
+    expect(folded.at(-1)?.content).toEqual([{ type: 'think', think: 'real reasoning' }]);
+  });
+
+  it('seals a step whose empty thinking block carries a provider signature', () => {
+    const folded = foldAll([], [
+      { type: 'step.begin', uuid: 's1' },
+      {
+        type: 'content.part',
+        stepUuid: 's1',
+        part: { type: 'think', think: '', encrypted: 'sig' },
+      },
+      { type: 'step.end', uuid: 's1' },
+    ]);
+
+    expect(folded.at(-1)?.content).toEqual([{ type: 'think', think: '', encrypted: 'sig' }]);
+  });
+
+  it('seals a step that pairs an empty thinking block with real text', () => {
+    const folded = foldAll([], [
+      { type: 'step.begin', uuid: 's1' },
+      {
+        type: 'content.part',
+        stepUuid: 's1',
+        part: { type: 'think', think: '' },
+      },
+      {
+        type: 'content.part',
+        stepUuid: 's1',
+        part: { type: 'text', text: 'answer' },
+      },
+      { type: 'step.end', uuid: 's1' },
+    ]);
+
+    expect(folded.at(-1)?.content).toEqual([
+      { type: 'think', think: '' },
+      { type: 'text', text: 'answer' },
+    ]);
+  });
+
+  it('seals an assistant with tool calls even when its thinking block is empty', () => {
+    const folded = foldAll([], [
+      { type: 'step.begin', uuid: 's1' },
+      {
+        type: 'content.part',
+        stepUuid: 's1',
+        part: { type: 'think', think: '' },
+      },
+      {
+        type: 'tool.call',
+        stepUuid: 's1',
+        toolCallId: 'c1',
+        name: 'Lookup',
+        args: {},
+      },
+      { type: 'step.end', uuid: 's1' },
+    ]);
+
+    expect(shapes(folded)).toEqual([
+      {
+        role: 'assistant',
+        content: [{ type: 'think', think: '' }],
+        toolCalls: [{ type: 'function', id: 'c1', name: 'Lookup', arguments: '{}' }],
+        toolCallId: undefined,
+        isError: undefined,
+        partial: undefined,
+      },
+      {
+        role: 'tool',
+        content: expect.any(Array),
+          toolCallId: 'c1',
+        isError: true,
+        partial: undefined,
+      },
+    ]);
+  });
+
+  it('folds a tool-result note as structured model-only metadata', () => {
+    const baseline = comparable(
+      appendAll([], [
+        {
+          role: 'assistant',
+          content: [],
+          toolCalls: [{ type: 'function', id: 'c3', name: 'Screenshot', arguments: '{}' }],
+        },
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'result text' }],
+          toolCallId: 'c3',
+          isError: false,
+          note: '<system>Image compressed.</system>',
+        },
+      ]),
+    );
+
+    const folded = comparable(
+      foldAll([], [
+        { type: 'step.begin', uuid: 's3' },
+        {
+          type: 'tool.call',
+          stepUuid: 's3',
+          toolCallId: 'c3',
+          name: 'Screenshot',
+          args: {},
+        },
+        {
+          type: 'tool.result',
+          toolCallId: 'c3',
+          result: {
+            output: 'result text',
+            isError: false,
+            note: '<system>Image compressed.</system>',
+          },
+        },
+        { type: 'step.end', uuid: 's3' },
+      ]),
+    );
+
+    expect(folded).toEqual(baseline);
+  });
+
+  it('attaches step.end usage and timing to the sealed assistant message', () => {
+    const [assistant] = foldAll([], [
+      { type: 'step.begin', uuid: 'st1' },
+      {
+        type: 'content.part',
+        stepUuid: 'st1',
+        part: { type: 'text', text: 'a1' },
+      },
+      {
+        type: 'step.end',
+        uuid: 'st1',
+        usage: { inputOther: 10, output: 20, inputCacheRead: 30, inputCacheCreation: 40 },
+        llmFirstTokenLatencyMs: 800,
+        llmStreamDurationMs: 5000,
+      },
+    ]);
+    expect(assistant?.usage).toEqual({
+      inputOther: 10,
+      output: 20,
+      inputCacheRead: 30,
+      inputCacheCreation: 40,
+    });
+    expect(assistant?.llmTiming).toEqual({
+      llmFirstTokenLatencyMs: 800,
+      llmStreamDurationMs: 5000,
+    });
+  });
+
+  it('seals without usage or timing when step.end carries neither', () => {
+    const [assistant] = foldAll([], [
+      { type: 'step.begin', uuid: 'st1' },
+      {
+        type: 'content.part',
+        stepUuid: 'st1',
+        part: { type: 'text', text: 'a1' },
+      },
+      { type: 'step.end', uuid: 'st1' },
+    ]);
+    expect(assistant?.usage).toBeUndefined();
+    expect(assistant?.llmTiming).toBeUndefined();
+  });
+
+  it('matches immutable output while reusing the state array in mutable mode', () => {
+    const user: ContextMessage = { role: 'user', content: [{ type: 'text', text: 'go' }] };
+    let actual = foldAppendMessage([], user, true);
+    let expected = foldAppendMessage([], user);
+    const restored = actual;
+    const events: LoopRecordedEvent[] = [
+      { type: 'step.begin', uuid: 's1' },
+      { type: 'content.part', stepUuid: 's1', part: { type: 'text', text: 'first' } },
+      { type: 'tool.call', stepUuid: 's1', toolCallId: 'c1', name: 'Bash', args: {} },
+      { type: 'tool.result', toolCallId: 'c1', result: { output: 'done' } },
+      { type: 'step.end', uuid: 's1' },
+      { type: 'step.begin', uuid: 's2' },
+      { type: 'step.begin', uuid: 's3' },
+      { type: 'content.part', stepUuid: 's3', part: { type: 'text', text: 'last' } },
+      { type: 'step.end', uuid: 's3' },
+    ];
+    for (const event of events) {
+      actual = foldLoopEvent(actual, event, true);
+      expected = foldLoopEvent(expected, event);
+      expect(actual).toBe(restored);
+      expect(actual).toEqual(expected);
+    }
+  });
+
+  it('preserves deferred messages when mutable replay switches to live folding', () => {
+    const events: LoopRecordedEvent[] = [
+      { type: 'step.begin', uuid: 's1' },
+      { type: 'tool.call', stepUuid: 's1', toolCallId: 'c1', name: 'Bash', args: {} },
+    ];
+    let actual: readonly ContextMessage[] = [];
+    let expected: readonly ContextMessage[] = [];
+    for (const event of events) {
+      actual = foldLoopEvent(actual, event, true);
+      expected = foldLoopEvent(expected, event);
+    }
+    const deferred: ContextMessage = {
+      role: 'user',
+      content: [{ type: 'text', text: 'deferred' }],
+    };
+    actual = foldAppendMessage(actual, deferred, true);
+    expected = foldAppendMessage(expected, deferred);
+    expect(actual).toEqual(expected);
+
+    for (const event of [
+      { type: 'tool.result', toolCallId: 'c1', result: { output: 'done' } },
+      { type: 'step.end', uuid: 's1' },
+    ] as const) {
+      actual = foldLoopEvent(actual, event, false);
+      expected = foldLoopEvent(expected, event);
+      expect(actual).toEqual(expected);
+    }
+    expect(actual.map((message) => message.role)).toEqual(['assistant', 'tool', 'user']);
+  });
+});

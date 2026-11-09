@@ -1,0 +1,195 @@
+import { CLI_COMMAND_NAME } from '#/constant/app';
+import { registerMigrateCommand, type MigrateCommandOptions } from '#/migration/index';
+import { registerImportSessionsCommand } from '#/session-import/index';
+import { Command, InvalidArgumentError, Option } from 'commander';
+
+import type { CLIOptions } from './options';
+import { registerAcpCommand } from './sub/acp';
+import { registerDoctorCommand } from './sub/doctor';
+import { registerExportCommand } from './sub/export';
+import { registerForkCommand } from './sub/fork';
+import { registerInstallAppCommand } from './sub/install-app';
+import { registerLoginCommand } from './sub/login';
+import { registerProviderCommand } from './sub/provider';
+import { registerSessionCommand } from './sub/session';
+import { registerVisCommand } from './sub/vis';
+import { registerWebCommand } from './sub/web';
+
+export type MainCommandHandler = (opts: CLIOptions) => void;
+export type MigrateCommandHandler = (options: MigrateCommandOptions) => void;
+export type PluginNodeRunnerHandler = (entry: string, args: readonly string[]) => void;
+export type UpgradeCommandHandler = (yes: boolean) => void | Promise<void>;
+export type UpdateDownloadHandler = (version: string, manual: boolean) => void;
+
+export function createProgram(
+  version: string,
+  onMain: MainCommandHandler,
+  onMigrate: MigrateCommandHandler,
+  onPluginNodeRunner: PluginNodeRunnerHandler = () => {},
+  onUpgrade: UpgradeCommandHandler = () => {},
+  onUpdateDownload: UpdateDownloadHandler = () => {},
+): Command {
+  const program = new Command(CLI_COMMAND_NAME)
+    .description('The Starting Point for Next-Gen Agents')
+    .version(version, '-V, --version')
+    .allowUnknownOption(false)
+    .enablePositionalOptions()
+    .configureHelp({ helpWidth: 100 })
+    .helpOption('-h, --help', 'Show help.')
+    .usage('[options] [command]')
+    .addHelpText('after', '\nDocumentation:        https://code.pythinker.com/pythinker-code/\n');
+
+  program
+    .addOption(
+      new Option(
+        '-S, --session [id]',
+        'Resume a session. With ID: resume that session. Without ID: interactively pick.',
+      ).argParser((val: string | boolean) => (val === true ? '' : (val as string))),
+    )
+    .addOption(
+      new Option('-r, --resume [id]')
+        .hideHelp()
+        .argParser((val: string | boolean) => (val === true ? '' : (val as string))),
+    )
+    .option('-c, --continue', 'Continue the previous session for the working directory.', false)
+    .addOption(new Option('-C').hideHelp().default(false))
+    .option('-y, --yolo', 'Start in Ask When Needed mode: routine edits and commands run automatically; risky actions, questions, and plans still ask.', false)
+    .option('--auto', 'Start in Never Ask mode: everything runs and is decided automatically; only plans in Plan mode wait for your review.', false)
+    .addOption(
+      new Option(
+        '-m, --model <model>',
+        'LLM model alias to use for this invocation. Defaults to default_model in config.toml.',
+      ),
+    )
+    .addOption(
+      new Option(
+        '-p, --prompt <prompt>',
+        'Run one prompt non-interactively and print the response.',
+      ),
+    )
+    .addOption(
+      new Option(
+        '--output-format <format>',
+        'Output format for prompt mode. Defaults to text.',
+      ).choices(['text', 'stream-json']),
+    )
+    .addOption(
+      new Option(
+        '--skills-dir <dir>',
+        'Load skills from this directory instead of auto-discovered user and project directories. Can be repeated.',
+      )
+        .argParser((value: string, previous: string[] | undefined) => [...(previous ?? []), value])
+        .default([]),
+    )
+    .addOption(
+      new Option(
+        '--agent <name>',
+        'Agent profile to start the new session with. Custom profiles are discovered from agent directories or loaded via --agent-file. Cannot be combined with --session/--continue.',
+      )
+        .argParser((value: string, previous: string | undefined) => {
+          if (previous !== undefined) {
+            throw new InvalidArgumentError('--agent may only be specified once.');
+          }
+          return value;
+        })
+        .conflicts('agentFile'),
+    )
+    .addOption(
+      new Option(
+        '--agent-file <path>',
+        'Load an agent definition from a Markdown file and select it for the new session. Cannot be combined with --session/--continue.',
+      )
+        .argParser((value: string, previous: string[] | undefined) => {
+          if ((previous?.length ?? 0) > 0) {
+            throw new InvalidArgumentError('--agent-file may only be specified once.');
+          }
+          return [value];
+        })
+        .conflicts('agent')
+        .default([]),
+    )
+    .addOption(
+      new Option(
+        '--add-dir <dir>',
+        'Add an additional workspace directory for this session. Can be repeated.',
+      )
+        .argParser((value: string, previous: string[] | undefined) => [...(previous ?? []), value])
+        .default([]),
+    )
+    .addOption(new Option('--yes').hideHelp().default(false))
+    .addOption(new Option('--auto-approve').hideHelp().default(false))
+    .option('--plan', 'Start in plan mode.', false);
+
+  registerExportCommand(program);
+  registerForkCommand(program);
+  registerProviderCommand(program);
+  registerSessionCommand(program);
+  registerAcpCommand(program);
+  registerWebCommand(program);
+  registerLoginCommand(program);
+  registerDoctorCommand(program);
+  registerVisCommand(program);
+  registerInstallAppCommand(program);
+  registerMigrateCommand(program, onMigrate);
+  registerImportSessionsCommand(program);
+  program
+    .command('upgrade')
+    .alias('update')
+    .description('Upgrade Pythinker Code to the latest version.')
+    .option('-y, --yes', 'Skip the confirmation prompt and install the update directly.', false)
+    .action(async (options: { yes?: boolean }) => {
+      await onUpgrade(options.yes === true);
+    });
+
+  program
+    .command('__plugin_run_node', { hidden: true })
+    .argument('<entry>')
+    .argument('[args...]')
+    .allowUnknownOption(true)
+    .action((entry: string, args: string[]) => {
+      onPluginNodeRunner(entry, args);
+    });
+
+  // Self-spawned worker for native staged updates (detached background
+  // download, or foreground from `pythinker upgrade` — `--manual` marks the
+  // latter's stage as user-requested). Hidden: not user-facing.
+  program
+    .command('__update_download', { hidden: true })
+    .argument('<version>')
+    .option('--manual', 'the stage answers an explicit user-initiated upgrade')
+    .action((targetVersion: string, options: { manual?: boolean }) => {
+      onUpdateDownload(targetVersion, options.manual === true);
+    });
+
+  program.argument('[args...]').action((args: string[]) => {
+    if (args.length > 0) {
+      program.error(`unknown command '${args[0]}'. See '${CLI_COMMAND_NAME} --help'.`);
+    }
+
+    const raw = program.opts<Record<string, unknown>>();
+
+    const rawSession = raw['session'] ?? raw['resume'];
+    const sessionValue = rawSession === true ? '' : (rawSession as string | undefined);
+    const yoloValue = raw['yolo'] === true || raw['yes'] === true || raw['autoApprove'] === true;
+    const autoValue = raw['auto'] === true;
+
+    const opts: CLIOptions = {
+      session: sessionValue,
+      continue: raw['continue'] === true || raw['C'] === true,
+      yolo: yoloValue,
+      auto: autoValue,
+      plan: raw['plan'] as boolean,
+      model: raw['model'] as string | undefined,
+      outputFormat: raw['outputFormat'] as CLIOptions['outputFormat'],
+      prompt: raw['prompt'] as string | undefined,
+      skillsDirs: raw['skillsDir'] as string[],
+      agent: raw['agent'] as string | undefined,
+      agentFiles: raw['agentFile'] as string[],
+      addDirs: raw['addDir'] as string[],
+    };
+
+    onMain(opts);
+  });
+
+  return program;
+}

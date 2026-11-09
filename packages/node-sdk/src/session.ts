@@ -1,0 +1,1024 @@
+import type { DynamicWorkflowModeTrigger } from '@pymodel/agent-core-v2/features/dynamic_workflow/agent/dynamic_workflow';
+
+import type { AgentContextData } from '#/context';
+import { ErrorCodes, PythinkerError, type PythinkerErrorCode } from '#/errors';
+
+import {
+  type ApprovalHandler,
+  type Event,
+  type QuestionHandler,
+  type StaleReloadHandler,
+} from '#/events';
+import type { SDKRpcClientBase } from '#/rpc';
+import type {
+  AddAdditionalDirOptions,
+  AddAdditionalDirResult,
+  AgentCommandInfo,
+  AgentRuntimeBinding,
+  BackgroundTaskInfo,
+  CapabilityStatus,
+  CompactOptions,
+  CreateGoalInput,
+  ExpertTalkArmV1,
+  ExpertTalkConfigV1,
+  ExpertTalkListRunsOptions,
+  ExpertTalkPairV1,
+  ExpertTalkRunPageV1,
+  ExpertTalkRunV1,
+  ExpertTalkStartResult,
+  ExpertTalkStatusV1,
+  GetCronTasksResult,
+  GoalSnapshot,
+  GoalToolResult,
+  JsonObject,
+  McpServerConfig,
+  McpServerInfo,
+  McpStartupMetrics,
+  PermissionMode,
+  PluginInfo,
+  PluginSummary,
+  PromptInput,
+  PromptSkillActivation,
+  ReloadSessionOptions,
+  ReloadSummary,
+  ResumedSessionState,
+  ResumedSessionSummary,
+  SessionPlan,
+  SessionStatus,
+  SessionSummary,
+  SessionTodoItem,
+  SessionUsage,
+  SkillSummary,
+  PluginCommandDef,
+  ThinkingEffort,
+  Unsubscribe,
+} from '#/types';
+
+const MAIN_AGENT_ID = 'main';
+
+export interface SessionOptions {
+  readonly id: string;
+  readonly workDir: string;
+  readonly summary?: SessionSummary | undefined;
+  readonly resumeState?: ResumedSessionState | undefined;
+  readonly rpc: SDKRpcClientBase;
+  readonly onClose?: (() => void | Promise<void>) | undefined;
+}
+
+/**
+ * The capability surface (built-in product capabilities: pythinker-cu,
+ * pythinker-webbridge) exists only on the v2 engine — v1 has no capability
+ * domain. Feature-detect structurally so a Session backed by v1 fails with
+ * a clear message instead of a confusing missing-method error.
+ */
+interface CapabilityRpcSurface {
+  listCapabilities(): Promise<readonly CapabilityStatus[]>;
+  getCapability(id: string): Promise<CapabilityStatus>;
+  installCapability(id: string): Promise<CapabilityStatus>;
+}
+
+interface ExpertTalkRpcSurface {
+  getExpertTalkStatus(input: { readonly sessionId: string }): Promise<ExpertTalkStatusV1>;
+  configureExpertTalk(input: {
+    readonly sessionId: string;
+    readonly pair: ExpertTalkPairV1;
+    readonly expectedVersion?: string;
+  }): Promise<ExpertTalkConfigV1>;
+  clearExpertTalk(input: {
+    readonly sessionId: string;
+    readonly expectedVersion?: string;
+  }): Promise<ExpertTalkConfigV1>;
+  armExpertTalk(input: {
+    readonly sessionId: string;
+    readonly expectedVersion?: string;
+  }): Promise<ExpertTalkArmV1>;
+  disarmExpertTalk(input: {
+    readonly sessionId: string;
+    readonly armId?: string;
+  }): Promise<void>;
+  listExpertTalkRuns(input: {
+    readonly sessionId: string;
+    readonly cursor?: string;
+    readonly limit?: number;
+  }): Promise<ExpertTalkRunPageV1>;
+  getExpertTalkRun(input: {
+    readonly sessionId: string;
+    readonly runId: string;
+  }): Promise<ExpertTalkRunV1>;
+  cancelExpertTalkRun(input: {
+    readonly sessionId: string;
+    readonly runId: string;
+  }): Promise<ExpertTalkRunV1>;
+  retryExpertTalkRun(input: {
+    readonly sessionId: string;
+    readonly runId: string;
+  }): Promise<ExpertTalkStartResult>;
+}
+
+export function capabilityRpc(rpc: SDKRpcClientBase): CapabilityRpcSurface {
+  const candidate = rpc as Partial<CapabilityRpcSurface>;
+  if (
+    typeof candidate.listCapabilities !== 'function' ||
+    typeof candidate.getCapability !== 'function' ||
+    typeof candidate.installCapability !== 'function'
+  ) {
+    throw new TypeError('The capability surface is unavailable on this engine (requires v2).');
+  }
+  return candidate as CapabilityRpcSurface;
+}
+
+function expertTalkRpc(rpc: SDKRpcClientBase): ExpertTalkRpcSurface {
+  const candidate = rpc as Partial<ExpertTalkRpcSurface>;
+  if (
+    typeof candidate.getExpertTalkStatus !== 'function' ||
+    typeof candidate.configureExpertTalk !== 'function' ||
+    typeof candidate.clearExpertTalk !== 'function' ||
+    typeof candidate.armExpertTalk !== 'function' ||
+    typeof candidate.disarmExpertTalk !== 'function' ||
+    typeof candidate.listExpertTalkRuns !== 'function' ||
+    typeof candidate.getExpertTalkRun !== 'function' ||
+    typeof candidate.cancelExpertTalkRun !== 'function' ||
+    typeof candidate.retryExpertTalkRun !== 'function'
+  ) {
+    throw new TypeError('The Expert Talk surface is unavailable on this engine (requires v2).');
+  }
+  return candidate as ExpertTalkRpcSurface;
+}
+
+export class Session {
+  readonly id: string;
+  readonly workDir: string;
+  summary?: SessionSummary | undefined;
+  private resumeState: ResumedSessionState | undefined;
+
+  private readonly rpc: SDKRpcClientBase;
+  private readonly onClose?: (() => void | Promise<void>) | undefined;
+  private closed = false;
+
+  constructor(options: SessionOptions) {
+    this.id = options.id;
+    this.workDir = options.workDir;
+    this.summary = options.summary;
+    this.resumeState = options.resumeState ?? resumeStateFromSummary(options.summary);
+    this.rpc = options.rpc;
+    this.onClose = options.onClose;
+  }
+
+  /** True once {@link close} began — the session may still be closing in the engine. */
+  get isClosed(): boolean {
+    return this.closed;
+  }
+
+  getResumeState(): ResumedSessionState | undefined {
+    this.ensureOpen();
+    return this.resumeState;
+  }
+
+  async reloadSession(options?: ReloadSessionOptions): Promise<ResumedSessionSummary> {
+    this.ensureOpen();
+    const summary = await this.rpc.reloadSession({
+      sessionId: this.id,
+      forcePluginSessionStartReminder: options?.forcePluginSessionStartReminder,
+    });
+    this.summary = summary;
+    this.resumeState = resumeStateFromSummary(summary);
+    return summary;
+  }
+
+  onEvent(listener: (event: Event) => void): Unsubscribe {
+    this.ensureOpen();
+    return this.rpc.onEvent((event) => {
+      if (event.sessionId === this.id) {
+        listener(event);
+      }
+    });
+  }
+
+  setApprovalHandler(handler: ApprovalHandler | undefined): void {
+    this.ensureOpen();
+    this.rpc.setApprovalHandler(this.id, handler);
+  }
+
+  setQuestionHandler(handler: QuestionHandler | undefined): void {
+    this.ensureOpen();
+    this.rpc.setQuestionHandler(this.id, handler);
+  }
+
+  /**
+   * When another client has updated this session, calls that start a run
+   * (prompt, steer, compact, …) reload the session from disk and retry once;
+   * `undoHistory` reloads and still rejects with `session.stale`. The handler
+   * runs after the reload, before the retry, so the host can refresh its view.
+   */
+  setStaleReloadHandler(handler: StaleReloadHandler | undefined): void {
+    this.ensureOpen();
+    if (handler === undefined) {
+      this.rpc.setStaleReloadHandler(this.id, undefined);
+      return;
+    }
+    this.rpc.setStaleReloadHandler(this.id, async (summary) => {
+      this.summary = summary;
+      this.resumeState = resumeStateFromSummary(summary);
+      await handler();
+    });
+  }
+
+  async prompt(
+    input: string | PromptInput,
+    options?: { promptId?: string; expertTalkArmId?: string },
+  ): Promise<void> {
+    this.ensureOpen();
+    if (options?.promptId !== undefined && options.promptId.length === 0) {
+      throw new TypeError('promptId must not be empty');
+    }
+    if (options?.expertTalkArmId !== undefined && options.expertTalkArmId.length === 0) {
+      throw new TypeError('expertTalkArmId must not be empty');
+    }
+    await this.rpc.prompt({
+      sessionId: this.id,
+      input: normalizePromptInput(input),
+      promptId: options?.promptId,
+      expertTalkArmId: options?.expertTalkArmId,
+    });
+  }
+
+  async getExpertTalkStatus(): Promise<ExpertTalkStatusV1> {
+    this.ensureOpen();
+    return expertTalkRpc(this.rpc).getExpertTalkStatus({ sessionId: this.id });
+  }
+
+  async configureExpertTalk(
+    pair: ExpertTalkPairV1,
+    expectedVersion?: string,
+  ): Promise<ExpertTalkConfigV1> {
+    this.ensureOpen();
+    return expertTalkRpc(this.rpc).configureExpertTalk({
+      sessionId: this.id,
+      pair,
+      expectedVersion,
+    });
+  }
+
+  async clearExpertTalk(expectedVersion?: string): Promise<ExpertTalkConfigV1> {
+    this.ensureOpen();
+    return expertTalkRpc(this.rpc).clearExpertTalk({ sessionId: this.id, expectedVersion });
+  }
+
+  async armExpertTalk(expectedVersion?: string): Promise<ExpertTalkArmV1> {
+    this.ensureOpen();
+    return expertTalkRpc(this.rpc).armExpertTalk({ sessionId: this.id, expectedVersion });
+  }
+
+  async disarmExpertTalk(armId?: string): Promise<void> {
+    this.ensureOpen();
+    await expertTalkRpc(this.rpc).disarmExpertTalk({ sessionId: this.id, armId });
+  }
+
+  async listExpertTalkRuns(options?: ExpertTalkListRunsOptions): Promise<ExpertTalkRunPageV1> {
+    this.ensureOpen();
+    return expertTalkRpc(this.rpc).listExpertTalkRuns({ sessionId: this.id, ...options });
+  }
+
+  async getExpertTalkRun(runId: string): Promise<ExpertTalkRunV1> {
+    this.ensureOpen();
+    return expertTalkRpc(this.rpc).getExpertTalkRun({ sessionId: this.id, runId });
+  }
+
+  async cancelExpertTalkRun(runId: string): Promise<ExpertTalkRunV1> {
+    this.ensureOpen();
+    return expertTalkRpc(this.rpc).cancelExpertTalkRun({ sessionId: this.id, runId });
+  }
+
+  async retryExpertTalkRun(runId: string): Promise<ExpertTalkStartResult> {
+    this.ensureOpen();
+    return expertTalkRpc(this.rpc).retryExpertTalkRun({ sessionId: this.id, runId });
+  }
+
+  async promptWithSkills(
+    input: string | PromptInput,
+    skills: readonly PromptSkillActivation[],
+    options?: { readonly steerIfActive?: boolean },
+  ): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.promptWithSkills({
+      sessionId: this.id,
+      input: normalizePromptInput(input),
+      skills,
+      steerIfActive: options?.steerIfActive,
+    });
+  }
+
+  /** Execute a user-initiated `!` shell command (silent — does not prompt the
+   *  model). Resolves with the command's stdout/stderr for immediate display.
+   *  Pass `commandId` to receive live `shell.output` events for this command. */
+  async runShellCommand(
+    command: string,
+    options?: { commandId?: string },
+  ): Promise<{ stdout: string; stderr: string; isError?: boolean; backgrounded?: boolean }> {
+    this.ensureOpen();
+    return this.rpc.runShellCommand({
+      sessionId: this.id,
+      command,
+      commandId: options?.commandId,
+    });
+  }
+
+  /** Cancel a running `!` shell command by its commandId (e.g. on Esc / Ctrl+C). */
+  async cancelShellCommand(commandId: string): Promise<void> {
+    this.ensureOpen();
+    return this.rpc.cancelShellCommand({ sessionId: this.id, commandId });
+  }
+
+  async steer(input: string | PromptInput): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.steer({
+      sessionId: this.id,
+      input: normalizePromptInput(input),
+    });
+  }
+
+  async dynamic_workflow(input: string | PromptInput): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.dynamic_workflow({
+      sessionId: this.id,
+      input: normalizePromptInput(input),
+    });
+  }
+
+  async init(): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.generateAgentsMd({ sessionId: this.id });
+  }
+
+  async getSessionWarnings() {
+    this.ensureOpen();
+    return this.rpc.getSessionWarnings({ sessionId: this.id });
+  }
+
+  async addAdditionalDir(
+    path: string,
+    options?: AddAdditionalDirOptions,
+  ): Promise<AddAdditionalDirResult> {
+    this.ensureOpen();
+    const normalized = normalizeRequiredString(
+      path,
+      'Additional directory cannot be empty',
+      ErrorCodes.REQUEST_INVALID,
+    );
+    const result = await this.rpc.addAdditionalDir({
+      id: this.id,
+      path: normalized,
+      persist: options?.persist ?? true,
+    });
+    this.summary = { ...this.requireSummary(), additionalDirs: result.additionalDirs };
+    return result;
+  }
+
+  async startBtw(): Promise<string> {
+    this.ensureOpen();
+    return this.rpc.startBtw({ sessionId: this.id });
+  }
+
+  async cancel(): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.cancel({ sessionId: this.id });
+  }
+
+  async setModel(model: string): Promise<void> {
+    this.ensureOpen();
+    const normalized = normalizeRequiredString(
+      model,
+      'Session model cannot be empty',
+      ErrorCodes.SESSION_MODEL_EMPTY,
+    );
+    await this.rpc.setModel({ sessionId: this.id, model: normalized });
+  }
+
+  async getRuntime(): Promise<AgentRuntimeBinding> {
+    this.ensureOpen();
+    return this.rpc.getRuntime({ sessionId: this.id });
+  }
+
+  async switchRuntime(runtimeId: string): Promise<AgentRuntimeBinding> {
+    this.ensureOpen();
+    const normalized = normalizeRequiredString(
+      runtimeId,
+      'Session runtime cannot be empty',
+      ErrorCodes.REQUEST_INVALID,
+    );
+    return this.rpc.switchRuntime({ sessionId: this.id, runtimeId: normalized });
+  }
+
+  async setThinking(effort: ThinkingEffort): Promise<void> {
+    this.ensureOpen();
+    const normalized = normalizeRequiredString(
+      effort,
+      'Session thinking effort cannot be empty',
+      ErrorCodes.SESSION_THINKING_EMPTY,
+    );
+    await this.rpc.setThinking({ sessionId: this.id, effort: normalized });
+  }
+
+  async setPermission(mode: PermissionMode): Promise<void> {
+    this.ensureOpen();
+    if (!isPermissionMode(mode)) {
+      throw new PythinkerError(
+        ErrorCodes.SESSION_PERMISSION_MODE_INVALID,
+        'Session permission mode must be yolo, manual, or auto',
+      );
+    }
+    await this.rpc.setPermission({ sessionId: this.id, mode });
+  }
+
+  /** Shallow-merge host-owned fields into this session's persisted custom metadata. */
+  async updateMetadata(patch: JsonObject): Promise<void> {
+    this.ensureOpen();
+    if (Object.hasOwn(patch, 'goal')) {
+      throw new PythinkerError(
+        ErrorCodes.GOAL_METADATA_RESERVED,
+        'Session metadata key "goal" is reserved for the goal lifecycle',
+      );
+    }
+    const summary = this.requireSummary();
+    await this.rpc.updateSessionMetadata({ sessionId: this.id, metadata: patch });
+    const metadata = { ...summary.metadata, ...patch };
+    this.summary = { ...summary, metadata };
+    if (this.resumeState !== undefined) {
+      this.resumeState = {
+        ...this.resumeState,
+        sessionMetadata: {
+          ...this.resumeState.sessionMetadata,
+          custom: { ...this.resumeState.sessionMetadata.custom, ...patch },
+        },
+      };
+    }
+  }
+
+  async setPlanMode(enabled: boolean): Promise<void> {
+    this.ensureOpen();
+    if (typeof enabled !== 'boolean') {
+      throw new PythinkerError(
+        ErrorCodes.SESSION_PLAN_MODE_INVALID,
+        'Session plan mode must be a boolean',
+      );
+    }
+    await this.rpc.setPlanMode({ sessionId: this.id, enabled });
+  }
+
+  async setDynamicWorkflowMode(enabled: boolean, trigger: DynamicWorkflowModeTrigger): Promise<void> {
+    this.ensureOpen();
+    if (typeof enabled !== 'boolean') {
+      throw new PythinkerError(
+        ErrorCodes.REQUEST_INVALID,
+        'Session dynamic_workflow mode must be a boolean',
+      );
+    }
+    if (enabled) {
+      await this.rpc.setDynamicWorkflowMode({ sessionId: this.id, enabled: true, trigger });
+    } else {
+      await this.rpc.setDynamicWorkflowMode({ sessionId: this.id, enabled: false });
+    }
+  }
+
+  async setTowerMode(enabled: boolean, base?: string): Promise<void> {
+    this.ensureOpen();
+    if (typeof enabled !== 'boolean') {
+      throw new PythinkerError(
+        ErrorCodes.REQUEST_INVALID,
+        'Session tower mode must be a boolean',
+      );
+    }
+    if (base !== undefined && typeof base !== 'string') {
+      throw new PythinkerError(
+        ErrorCodes.REQUEST_INVALID,
+        'Session tower mode base must be a string',
+      );
+    }
+    await this.rpc.setTowerMode({ sessionId: this.id, enabled, base });
+  }
+
+  async getTowerStatus(): Promise<string> {
+    this.ensureOpen();
+    return this.rpc.getTowerStatus({ sessionId: this.id });
+  }
+
+  async getPlan(): Promise<SessionPlan> {
+    this.ensureOpen();
+    return this.rpc.getPlan({ sessionId: this.id });
+  }
+
+  async clearPlan(): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.clearPlan({ sessionId: this.id });
+  }
+
+  async compact(options: CompactOptions = {}): Promise<void> {
+    this.ensureOpen();
+    const instruction = normalizeOptionalString(options.instruction);
+    await this.rpc.compact({
+      sessionId: this.id,
+      ...(instruction !== undefined ? { instruction } : {}),
+    });
+  }
+
+  async cancelCompaction(): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.cancelCompaction({ sessionId: this.id });
+  }
+
+  async undoHistory(count: number = 1): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.undoHistory({ sessionId: this.id, count });
+  }
+
+  /**
+   * Evicts another process's lock on this session so the next call that
+   * fails with `session.occupied` can be retried. If that process is still
+   * running, both processes write to the session until it goes idle.
+   */
+  async takeOverLock(): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.takeOverSessionLock({ sessionId: this.id });
+  }
+
+  async getTodos(): Promise<readonly SessionTodoItem[]> {
+    this.ensureOpen();
+    return this.rpc.getTodos({ sessionId: this.id });
+  }
+
+  /** Clear this session's model context without creating a new session. */
+  async clearContext(): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.clearContext({ sessionId: this.id });
+  }
+
+  /** Append imported text to this session's context without prompting the model. */
+  async importContext(content: string, source: string): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.importContext({ sessionId: this.id, content, source });
+  }
+
+  async getContext(): Promise<AgentContextData> {
+    this.ensureOpen();
+    return this.rpc.getContext({ sessionId: this.id });
+  }
+
+  async getUsage(): Promise<SessionUsage> {
+    this.ensureOpen();
+    return this.rpc.getUsage({ sessionId: this.id });
+  }
+
+  async getStatus(): Promise<SessionStatus> {
+    this.ensureOpen();
+    return this.rpc.getStatus({ sessionId: this.id });
+  }
+
+  async listSkills(): Promise<readonly SkillSummary[]> {
+    this.ensureOpen();
+    return this.rpc.listSkills({ sessionId: this.id });
+  }
+
+  async listPluginCommands(): Promise<readonly PluginCommandDef[]> {
+    this.ensureOpen();
+    return this.rpc.listPluginCommands({ sessionId: this.id });
+  }
+
+  /**
+   * Contributed commands registered with this session's interactive agent
+   * (agent-core-v2 only — a v1-backed session reports the empty set).
+   */
+  async listCommands(): Promise<readonly AgentCommandInfo[]> {
+    this.ensureOpen();
+    return this.rpc.listCommands({ sessionId: this.id });
+  }
+
+  /**
+   * List background tasks for this session's interactive agent.
+   *
+   * Defaults to all tasks (including terminal/lost). Pass
+   * `{ activeOnly: true }` to filter to non-terminal entries.
+   */
+  async listBackgroundTasks(
+    options: { activeOnly?: boolean; limit?: number } = {},
+  ): Promise<readonly BackgroundTaskInfo[]> {
+    this.ensureOpen();
+    return this.rpc.listBackgroundTasks({
+      sessionId: this.id,
+      activeOnly: options.activeOnly,
+      limit: options.limit,
+    });
+  }
+
+  /**
+   * Read a background task's captured output. Returns the in-memory
+   * ring buffer if available, otherwise falls back to the persisted
+   * `<sessionDir>/tasks/<taskId>/output.log`. `tail` caps the returned
+   * string to that many trailing characters.
+   */
+  async getBackgroundTaskOutput(
+    taskId: string,
+    options: { tail?: number } = {},
+  ): Promise<string> {
+    this.ensureOpen();
+    const trimmedTaskId = normalizeRequiredString(
+      taskId,
+      'Task id cannot be empty',
+      ErrorCodes.BACKGROUND_TASK_ID_EMPTY,
+    );
+    return this.rpc.getBackgroundTaskOutput({
+      sessionId: this.id,
+      taskId: trimmedTaskId,
+      tail: options.tail,
+    });
+  }
+
+  /**
+   * Request a running background task to stop. Sends SIGTERM with a
+   * grace period (handled by the core BPM); subscribers receive a
+   * `background.task.terminated` event when the kill settles. Calls
+   * for unknown or already-terminal task ids are no-ops at the core
+   * level — this method does not throw in those cases.
+   */
+  async stopBackgroundTask(
+    taskId: string,
+    options: { reason?: string } = {},
+  ): Promise<void> {
+    this.ensureOpen();
+    const trimmedTaskId = normalizeRequiredString(
+      taskId,
+      'Task id cannot be empty',
+      ErrorCodes.BACKGROUND_TASK_ID_EMPTY,
+    );
+    await this.rpc.stopBackgroundTask({
+      sessionId: this.id,
+      taskId: trimmedTaskId,
+      reason: options.reason,
+    });
+  }
+
+  /**
+   * Detach a running foreground task so the current tool call can return while
+   * the task continues under background-task management.
+   */
+  async detachBackgroundTask(taskId: string): Promise<BackgroundTaskInfo | undefined> {
+    this.ensureOpen();
+    const trimmedTaskId = normalizeRequiredString(
+      taskId,
+      'Task id cannot be empty',
+      ErrorCodes.BACKGROUND_TASK_ID_EMPTY,
+    );
+    return this.rpc.detachBackgroundTask({
+      sessionId: this.id,
+      taskId: trimmedTaskId,
+    });
+  }
+
+  /**
+   * Block until every still-running background task (across all agents in this
+   * session) reaches a terminal state. Used by `pythinker -p` after the main agent's
+   * turn finishes when the resolved print background mode is `'drain'`
+   * (`print_background_mode = "drain"`, or the legacy `keep_alive_on_exit = true`
+   * fallback), so background subagents get a chance to complete before the process
+   * exits. No-op in other modes. Bounded by `background.print_wait_ceiling_s`.
+   */
+  async waitForBackgroundTasksOnPrint(): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.waitForBackgroundTasksOnPrint({ sessionId: this.id });
+  }
+
+  /**
+   * Used by `pythinker -p` after the main agent's turn ends with `reason ===
+   * 'completed'`. Returns `'finish'` when the run may exit, or `'continue'` when
+   * the caller must keep the session alive so a background-task completion can
+   * steer the main agent into a new turn. Policy is selected by
+   * `background.print_background_mode` (`'exit' | 'drain' | 'steer'`); when unset
+   * it falls back to the legacy `keep_alive_on_exit` mapping (`true ⇒ 'drain'`).
+   */
+  async handlePrintMainTurnCompleted(): Promise<'finish' | 'continue'> {
+    this.ensureOpen();
+    return this.rpc.handlePrintMainTurnCompleted({ sessionId: this.id });
+  }
+
+  // --- Goal lifecycle ---------------------------------------------------
+  // Deterministic user/host control surface. There is intentionally no
+  // `updateGoal`: the goal's terminal status is decided by the model via the
+  // in-conversation UpdateGoal tool (or the goal driver on budget/error), not
+  // by the host.
+
+  async createGoal(input: CreateGoalInput): Promise<GoalSnapshot> {
+    this.ensureOpen();
+    return this.rpc.createGoal({ sessionId: this.id, ...input });
+  }
+
+  async getGoal(): Promise<GoalToolResult> {
+    this.ensureOpen();
+    return this.rpc.getGoal({ sessionId: this.id });
+  }
+
+  async pauseGoal(): Promise<GoalSnapshot> {
+    this.ensureOpen();
+    return this.rpc.pauseGoal({ sessionId: this.id });
+  }
+
+  async resumeGoal(): Promise<GoalSnapshot> {
+    this.ensureOpen();
+    return this.rpc.resumeGoal({ sessionId: this.id });
+  }
+
+  async cancelGoal(): Promise<GoalSnapshot> {
+    this.ensureOpen();
+    return this.rpc.cancelGoal({ sessionId: this.id });
+  }
+
+  /**
+   * Enumerate the cron tasks scheduled in this session. Hosts running a
+   * bounded session lifetime (e.g. `pythinker -p`) poll this to decide whether
+   * pending scheduled work still needs the process alive.
+   */
+  async getCronTasks(): Promise<GetCronTasksResult> {
+    this.ensureOpen();
+    return this.rpc.getCronTasks({ sessionId: this.id });
+  }
+
+  async listMcpServers(): Promise<readonly McpServerInfo[]> {
+    this.ensureOpen();
+    return this.rpc.listMcpServers({ sessionId: this.id });
+  }
+
+  async getMcpStartupMetrics(): Promise<McpStartupMetrics> {
+    this.ensureOpen();
+    return this.rpc.getMcpStartupMetrics({ sessionId: this.id });
+  }
+
+  /**
+   * Connect an MCP server in this live session. `persist: true` also writes
+   * the user-level `mcp.json` (the entry becomes a mutable `global` one);
+   * otherwise it stays a session-local `caller` entry.
+   */
+  async addMcpServer(
+    server: McpServerConfig,
+    options: { readonly persist?: boolean } = {},
+  ): Promise<McpServerInfo> {
+    this.ensureOpen();
+    return this.rpc.addSessionMcpServer({
+      sessionId: this.id,
+      server,
+      persist: options.persist,
+    });
+  }
+
+  /**
+   * Reconnect a server. Without `config` the session re-resolves the current
+   * effective config from the unified registry (file edits and plugin
+   * enable/disable land here). With `config`, the entry is replaced with the
+   * given full config — a plugin-contributed server rejects this because its
+   * config is read-only, owned by the plugin manifest.
+   */
+  async reconnectMcpServer(name: string, config?: McpServerConfig): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.reconnectMcpServer({ sessionId: this.id, name, config });
+  }
+
+  async listPlugins(): Promise<readonly PluginSummary[]> {
+    this.ensureOpen();
+    return this.rpc.listPlugins();
+  }
+
+  async installPlugin(source: string): Promise<PluginSummary> {
+    this.ensureOpen();
+    return this.rpc.installPlugin(source);
+  }
+
+  async setPluginEnabled(id: string, enabled: boolean): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.setPluginEnabled(id, enabled);
+  }
+
+  /** Built-in capabilities with layered readiness (v2 engine only). */
+  async listCapabilities(): Promise<readonly CapabilityStatus[]> {
+    this.ensureOpen();
+    return capabilityRpc(this.rpc).listCapabilities();
+  }
+
+  /** One capability's layered readiness + live install progress. */
+  async getCapability(id: string): Promise<CapabilityStatus> {
+    this.ensureOpen();
+    return capabilityRpc(this.rpc).getCapability(id);
+  }
+
+  /**
+   * Start an idempotent capability install (binary runtime + wiring) in the
+   * background; poll `getCapability` for progress.
+   */
+  async installCapability(id: string): Promise<CapabilityStatus> {
+    this.ensureOpen();
+    return capabilityRpc(this.rpc).installCapability(id);
+  }
+
+  async setPluginMcpServerEnabled(
+    id: string,
+    server: string,
+    enabled: boolean,
+  ): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.setPluginMcpServerEnabled(id, server, enabled);
+  }
+
+  async removePlugin(id: string): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.removePlugin(id);
+  }
+
+  async reloadPlugins(): Promise<ReloadSummary> {
+    this.ensureOpen();
+    return this.rpc.reloadPlugins();
+  }
+
+  async getPluginInfo(id: string): Promise<PluginInfo> {
+    this.ensureOpen();
+    return this.rpc.getPluginInfo(id);
+  }
+
+  async activateSkill(name: string, args?: string | undefined): Promise<void> {
+    this.ensureOpen();
+    const skillName = normalizeRequiredString(
+      name,
+      'Skill name cannot be empty',
+      ErrorCodes.SKILL_NAME_EMPTY,
+    );
+    const skillArgs = normalizeOptionalString(args);
+    await this.rpc.activateSkill({
+      sessionId: this.id,
+      name: skillName,
+      ...(skillArgs !== undefined ? { args: skillArgs } : {}),
+    });
+  }
+
+  async activatePluginCommand(
+    pluginId: string,
+    commandName: string,
+    args?: string | undefined,
+  ): Promise<void> {
+    this.ensureOpen();
+    const normalizedPluginId = pluginId.trim();
+    const normalizedCommandName = commandName.trim();
+    if (normalizedPluginId.length === 0 || normalizedCommandName.length === 0) {
+      throw new PythinkerError(
+        ErrorCodes.REQUEST_INVALID,
+        'Plugin id and command name cannot be empty',
+      );
+    }
+    const commandArgs = normalizeOptionalString(args);
+    await this.rpc.activatePluginCommand({
+      sessionId: this.id,
+      pluginId: normalizedPluginId,
+      commandName: normalizedCommandName,
+      ...(commandArgs !== undefined ? { args: commandArgs } : {}),
+    });
+  }
+
+  /**
+   * Run a contributed command engine-side (agent-core-v2 only — a v1-backed
+   * client rejects with `not_implemented`). Unknown names reject with the
+   * engine's `request.invalid` error.
+   */
+  async runCommand(name: string, args?: string): Promise<void> {
+    this.ensureOpen();
+    const commandName = name.trim();
+    if (commandName.length === 0) {
+      throw new PythinkerError(ErrorCodes.REQUEST_INVALID, 'Command name cannot be empty');
+    }
+    await this.rpc.runCommand({
+      sessionId: this.id,
+      name: commandName,
+      args: normalizeOptionalString(args),
+    });
+  }
+
+  async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+    try {
+      await this.rpc.closeSession({ sessionId: this.id });
+    } finally {
+      this.rpc.clearSessionHandlers(this.id);
+      await this.onClose?.();
+    }
+  }
+
+  /** @internal */
+  emitMetaUpdated(patch: { readonly title?: string; readonly isCustomTitle?: boolean }): void {
+    this.emit({
+      type: 'session.meta.updated',
+      sessionId: this.id,
+      agentId: MAIN_AGENT_ID,
+      title: patch.title,
+      patch,
+    });
+  }
+
+  private emit(event: Event): void {
+    this.rpc.receiveEvent(event);
+  }
+
+  private ensureOpen(): void {
+    if (this.closed) {
+      throw new PythinkerError(ErrorCodes.SESSION_CLOSED, 'Session is closed');
+    }
+  }
+
+  private requireSummary(): SessionSummary {
+    if (this.summary === undefined) {
+      throw new PythinkerError(ErrorCodes.SESSION_STATE_INVALID, 'Session summary is unavailable');
+    }
+    return this.summary;
+  }
+}
+
+function normalizePromptInput(input: string | PromptInput): PromptInput {
+  if (typeof input === 'string') {
+    if (input.trim().length === 0) {
+      throw new PythinkerError(ErrorCodes.REQUEST_PROMPT_INPUT_EMPTY, 'Prompt input cannot be empty');
+    }
+    return [{ type: 'text', text: input }];
+  }
+
+  if (input.length === 0) {
+    throw new PythinkerError(ErrorCodes.REQUEST_PROMPT_INPUT_EMPTY, 'Prompt input cannot be empty');
+  }
+
+  for (const part of input) {
+    switch (part.type) {
+      case 'text':
+        if (part.text.trim().length === 0) {
+          throw new PythinkerError(
+            ErrorCodes.REQUEST_PROMPT_INPUT_EMPTY,
+            'Prompt input cannot contain empty text parts',
+          );
+        }
+        break;
+      case 'image_url':
+        if (part.imageUrl.url.trim().length === 0) {
+          throw new PythinkerError(
+            ErrorCodes.REQUEST_PROMPT_INPUT_EMPTY,
+            'Prompt input cannot contain empty image URLs',
+          );
+        }
+        break;
+      case 'video_url':
+        if (part.videoUrl.url.trim().length === 0) {
+          throw new PythinkerError(
+            ErrorCodes.REQUEST_PROMPT_INPUT_EMPTY,
+            'Prompt input cannot contain empty video URLs',
+          );
+        }
+        break;
+    }
+  }
+  return input;
+}
+
+function normalizeRequiredString(
+  value: string,
+  message: string,
+  code: PythinkerErrorCode,
+): string {
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    throw new PythinkerError(code, message);
+  }
+  return normalized;
+}
+
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function isPermissionMode(value: unknown): value is PermissionMode {
+  return value === 'yolo' || value === 'manual' || value === 'auto';
+}
+
+function resumeStateFromSummary(
+  summary: SessionSummary | undefined,
+): ResumedSessionState | undefined {
+  if (!hasResumeState(summary)) return undefined;
+  return {
+    sessionMetadata: summary.sessionMetadata,
+    agents: summary.agents,
+    warning: summary.warning,
+  };
+}
+
+function hasResumeState(
+  summary: SessionSummary | undefined,
+): summary is SessionSummary & ResumedSessionState {
+  return (
+    summary !== undefined &&
+    typeof (summary as { readonly sessionMetadata?: unknown }).sessionMetadata === 'object' &&
+    (summary as { readonly sessionMetadata?: unknown }).sessionMetadata !== null &&
+    typeof (summary as { readonly agents?: unknown }).agents === 'object' &&
+    (summary as { readonly agents?: unknown }).agents !== null
+  );
+}

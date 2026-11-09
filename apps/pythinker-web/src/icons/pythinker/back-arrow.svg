@@ -1,0 +1,49 @@
+<svg class="ptx ptx-back-arrow" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .ptx-back-arrow .ptx-back-arrow-stem {
+      transform-origin: left center;
+      transition: transform var(--duration-fast, 150ms) var(--ease-out, ease-out);
+    }
+
+    .ptx-back-arrow .ptx-back-arrow-head {
+      transform-origin: left center;
+      transition: transform var(--duration-fast, 150ms) var(--ease-out, ease-out);
+    }
+
+    :is(.ptx-live .ptx-back-arrow, .ptx-back-arrow:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-back-arrow) .ptx-back-arrow-head {
+      animation: ptx-back-arrow-head-nudge 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) infinite alternate;
+    }
+
+    :is(.ptx-live .ptx-back-arrow, .ptx-back-arrow:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-back-arrow) .ptx-back-arrow-stem {
+      animation: ptx-back-arrow-stem-nudge 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) infinite alternate;
+    }
+
+    @keyframes ptx-back-arrow-head-nudge {
+      0% {
+        transform: translateX(0);
+      }
+      100% {
+        transform: translateX(-3px);
+      }
+    }
+
+    @keyframes ptx-back-arrow-stem-nudge {
+      0% {
+        transform: translateX(0) scaleX(1);
+      }
+      100% {
+        transform: translateX(-3px) scaleX(1.15);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ptx-back-arrow .ptx-back-arrow-head,
+      .ptx-back-arrow .ptx-back-arrow-stem {
+        animation: none;
+      }
+    }
+  </style>
+
+  <path class="ptx-back-arrow-stem" d="M19 12H5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path class="ptx-back-arrow-head" d="M11 6L5 12L11 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

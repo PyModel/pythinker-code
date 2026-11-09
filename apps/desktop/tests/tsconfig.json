@@ -1,0 +1,18 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "noEmit": true,
+    "rewriteRelativeImportExtensions": false,
+    "types": [
+      "node",
+      "vitest"
+    ]
+  },
+  "include": [
+    "../scripts/**/*.ts",
+    "../src/**/*.ts",
+    "**/*.ts"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": ".cursor/hooks/block-ai-commit-attribution.sh",
+        "matcher": "git\\s+.*(commit|amend|merge)",
+        "failClosed": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,1315 @@
+// apps/pythinker-web/src/api/types.ts
+// App-facing camelCase model + PythinkerWebApi interface.
+// No daemon wire details here — Vue components consume only these types.
+
+import type {
+  AgentDescriptor,
+  AgentTranscriptSnapshot,
+  TranscriptOperation,
+} from '@pymodel/transcript';
+
+// ---------------------------------------------------------------------------
+// Pagination
+// ---------------------------------------------------------------------------
+
+export interface Page<T> {
+  items: T[];
+  hasMore: boolean;
+}
+
+export interface PageRequest {
+  beforeId?: string;
+  afterId?: string;
+  pageSize?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Notices
+// ---------------------------------------------------------------------------
+
+export type AppNoticeSeverity = 'info' | 'success' | 'warning' | 'error' | 'danger';
+
+export interface AppNoticeDetail {
+  label: string;
+  value: string;
+}
+
+export interface AppNotice {
+  severity: AppNoticeSeverity;
+  title: string;
+  message?: string;
+  details?: AppNoticeDetail[];
+  /** Repeat count for producer-deduplicated notices (2 = seen twice). */
+  count?: number;
+}
+
+export type AppWarning = string | AppNotice;
+
+// ---------------------------------------------------------------------------
+// Session
+// ---------------------------------------------------------------------------
+
+export interface AppSessionUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  totalCostUsd: number;
+  contextTokens: number;
+  contextLimit: number;
+  turnCount: number;
+}
+
+export interface AppSession {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  /** Any agent in the session holds an active turn or background lease.
+   *  Awaiting states ride the approval/question channels; turn outcomes ride
+   *  turn.ended. */
+  busy: boolean;
+  /** Whether the main agent has an active turn. Unlike busy, this excludes
+   *  background tasks and sub-agent work. */
+  mainTurnActive?: boolean;
+  /** List-level fallback for the action-required badge. */
+  pendingInteraction?: 'none' | 'approval' | 'question';
+  /** Outcome of the main agent's most recent turn (when the server reports
+   *  one). Presentation rule for the "aborted" tag:
+   *  `!busy && (cancelled | failed)`. */
+  lastTurnReason?: 'completed' | 'cancelled' | 'failed';
+  archived: boolean;
+  currentPromptId?: string;
+  /** Text of the most recent user prompt, for search/preview. */
+  lastPrompt?: string;
+  cwd: string;
+  model: string;
+  usage: AppSessionUsage;
+  messageCount: number;
+  lastSeq: number;
+  /**
+   * The workspace this session belongs to. Present once the daemon ships the
+   * workspace registry (returns `workspace_id` on Session). Until then it is
+   * undefined and the composable maps sessions to workspaces by cwd === root.
+   */
+  workspaceId?: string;
+  /**
+   * Set on a child ("side chat") session — the id of the parent it was forked
+   * from. Used to keep child sessions out of the main session list.
+   */
+  parentSessionId?: string;
+}
+
+export interface AppSessionGroup {
+  workspace: { id: string; cwd: string | null };
+  sessions: AppSession[];
+  total: number;
+}
+
+export interface AppSessionGroupPage {
+  groups: AppSessionGroup[];
+  hasMore: boolean;
+  nextPageToken: string | null;
+  total: number;
+}
+
+/**
+ * Live runtime state from GET /sessions/{id}/status — the source of truth for
+ * the current model + context usage (Session.agent_config.model can be "").
+ */
+export interface AppSessionRuntimeStatus {
+  /** Current model alias, or null if the daemon couldn't resolve it. */
+  model: string | null;
+  thinkingEffort: string;
+  permission: string;
+  planMode: boolean;
+  dynamicWorkflowMode: boolean;
+  contextTokens: number;
+  maxContextTokens: number;
+  contextUsage: number;
+}
+
+// ---------------------------------------------------------------------------
+// Workspace — a real folder the client organizes sessions by.
+// 1 Workspace : N Sessions. A session inherits the workspace's root as its cwd.
+// ---------------------------------------------------------------------------
+
+export interface AppWorkspace {
+  /** Stable id. In fallback mode (derived from session cwds) this IS the root. */
+  id: string;
+  /** Absolute path to the project root. */
+  root: string;
+  /** Display name — defaults to basename(root), may be renamed on the daemon. */
+  name: string;
+  /** ISO timestamp of when this workspace was last opened. */
+  lastOpenedAt?: string;
+  /** Number of sessions belonging to this workspace. */
+  sessionCount: number;
+}
+
+/** One directory entry from the daemon folder browser (fs:browse). */
+export interface FsBrowseEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+}
+
+export interface FsBrowseResult {
+  path: string;
+  parent: string | null;
+  entries: FsBrowseEntry[];
+}
+
+// ---------------------------------------------------------------------------
+// Message
+// ---------------------------------------------------------------------------
+
+export type AppMessageRole = 'user' | 'assistant' | 'tool' | 'system';
+
+export type AppMessageContent =
+  | { type: 'text'; text: string }
+  | { type: 'toolUse'; toolCallId: string; toolName: string; input: unknown; outputLines?: string[] }
+  | { type: 'toolResult'; toolCallId: string; output: unknown; isError?: boolean }
+  | { type: 'image'; source: ImageSource }
+  | { type: 'video'; source: ImageSource }
+  | { type: 'file'; fileId: string; name: string; mediaType: string; size: number }
+  // `startedAt` stamps the first streamed delta of this thinking part;
+  // `durationMs` settles the moment the next content part starts (or the
+  // step/turn ends). A thinking part with `durationMs` set is never the live
+  // streaming tail — the render layer relies on this to collapse settled
+  // thinking instead of shimmering a second "Thinking…" row.
+  | { type: 'thinking'; thinking: string; signature?: string; startedAt?: string; durationMs?: number }
+  | { type: 'unknown'; raw: unknown };
+
+export type ImageSource =
+  | { kind: 'url'; url: string; id?: string }
+  | { kind: 'base64'; mediaType: string; data: string }
+  | { kind: 'file'; fileId: string };
+
+export interface AppMessage {
+  id: string;
+  sessionId: string;
+  role: AppMessageRole;
+  content: AppMessageContent[];
+  createdAt: string;
+  promptId?: string;
+  parentMessageId?: string;
+  /** Client-side measured duration from turn.started to turn.ended (ms). */
+  durationMs?: number;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Metadata key of the client-side compaction marker message appended on
+ * compactionCompleted. The transcript keeps all prior messages (TUI parity);
+ * this marker renders as a "context compacted" divider. Snapshot-loaded
+ * summary messages (origin kind 'compaction_summary') render the same way
+ * but carry no token stats.
+ */
+export const COMPACTION_MARKER_METADATA_KEY = 'pythinkerWeb.compaction';
+
+export interface CompactionMarkerMetadata {
+  trigger: 'manual' | 'auto';
+  tokensBefore?: number;
+  tokensAfter?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Prompt
+// ---------------------------------------------------------------------------
+
+/**
+ * Runtime thinking level. 'off' disables extended thinking; 'on' is the
+ * enable signal for legacy boolean models (those without `support_efforts`);
+ * any other string is a model-declared effort level (e.g. 'low'/'high'/'max').
+ *
+ * `support_efforts` is the single source of truth for which concrete levels a
+ * model accepts; providers silently drop unknown efforts rather than erroring.
+ * Collapses to `string` at runtime — this is a semantic marker, not a closed
+ * enum. Mirrors kosong's `ThinkingEffort`.
+ */
+export type ThinkingLevel = 'off' | 'on' | (string & {});
+
+export interface PromptSubmission {
+  content: AppMessageContent[];
+  metadata?: Record<string, unknown>;
+  /** Optional non-main agent id, used by BTW side-channel prompts. */
+  agentId?: string;
+  /** The daemon requires these on every prompt (per-prompt, not session-level). */
+  model?: string;
+  /** Omit to leave the session profile's thinking untouched — the daemon then
+   *  resolves the config/model default (same as an unset [thinking] in the TUI). */
+  thinking?: ThinkingLevel;
+  permissionMode?: 'manual' | 'auto' | 'yolo';
+  planMode?: boolean;
+  dynamicWorkflowMode?: boolean;
+  goalObjective?: string;
+  goalControl?: 'pause' | 'resume' | 'cancel';
+  expertTalkArmId?: string;
+}
+
+export interface PromptSubmitResult {
+  promptId: string;
+  userMessageId: string;
+  /** 'running' when the prompt started a turn immediately; 'queued' when
+      another prompt is active and the daemon parked it (steerable). */
+  status?: 'running' | 'queued';
+  expertTalkRunId?: string;
+}
+
+export type AppExpertTalkRole = 'fusion_lead' | 'peer';
+export type AppExpertTalkStage = 'opening' | 'review' | 'fusion' | 'terminal';
+
+export interface AppExpertTalkPair {
+  fusionLeadModelId: string;
+  peerModelId: string;
+  fusionLeadThinkingEffort?: string;
+  peerThinkingEffort?: string;
+}
+
+export interface AppExpertTalkArtifact {
+  role: AppExpertTalkRole;
+  stage: 'opening' | 'review' | 'fusion';
+  state: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'unavailable';
+  text?: string;
+  thinking?: string;
+  tools?: { id: string; name?: string }[];
+  partial: boolean;
+  startedAt?: string;
+  endedAt?: string;
+  usage?: {
+    inputOther: number;
+    output: number;
+    inputCacheRead: number;
+    inputCacheCreation: number;
+  };
+  requestCount?: number;
+  providerAttemptCount?: number;
+  toolCallCount?: number;
+  toolResultTokens?: number;
+  error?: string;
+  errorReason?: string;
+}
+
+export interface AppExpertTalkRun {
+  runId: string;
+  sessionId: string;
+  turnId: number;
+  promptId: string;
+  retryOf?: string;
+  state: 'running' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
+  stage: AppExpertTalkStage;
+  createdAt: string;
+  startedAt?: string;
+  endedAt?: string;
+  updatedAt: string;
+  bindings: {
+    fusionLead: { requestedModelId: string; effectiveModelId: string; thinkingEffort?: string };
+    peer: { requestedModelId: string; effectiveModelId: string; thinkingEffort?: string };
+  };
+  opening: { lead: AppExpertTalkArtifact; peer: AppExpertTalkArtifact };
+  review: { lead: AppExpertTalkArtifact; peer: AppExpertTalkArtifact };
+  fusion?: AppExpertTalkArtifact;
+  result?: {
+    answer: string;
+    notes: {
+      consensus: string[];
+      divergence: string[];
+      uncertainty: string[];
+    };
+  };
+  resultVersion?: string;
+  resultUnsupported?: boolean;
+  usage: {
+    complete: boolean;
+    requestCount?: number;
+    providerAttemptCount?: number;
+  };
+  error?: {
+    reason: string;
+    message: string;
+    stage: AppExpertTalkStage;
+    role?: AppExpertTalkRole;
+    retryable: boolean;
+    action: string;
+  };
+  progressRevision?: number;
+  revision: number;
+}
+
+export interface AppExpertTalkStatus {
+  feature: 'enabled' | 'disabled';
+  resourceVersion: string;
+  config: AppExpertTalkPair | null;
+  activation: {
+    state: 'idle' | 'armed';
+    armId?: string;
+    armedAt?: string;
+  };
+  activeRunId?: string;
+  latestRunId?: string;
+  pairValidation: {
+    state: 'valid' | 'stale' | 'ineligible' | 'collapsed' | 'unknown';
+    reason?: string;
+  };
+}
+
+export interface AppExpertTalkRunPage {
+  runs: AppExpertTalkRun[];
+  nextCursor?: string;
+}
+
+export interface AppExpertTalkListRunsOptions {
+  cursor?: string;
+  limit?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Approval
+// ---------------------------------------------------------------------------
+
+export type ApprovalDecision = 'approved' | 'rejected' | 'cancelled';
+
+export interface ApprovalResponse {
+  decision: ApprovalDecision;
+  scope?: 'session';
+  feedback?: string;
+  selectedLabel?: string;
+}
+
+export interface AppApprovalRequest {
+  approvalId: string;
+  sessionId: string;
+  turnId?: number;
+  toolCallId: string;
+  toolName: string;
+  action: string;
+  display: unknown; // ToolInputDisplay — Web renders what it knows, falls back to generic
+  expiresAt: string;
+  createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Question
+// ---------------------------------------------------------------------------
+
+export interface QuestionOption {
+  id: string;
+  label: string;
+  description?: string;
+  recommended?: boolean;
+}
+
+export interface QuestionItem {
+  id: string;
+  question: string;
+  header?: string;
+  body?: string;
+  options: QuestionOption[];
+  multiSelect?: boolean;
+  allowOther?: boolean;
+  otherLabel?: string;
+  otherDescription?: string;
+}
+
+export interface AppQuestionRequest {
+  questionId: string;
+  sessionId: string;
+  turnId?: number;
+  toolCallId?: string;
+  questions: QuestionItem[];
+  createdAt: string;
+}
+
+export type QuestionAnswer =
+  | { kind: 'single'; optionId: string }
+  | { kind: 'multi'; optionIds: string[] }
+  | { kind: 'other'; text: string }
+  | { kind: 'multiWithOther'; optionIds: string[]; otherText: string }
+  | { kind: 'skipped' };
+
+export interface QuestionResponse {
+  answers: Record<string, QuestionAnswer>;
+  method?: 'enter' | 'space' | 'number_key' | 'click';
+  note?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Background Task
+// ---------------------------------------------------------------------------
+
+export type AppTaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+export type AppSubagentPhase = 'queued' | 'working' | 'suspended' | 'completed' | 'failed' | 'cancelled';
+
+export type AppSubagentRoutingOperation = 'spawn' | 'fork' | 'resume';
+export type AppSubagentProfileSource = 'requested' | 'default' | 'fork-inherit' | 'resume-existing';
+export type AppSubagentModelSource =
+  | 'caller'
+  | 'policy-default'
+  | 'policy-pool'
+  | 'policy-force'
+  | 'fork-inherit'
+  | 'resume-existing';
+export type AppSubagentPolicyMode = 'inherit' | 'default' | 'pool' | 'force';
+export type AppSubagentPolicySource = 'config' | 'default';
+export type AppSubagentFeatureSource = 'master-env' | 'env' | 'config' | 'default';
+
+export interface AppSubagentRouting {
+  operation: AppSubagentRoutingOperation;
+  profileSource: AppSubagentProfileSource;
+  modelSource: AppSubagentModelSource;
+  policyMode: AppSubagentPolicyMode;
+  policySource: AppSubagentPolicySource;
+  featureSource: AppSubagentFeatureSource;
+  routingEnvRevision: string;
+  routeDecision: string;
+}
+
+export interface AppTask {
+  id: string;
+  sessionId: string;
+  kind: 'subagent' | 'bash' | 'tool';
+  description: string;
+  status: AppTaskStatus;
+  command?: string;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  completedAtEstimated?: boolean;
+  outputPreview?: string;
+  outputBytes?: number;
+  agentId?: string;
+  model?: string;
+  thinkingEffort?: string;
+  /** Why the subagent is bound the way it is (stable enum ids from the server). */
+  routing?: AppSubagentRouting;
+  /** The caller's routing environment revision when this task was observed. */
+  currentRoutingEnvRevision?: string;
+  outputLines?: string[]; // accumulated by eventReducer from task.progress chunks
+  /** The subagent's concatenated live output (assistant.delta), accumulated by
+   *  the event reducer from `taskProgress` chunks of kind `text`. Grows in the
+   *  right-side detail panel like a thinking block. */
+  text?: string;
+  subagentPhase?: AppSubagentPhase;
+  subagentType?: string;
+  parentToolCallId?: string;
+  suspendedReason?: string;
+  dynamicWorkflowIndex?: number;
+  swarmIndex?: number;
+  /** True only for subagents detached into the background task store. Drives
+   *  the dock: the dock lists background subagents, while foreground subagents
+   *  render inline in the message flow as the `Agent` tool card. */
+  runInBackground?: boolean;
+  /** The id this same subagent has in the server's background-task store
+   *  (REST `/tasks`), learned from the `task.started` registration event. The
+   *  WS event stream keys the agent by agent id while REST keys it by task id;
+   *  this links the two so the REST copy can be folded into this row and so
+   *  cancel can target the id REST actually knows. */
+  backgroundTaskId?: string;
+}
+
+export interface AppTaskListOptions {
+  status?: AppTaskStatus;
+  withOutput?: boolean;
+  outputBytes?: number;
+  outputStatus?: 'running' | 'all';
+  signal?: AbortSignal;
+}
+
+// ---------------------------------------------------------------------------
+// Goal
+// ---------------------------------------------------------------------------
+
+export type AppGoalStatus = 'active' | 'paused' | 'blocked' | 'complete';
+
+export interface AppGoal {
+  goalId: string;
+  objective: string;
+  completionCriterion?: string;
+  status: AppGoalStatus;
+  turnsUsed: number;
+  tokensUsed: number;
+  wallClockMs: number;
+  terminalReason?: string;
+  budget: {
+    tokenBudget: number | null;
+    remainingTokens: number | null;
+    turnBudget: number | null;
+    remainingTurns: number | null;
+    wallClockBudgetMs: number | null;
+    remainingWallClockMs: number | null;
+    overBudget: boolean;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Terminal
+// ---------------------------------------------------------------------------
+
+export type AppTerminalStatus = 'running' | 'exited';
+
+export interface AppTerminal {
+  id: string;
+  sessionId: string;
+  cwd: string;
+  shell: string;
+  cols: number;
+  rows: number;
+  status: AppTerminalStatus;
+  createdAt: string;
+  exitedAt?: string;
+  exitCode?: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// File System
+// ---------------------------------------------------------------------------
+
+export type FsKind = 'file' | 'directory' | 'symlink';
+
+export interface FsEntry {
+  path: string;
+  name: string;
+  kind: FsKind;
+  size?: number;
+  modifiedAt: string;
+  etag?: string;
+  mime?: string;
+  languageId?: string;
+  isBinary?: boolean;
+  isSymlinkTo?: string;
+  gitStatus?: string;
+  childCount?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Events (app-facing, camelCase)
+// ---------------------------------------------------------------------------
+
+export type AppEvent =
+  | { type: 'sessionCreated'; session: AppSession }
+  | { type: 'workspaceCreated'; workspace: AppWorkspace }
+  | { type: 'workspaceUpdated'; workspace: AppWorkspace }
+  | { type: 'workspaceDeleted'; workspaceId: string; root: string }
+  | { type: 'sessionDeleted'; sessionId: string }
+  | { type: 'sessionArchived'; sessionId: string; workspaceId: string }
+  | {
+      type: 'sessionWorkChanged';
+      sessionId: string;
+      busy: boolean;
+      mainTurnActive?: boolean;
+      pendingInteraction?: 'none' | 'approval' | 'question';
+      lastTurnReason?: 'completed' | 'cancelled' | 'failed';
+    }
+  | { type: 'sessionMetaUpdated'; sessionId: string; title?: string; lastPrompt?: string }
+  | { type: 'expertTalkChanged'; sessionId: string; status: AppExpertTalkStatus }
+  | { type: 'sessionUsageUpdated'; sessionId: string; usage: AppSessionUsage; model?: string; dynamicWorkflowMode?: boolean; planMode?: boolean; thinking?: string }
+  | { type: 'historyCompacted'; sessionId: string; beforeSeq: number; reason: string; summaryMessageId?: string }
+  | { type: 'compactionStarted'; sessionId: string; trigger: 'manual' | 'auto'; instruction?: string }
+  | { type: 'compactionCompleted'; sessionId: string; tokensBefore?: number; tokensAfter?: number; summary?: string }
+  | { type: 'compactionCancelled'; sessionId: string }
+  | { type: 'messageCreated'; message: AppMessage }
+  | { type: 'messageUpdated'; sessionId: string; messageId: string; content: AppMessageContent[]; status: 'pending' | 'completed' | 'error'; durationMs?: number }
+  | { type: 'assistantDelta'; sessionId: string; messageId: string; contentIndex: number; delta: { text?: string; thinking?: string } }
+  // Side-channel / non-main-agent streaming: carries text/thinking deltas for a
+  // specific agent (e.g. a BTW side chat) without folding them into the parent
+  // transcript. The web layer routes these to the side-chat panel.
+  | { type: 'agentDelta'; sessionId: string; agentId: string; delta: { text?: string; thinking?: string } }
+  | { type: 'agentTurnEnded'; sessionId: string; agentId: string; reason?: string }
+  | { type: 'toolOutput'; sessionId: string; toolCallId: string; outputChunk: string; stream: 'stdout' | 'stderr' }
+  | { type: 'approvalRequested'; sessionId: string; approval: AppApprovalRequest }
+  | { type: 'approvalResolved'; sessionId: string; approvalId: string; decision: ApprovalDecision; resolvedAt: string }
+  | { type: 'approvalExpired'; sessionId: string; approvalId: string }
+  | { type: 'questionRequested'; sessionId: string; question: AppQuestionRequest }
+  | { type: 'questionAnswered'; sessionId: string; questionId: string; resolvedAt: string }
+  | { type: 'questionDismissed'; sessionId: string; questionId: string; dismissedAt: string }
+  | { type: 'taskCreated'; sessionId: string; task: AppTask }
+  | {
+      type: 'taskProgress';
+      sessionId: string;
+      taskId: string;
+      outputChunk: string;
+      stream: 'stdout' | 'stderr';
+      /**
+       * `line` (default) appends a new progress line (tool-call / tool-progress).
+       * `text` concatenates onto the subagent's growing streamed output
+       * (`AppTask.text`), shown live in the detail panel like a thinking block.
+       */
+      kind?: 'line' | 'text';
+    }
+  | { type: 'taskCompleted'; sessionId: string; taskId: string; status: AppTaskStatus; outputPreview?: string; outputBytes?: number }
+  // Prompt-level lifecycle (distinct from turn-level): a prompt that never
+  // produced a turn — blocked by a pre-submit hook, or aborted while queued —
+  // gets no turn.ended and no session status flip, so these are the web layer's
+  // only signal to clear the per-session in-flight state. A normal turn's
+  // prompt.completed is a no-op for state (the status_changed ahead of it
+  // already finished the prompt).
+  | { type: 'promptCompleted'; sessionId: string; promptId: string; reason: string }
+  | { type: 'promptAborted'; sessionId: string; promptId: string }
+  // The MAIN agent's turn boundary — the single source of truth for "the main
+  // conversation has a turn in flight" (half of the working moon, and the
+  // streaming reveal). Deliberately NOT derived from session status: a
+  // background subagent or BTW side chat keeps the session busy but must not
+  // light up the main conversation's moon. `reason` rides on deactivation.
+  | { type: 'turnActiveChanged'; sessionId: string; active: boolean; reason?: string }
+  | { type: 'goalUpdated'; sessionId: string; goal: AppGoal | null }
+  | { type: 'configChanged'; changedFields: string[]; config: AppConfig }
+  | {
+      type: 'modelCatalogChanged';
+      changed: { providerId: string; providerName: string; added: number; removed: number }[];
+      unchanged: string[];
+      failed: { provider: string; reason: string }[];
+    }
+  | { type: 'unknown'; raw: unknown };
+
+// ---------------------------------------------------------------------------
+// WebSocket connection helpers
+// ---------------------------------------------------------------------------
+
+/** Per-session sync cursor (v2): durable seq + journal epoch. */
+export interface AppSessionCursor {
+  seq: number;
+  epoch?: string;
+}
+
+/** In-flight (mid-turn) state recovered from the session snapshot. */
+export interface AppInFlightToolCall {
+  toolCallId: string;
+  name: string;
+  args?: unknown;
+  description?: string;
+  lastProgress?: { kind: string; text?: string; percent?: number };
+}
+
+export interface AppInFlightTurn {
+  turnId: number;
+  assistantText: string;
+  thinkingText: string;
+  runningTools: AppInFlightToolCall[];
+  /** Authoritative daemon prompt_id for the active prompt, if known. */
+  promptId?: string;
+}
+
+/**
+ * IM-style initial sync result: everything needed to rebuild a session's UI
+ * state, consistent at `asOfSeq`. The standard flow is
+ * `getSessionSnapshot()` → `subscribe(sessionId, {seq: asOfSeq, epoch})`.
+ */
+export interface AppSessionSnapshot {
+  asOfSeq: number;
+  epoch: string;
+  session: AppSession;
+  /** Most recent messages, chronological ascending. */
+  messages: AppMessage[];
+  hasMoreMessages: boolean;
+  inFlightTurn: AppInFlightTurn | null;
+  /** Live subagent roster at the watermark — rebuilds dynamic_workflow cards on refresh. */
+  subagents: AppTask[];
+  pendingApprovals: AppApprovalRequest[];
+  pendingQuestions: AppQuestionRequest[];
+}
+
+export interface AppTranscriptPage {
+  agentId: string;
+  snapshot: AgentTranscriptSnapshot;
+  agents: AgentDescriptor[];
+  pendingInteractions: string[];
+  seq?: number;
+}
+
+export interface AppTranscriptPageRequest {
+  agentId: string;
+  beforeTurn?: string;
+  afterTurn?: string;
+  pageSize?: number;
+}
+
+export interface PythinkerEventHandlers {
+  onEvent(event: AppEvent, meta: PythinkerEventMeta): void;
+  onResync(sessionId: string, currentSeq: number, epoch?: string): void;
+  onError(code: number, msg: string, fatal: boolean): void;
+  onConnectionChange(connected: boolean): void;
+  onTranscriptReset?(
+    sessionId: string,
+    agentId: string,
+    snapshot: AgentTranscriptSnapshot,
+    seq?: number,
+  ): void;
+  onTranscriptOps?(
+    sessionId: string,
+    agentId: string,
+    ops: TranscriptOperation[],
+    seq?: number,
+  ): boolean | void;
+  onTerminalOutput?(sessionId: string, terminalId: string, data: string, seq: number): void;
+  onTerminalExit?(sessionId: string, terminalId: string, exitCode: number | null): void;
+}
+
+/** Raw stream coordinates are present only for agent-gateway assistant/thinking
+    deltas. They let the render queue merge chunks without guessing continuity. */
+export interface PythinkerEventMeta {
+  sessionId: string;
+  seq: number;
+  stream?: {
+    turnId: number;
+    offset: number;
+    kind: 'text' | 'thinking';
+  };
+}
+
+export interface PythinkerEventConnection {
+  subscribe(sessionId: string, cursor?: AppSessionCursor): void;
+  unsubscribe(sessionId: string): void;
+  subscribeTranscript(sessionId: string, agentId: string, sinceSeq?: number): void;
+  unsubscribeTranscript(sessionId: string, agentIds?: string[]): void;
+  /**
+   * Bind the real daemon prompt_id to the next turn for a session, so the
+   * client-side projector stops synthesizing a random promptId on turn.started.
+   * Call right after submitPrompt() returns.
+   */
+  bindNextPromptId(sessionId: string, promptId: string): void;
+  /**
+   * Seed the client-side projector with a snapshot's in-flight turn so a
+   * reconnecting client renders mid-turn state immediately; emits the
+   * corresponding AppEvents through `onEvent`. Resets per-session projector
+   * state first — call BEFORE subscribe(), with the snapshot's cursor.
+   */
+  seedSnapshot(sessionId: string, snapshot: AppSessionSnapshot): void;
+  abort(sessionId: string, promptId: string): void;
+  terminalAttach(sessionId: string, terminalId: string, sinceSeq?: number): void;
+  terminalInput(sessionId: string, terminalId: string, data: string): void;
+  terminalResize(sessionId: string, terminalId: string, cols: number, rows: number): void;
+  terminalDetach(sessionId: string, terminalId: string): void;
+  terminalClose(sessionId: string, terminalId: string): void;
+  /**
+   * Mark an agent as a side-channel (e.g. BTW side chat). The client-side
+   * projector will then emit its text/thinking deltas as agent-scoped events
+   * instead of dropping them like background subagents.
+   */
+  markSideChannelAgent(agentId: string): void;
+  /**
+   * Report the underlying socket's health. Used to detect a silent-half-open
+   * connection after the tab was frozen in the background: the browser still
+   * reports OPEN (so no auto-reconnect) yet no frames have arrived for a while.
+   */
+  health(): { connected: boolean; open: boolean; stale: boolean };
+  /**
+   * Force a clean reconnect of the underlying socket. Used to recover from a
+   * silent-half-open (background-tab freeze) where onclose never fires. The
+   * reconnect handshake re-subscribes at the last durable cursor. No-op after
+   * close().
+   */
+  reconnect(): void;
+  close(): void;
+}
+
+// ---------------------------------------------------------------------------
+// Model + Provider (app-facing, camelCase)
+// PRESUMED — not in current daemon docs; isolated in adapter, swap when backend defines them.
+// ---------------------------------------------------------------------------
+
+export interface AppModel {
+  /** Unique identifier for this model (the string passed to PATCH session agent_config.model) */
+  id: string;
+  /** Provider id this model belongs to */
+  provider: string;
+  /** Raw model name (e.g. "moonshot-v1-128k") */
+  model: string;
+  /** Optional human-readable display name */
+  displayName?: string;
+  /** Maximum context size in tokens */
+  maxContextSize: number;
+  /** Optional capability tags (e.g. ["vision", "thinking"]) */
+  capabilities?: string[];
+  /** Effort levels this model supports for extended thinking (e.g. ["low", "high", "max"]).
+      Sourced from the model catalog (managed) or config [models.<id>.overrides]. */
+  supportEfforts?: readonly string[];
+  /** Catalog-declared default effort for extended thinking. */
+  defaultEffort?: string;
+  /** Whether the model decides its own thinking budget (adaptive reasoning). */
+  adaptiveThinking?: boolean;
+}
+
+export interface AppProvider {
+  /** Provider id */
+  id: string;
+  /** Provider type (e.g. "pythinker", "anthropic", "openai") */
+  type: string;
+  /** Optional custom base URL */
+  baseUrl?: string;
+  /** Optional default model alias */
+  defaultModel?: string;
+  /** Whether an API key is stored for this provider */
+  hasApiKey: boolean;
+  /** Provider connectivity status */
+  status: 'connected' | 'error' | 'unconfigured';
+  /** Model ids available from this provider */
+  models?: string[];
+}
+
+export interface AppProviderDetails extends AppProvider {
+  /** Stored key returned only by the single-provider endpoint. */
+  apiKey?: string;
+}
+
+export interface ProviderModelInput {
+  model: string;
+  maxContextSize: number;
+  displayName?: string;
+  capabilities?: string[];
+  maxOutputSize?: number;
+  supportEfforts?: string[];
+  adaptiveThinking?: boolean;
+}
+
+export interface ProviderCreateInput {
+  id: string;
+  type: CatalogProviderWireType;
+  apiKey?: string;
+  baseUrl?: string;
+  defaultModel?: string;
+  models: ProviderModelInput[];
+}
+
+export interface ProviderUpdateInput extends Omit<ProviderCreateInput, 'id'> {
+  newId?: string;
+}
+
+export interface CustomRegistryImportResult {
+  providers: AppProvider[];
+  modelsImported: number;
+}
+
+export type CatalogProviderWireType =
+  | 'pythinker'
+  | 'openai'
+  | 'openai_responses'
+  | 'anthropic'
+  | 'google-genai'
+  | 'vertexai';
+
+export interface AppCatalogModel {
+  id: string;
+  name?: string;
+  maxContextSize: number;
+  capabilities?: string[];
+  reasoning: boolean;
+}
+
+export interface AppCatalogProvider {
+  id: string;
+  name: string;
+  wireType: CatalogProviderWireType | null;
+  guessed: boolean;
+  needsBaseUrl: boolean;
+  rejected: boolean;
+  rejectReason: string | null;
+  envKey: string | null;
+  models: AppCatalogModel[];
+}
+
+export interface CatalogProviderImportInput {
+  catalogId: string;
+  apiKey?: string;
+  baseUrl?: string;
+  id?: string;
+}
+
+export interface CatalogProviderImportResult {
+  provider: AppCatalogProvider;
+  modelsImported: number;
+}
+
+export interface CatalogProviderApi {
+  listCatalogProviders(): Promise<AppCatalogProvider[]>;
+  importCatalogProvider(input: CatalogProviderImportInput): Promise<CatalogProviderImportResult>;
+}
+
+/** An OpenAI Codex sign-in in progress. Carries no token: the server keeps them. */
+export interface CodexLoginStart {
+  loginId: string;
+  authorizeUrl: string;
+  /** `false` when the callback port was taken, so the user must paste the redirect URL. */
+  loopback: boolean;
+  expiresAt: string;
+}
+
+export interface CodexLoginStatus {
+  loginId: string;
+  state: 'pending' | 'completed' | 'failed' | 'cancelled';
+  defaultModel?: string;
+  message?: string;
+}
+
+export interface ProviderRefreshResult {
+  changed: Array<{
+    providerId: string;
+    providerName: string;
+    added: number;
+    removed: number;
+  }>;
+  unchanged: string[];
+  failed: Array<{ provider: string; reason: string }>;
+}
+
+export interface AppConfigProvider {
+  type: string;
+  baseUrl?: string;
+  defaultModel?: string;
+  hasApiKey: boolean;
+}
+
+export type AppSubagentModelPolicy =
+  | { mode: 'inherit' }
+  | { mode: 'default'; defaultModel: string; defaultEffort?: string }
+  | { mode: 'pool'; defaultModel: string; models: Record<string, string>; defaultEffort?: string }
+  | { mode: 'force'; defaultModel: string; defaultEffort?: string };
+
+/** GET/PUT/DELETE `/config/subagent-model-policy`: the saved policy, its
+ *  strong resource version (the HTTP ETag), and what currently applies. */
+export interface AppSubagentModelPolicyState {
+  policy: AppSubagentModelPolicy;
+  resourceVersion: string;
+  configuredPolicy: AppSubagentModelPolicy;
+  effectivePolicy: AppSubagentModelPolicy;
+  policySource: 'config' | 'default';
+  feature: { enabled: boolean; source: 'master-env' | 'env' | 'config' | 'default' };
+}
+
+/** Thrown by the policy writes when the server's version moved (HTTP 412). */
+export class SubagentModelPolicyConflictError extends Error {
+  constructor(readonly current: AppSubagentModelPolicyState) {
+    super('The subagent model policy changed on the server; reloaded the saved policy.');
+    this.name = 'SubagentModelPolicyConflictError';
+  }
+}
+
+export interface AppConfig {
+  providers: Record<string, AppConfigProvider>;
+  defaultProvider?: string;
+  defaultModel?: string;
+  /** Secondary (subagent) model selection. `null` clears the override so
+   *  subagents inherit their caller's model and thinking effort. */
+  secondaryModel?: {
+    defaultModel?: string;
+    models?: Record<string, string>;
+    force?: boolean;
+    model?: string;
+    defaultEffort?: string;
+  } | null;
+  models?: Record<string, unknown>;
+  thinking?: { enabled?: boolean; effort?: string };
+  planMode?: boolean;
+  yolo?: boolean;
+  defaultThinking?: boolean;
+  defaultPermissionMode?: string;
+  defaultPlanMode?: boolean;
+  permission?: unknown;
+  hooks?: AppHook[];
+  services?: unknown;
+  mergeAllAvailableSkills?: boolean;
+  /** Skill names the user turned off; they never reach the agent. */
+  disabledSkills?: string[];
+  extraSkillDirs?: string[];
+  loopControl?: unknown;
+  background?: unknown;
+  experimental?: Record<string, boolean>;
+  telemetry?: boolean;
+}
+
+/** A session-scoped skill the user can invoke from the slash menu. */
+export interface AppSkill {
+  name: string;
+  description: string;
+  /** Skill source (e.g. 'builtin' | 'project' | 'plugin') for grouping/labels. */
+  source: string;
+  /** Where the skill was loaded from; shown in settings, absent in the slash menu. */
+  path?: string;
+  /** Set when the skill is slash-only and the model must not invoke it. */
+  disableModelInvocation?: boolean;
+}
+
+/** One configured hook, as it appears in the daemon config. */
+export interface AppHook {
+  event: string;
+  type?: 'command' | 'http' | 'model';
+  matcher?: string;
+  command?: string;
+  url?: string;
+  statusMessage?: string;
+  timeout?: number;
+  once?: boolean;
+  async?: boolean;
+}
+
+/** One installed plugin. */
+export interface AppRemoteControlStatus {
+  enabled: boolean;
+  state: 'off' | 'starting' | 'on' | 'stopping';
+  url?: string;
+  deviceName?: string;
+  error?: string;
+  /** Started by `pythinker web --remote-control`; only that terminal can stop it. */
+  startedInTerminal: boolean;
+}
+
+export interface AppPlugin {
+  id: string;
+  displayName: string;
+  version?: string;
+  enabled: boolean;
+  state: string;
+  skillCount: number;
+  mcpServerCount: number;
+  enabledMcpServerCount?: number;
+  hookCount?: number;
+  commandCount?: number;
+  hasErrors: boolean;
+  source: string;
+  originalSource?: string;
+  homepage?: string;
+}
+
+/** One marketplace catalog entry merged with live install state. */
+export interface AppPluginMarketplaceEntry {
+  id: string;
+  tier: 'official' | 'curated' | 'third-party';
+  displayName: string;
+  description?: string;
+  homepage?: string;
+  keywords?: string[];
+  version?: string;
+  source: string;
+  installed?: { version?: string; enabled: boolean };
+  updateAvailable?: boolean;
+  capabilityId?: string;
+}
+
+/** One subagent profile the agent can dispatch work to. */
+export interface AppSubagent {
+  name: string;
+  description?: string;
+  source: 'built-in' | 'plugin' | 'user' | 'project';
+  tools: string[];
+  model?: string;
+  effort?: string;
+  whenToUse?: string;
+}
+
+/** A configured MCP server ("connector") and its live connection state. */
+export interface AppMcpServerDefinition {
+  transport: 'stdio' | 'http' | 'sse';
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+}
+
+export interface AppMcpServerInput extends AppMcpServerDefinition {
+  name: string;
+}
+
+export interface AppConnector {
+  id: string;
+  name: string;
+  transport: 'stdio' | 'http' | 'sse';
+  status: 'connected' | 'connecting' | 'disconnected' | 'error';
+  toolCount: number;
+  lastError?: string;
+  editable: boolean;
+  definition?: AppMcpServerDefinition;
+}
+
+/** One tool available to the current session. */
+export interface AppTool {
+  name: string;
+  description: string;
+  inputSchema: unknown;
+  source: 'builtin' | 'skill' | 'mcp';
+  mcpServerId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// PythinkerWebApi — the app-facing interface
+// ---------------------------------------------------------------------------
+
+export interface AppSessionWarning {
+  code: string;
+  message: string;
+  severity: 'info' | 'warning' | 'error';
+}
+
+export type AppExperimentalFlagSource = 'master-env' | 'env' | 'config' | 'default';
+
+/** Effective state of one experimental flag as decided by the server. */
+export interface AppExperimentalFlagState {
+  id: string;
+  /** What currently applies at runtime. */
+  enabled: boolean;
+  source: AppExperimentalFlagSource;
+  /** The saved `[experimental]` value, when one exists. */
+  configValue?: boolean;
+  defaultEnabled: boolean;
+  /** True when an environment variable decides the flag; the saved setting has no runtime effect. */
+  externallyControlled: boolean;
+  /** True when a saved setting exists and the effective value differs from it. */
+  overridden: boolean;
+}
+
+export interface AppServerMeta {
+  serverVersion: string;
+  serverId: string;
+  startedAt: string;
+  capabilities: Record<string, boolean>;
+  openInApps: string[];
+  dangerousBypassAuth: boolean;
+  backend: 'v1' | 'v2';
+  experimentalFlagStates: AppExperimentalFlagState[];
+}
+
+export interface PythinkerWebApi {
+  getHealth(): Promise<{ status: 'ok'; uptimeSec: number }>;
+  getMeta(): Promise<AppServerMeta>;
+  listSessions(input?: PageRequest & { busy?: boolean; workspaceId?: string; includeArchive?: boolean; archivedOnly?: boolean; excludeEmpty?: boolean }): Promise<Page<AppSession>>;
+  listSessionGroupsV2(input?: { groupPageSize?: number; hasPrompt?: boolean; pageSize?: number; pageToken?: string }): Promise<AppSessionGroupPage>;
+  createSession(input: { title?: string; cwd?: string; model?: string; workspaceId?: string }): Promise<AppSession>;
+  /** Fetch one session by id (deep links beyond the first listSessions page). */
+  getSession(sessionId: string): Promise<AppSession>;
+  updateSession(sessionId: string, input: { title?: string; cwd?: string; model?: string; permissionMode?: string; planMode?: boolean; dynamicWorkflowMode?: boolean; towerMode?: boolean; towerBase?: string; goalObjective?: string; goalControl?: 'pause' | 'resume' | 'cancel'; thinking?: string; tools?: string[]; mcpServers?: string[] }): Promise<AppSession>;
+  getSessionStatus(sessionId: string): Promise<AppSessionRuntimeStatus>;
+  getExpertTalkStatus(sessionId: string): Promise<AppExpertTalkStatus>;
+  configureExpertTalk(sessionId: string, input: AppExpertTalkPair, expectedVersion?: string): Promise<AppExpertTalkStatus>;
+  clearExpertTalk(sessionId: string, expectedVersion?: string): Promise<AppExpertTalkStatus>;
+  armExpertTalk(sessionId: string, expectedVersion?: string): Promise<AppExpertTalkStatus>;
+  disarmExpertTalk(sessionId: string, armId?: string): Promise<AppExpertTalkStatus>;
+  listExpertTalkRuns(
+    sessionId: string,
+    options?: AppExpertTalkListRunsOptions,
+  ): Promise<AppExpertTalkRunPage>;
+  getExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
+  cancelExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
+  retryExpertTalkRun(sessionId: string, runId: string): Promise<AppExpertTalkRun>;
+  /** Current goal snapshot, or null when the session has no active goal. */
+  getSessionGoal(sessionId: string): Promise<AppGoal | null>;
+  getSessionWarnings(sessionId: string): Promise<AppSessionWarning[]>;
+  archiveSession(sessionId: string): Promise<{ archived: true }>;
+  deleteSession(sessionId: string): Promise<{ deleted: true }>;
+  restoreSession(sessionId: string): Promise<AppSession>;
+  listMessages(sessionId: string, input?: PageRequest & { role?: AppMessageRole }): Promise<Page<AppMessage>>;
+  getSessionTranscript(
+    sessionId: string,
+    input: AppTranscriptPageRequest,
+  ): Promise<AppTranscriptPage>;
+  /** v2 initial sync: atomic session state + `asOfSeq` watermark + epoch. */
+  getSessionSnapshot(sessionId: string): Promise<AppSessionSnapshot>;
+  /** Export the session archive, optionally including the bounded Web JSONL log. */
+  exportSession(sessionId: string, webLog?: string): Promise<{ blob: Blob; fileName: string }>;
+  submitPrompt(sessionId: string, input: PromptSubmission): Promise<PromptSubmitResult>;
+  /** Steer daemon-queued prompts into the active turn (TUI ctrl+s). */
+  steerPrompts(sessionId: string, promptIds: string[]): Promise<{ steered: boolean; promptIds: string[] }>;
+  abortPrompt(sessionId: string, promptId: string): Promise<{ aborted: boolean; atSeq?: number }>;
+  /** Cancel whatever is running in the session, including skill activations. */
+  abortSession(sessionId: string): Promise<{ aborted: boolean }>;
+  compactSession(sessionId: string, instruction?: string): Promise<void>;
+  undoSession(sessionId: string, count?: number): Promise<void>;
+  forkSession(sessionId: string, input?: { title?: string }): Promise<AppSession>;
+  /** Generate a session title — POST /sessions/{id}/title/generate. Throws SESSION_TITLE_UNAVAILABLE when generation isn't possible. */
+  generateSessionTitle(sessionId: string, input?: { force?: boolean; source?: 'user_prompts' | 'first_turn' | 'digest' }): Promise<{ title: string }>;
+  /** Create a child session under a parent — POST /sessions/{id}/children. */
+  createChildSession(sessionId: string, input?: { title?: string }): Promise<AppSession>;
+  /** List a session's child sessions — GET /sessions/{id}/children. */
+  listChildSessions(sessionId: string): Promise<AppSession[]>;
+  /** Start a BTW side-channel agent under the session — POST /sessions/{id}:btw. */
+  startBtw(sessionId: string): Promise<{ agentId: string }>;
+  respondApproval(sessionId: string, approvalId: string, response: ApprovalResponse): Promise<{ resolved: true; resolvedAt: string }>;
+  respondQuestion(sessionId: string, questionId: string, response: QuestionResponse): Promise<{ resolved: true; resolvedAt: string }>;
+  dismissQuestion(sessionId: string, questionId: string): Promise<{ dismissed: true; dismissedAt: string }>;
+  listSkills(sessionId: string): Promise<AppSkill[]>;
+  /** List skills for a workspace (no session required) — GET /workspaces/{id}/skills. */
+  listSkillsForWorkspace(workspaceId: string): Promise<AppSkill[]>;
+  activateSkill(sessionId: string, skillName: string, args?: string): Promise<{ activated: true; skillName: string }>;
+  listTools(sessionId: string): Promise<AppTool[]>;
+  listConnectors(): Promise<AppConnector[]>;
+  createConnector(input: AppMcpServerInput): Promise<{ created: true }>;
+  updateConnector(connectorId: string, input: AppMcpServerInput): Promise<{ updated: true }>;
+  removeConnector(connectorId: string): Promise<{ deleted: true }>;
+  restartConnector(connectorId: string): Promise<{ restarting: true }>;
+  getRemoteControl(): Promise<AppRemoteControlStatus>;
+  setRemoteControl(enabled: boolean): Promise<AppRemoteControlStatus>;
+  listPlugins(): Promise<AppPlugin[]>;
+  listPluginMarketplace(): Promise<AppPluginMarketplaceEntry[]>;
+  installPlugin(source: string): Promise<AppPlugin>;
+  setPluginEnabled(pluginId: string, enabled: boolean): Promise<{ ok: true }>;
+  removePlugin(pluginId: string): Promise<{ ok: true }>;
+  listSubagents(workDir: string): Promise<AppSubagent[]>;
+  listTasks(sessionId: string, input?: AppTaskListOptions): Promise<AppTask[]>;
+  getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number; signal?: AbortSignal }): Promise<AppTask>;
+  cancelTask(sessionId: string, taskId: string): Promise<{ cancelled: true }>;
+  /** Release a running foreground task so it keeps running in the background. */
+  detachTask(sessionId: string, taskId: string): Promise<{ detached: boolean; status: AppTaskStatus }>;
+  listTerminals(sessionId: string): Promise<AppTerminal[]>;
+  createTerminal(sessionId: string, input?: { cwd?: string; shell?: string; cols?: number; rows?: number }): Promise<AppTerminal>;
+  getTerminal(sessionId: string, terminalId: string): Promise<AppTerminal>;
+  closeTerminal(sessionId: string, terminalId: string): Promise<{ closed: true }>;
+  listDirectory(sessionId: string, input: { path?: string; depth?: number; includeGitStatus?: boolean }): Promise<{ items: FsEntry[]; childrenByPath?: Record<string, FsEntry[]>; truncated: boolean }>;
+  readFile(sessionId: string, input: { path: string; offset?: number; length?: number; encoding?: 'utf-8' | 'base64' | 'auto' }): Promise<{ path: string; content: string; encoding: 'utf-8' | 'base64'; size: number; truncated: boolean; etag: string; mime: string; languageId?: string; lineCount?: number; isBinary: boolean }>;
+  writeFile(sessionId: string, input: { path: string; content: string; encoding?: 'utf-8' | 'base64'; baseEtag?: string }): Promise<{ path: string; size: number; etag: string; created: boolean }>;
+  /** Search files in a workspace (no session required) — POST /workspace/fs:search. `workspace` accepts a registered workspace id or an absolute root. */
+  searchFiles(workspace: string, input: { query: string; limit?: number }): Promise<{ items: Array<{ path: string; name: string; kind: FsKind; score: number; matchPositions: number[] }>; truncated: boolean }>;
+  grepFiles(sessionId: string, input: { pattern: string; regex?: boolean; caseSensitive?: boolean }): Promise<{ files: Array<{ path: string; matches: Array<{ line: number; col: number; text: string; before: string[]; after: string[] }> }>; filesScanned: number; truncated: boolean; elapsedMs: number }>;
+  getGitStatus(sessionId: string, paths?: string[]): Promise<{ branch: string; ahead: number; behind: number; entries: Record<string, string>; additions: number; deletions: number; pullRequest: { number: number; state: string; url: string } | null }>;
+  getFileDiff(sessionId: string, path: string): Promise<{ path: string; diff: string }>;
+  getFileDownloadUrl(sessionId: string, path: string): string;
+  openFile(sessionId: string, input: { path: string; line?: number }): Promise<{ opened: true }>;
+  revealFile(sessionId: string, input: { path: string }): Promise<{ revealed: true }>;
+  revealSavedPlan(sessionId: string, input: { agentId: string; toolCallId: string }): Promise<{ revealed: true }>;
+  /** Open the session working directory (or a session-relative path) in an external application. */
+  openInApp(sessionId: string, appId: string, path: string, line?: number): Promise<void>;
+  connectEvents(handlers: PythinkerEventHandlers): PythinkerEventConnection;
+
+  // Workspaces + daemon folder browser. /workspaces now ships and includes
+  // derived workspaces (cwds with sessions that were never explicitly registered).
+  listWorkspaces(): Promise<AppWorkspace[]>;
+  addWorkspace(input: { root: string; name?: string }): Promise<AppWorkspace>;
+  updateWorkspace(id: string, input: { name: string }): Promise<AppWorkspace>;
+  deleteWorkspace(id: string): Promise<void>;
+  browseFs(path?: string): Promise<FsBrowseResult>;
+  getFsHome(): Promise<{ home: string; recentRoots: string[] }>;
+
+  // PRESUMED — not in current daemon docs; isolated in adapter, swap when backend defines them.
+  listModels(): Promise<AppModel[]>;
+  listProviders(): Promise<AppProvider[]>;
+  getProvider(id: string): Promise<AppProviderDetails>;
+  addProvider(input: ProviderCreateInput): Promise<AppProvider>;
+  updateProvider(id: string, input: ProviderUpdateInput): Promise<{ provider: AppProvider }>;
+  importCustomRegistry(input: { url: string; apiKey?: string }): Promise<CustomRegistryImportResult>;
+  deleteProvider(id: string): Promise<void>;
+  refreshProvider(id: string): Promise<ProviderRefreshResult>;
+  refreshAllProviders(): Promise<ProviderRefreshResult>;
+  startCodexLogin(): Promise<CodexLoginStart>;
+  getCodexLoginStatus(loginId: string): Promise<CodexLoginStatus>;
+  submitCodexLoginRedirect(loginId: string, redirectUrl: string): Promise<CodexLoginStatus>;
+  cancelCodexLogin(loginId: string): Promise<CodexLoginStatus>;
+
+  // File upload / download
+  uploadFile(input: { file: Blob; name?: string }): Promise<{ id: string; name: string; mediaType: string; size: number }>;
+  getFileUrl(fileId: string): string;
+  /** Fetch a file's bytes with auth — feed the resulting Blob to a blob URL for <video>/<img> src. */
+  getFileBlob(fileId: string): Promise<Blob>;
+
+  // Config — REAL endpoints
+  getConfig(): Promise<AppConfig>;
+  setConfig(patch: Partial<AppConfig>): Promise<AppConfig>;
+  getSubagentModelPolicy(): Promise<AppSubagentModelPolicyState>;
+  /** `expectedVersion` is sent as If-Match; a stale version rejects with SubagentModelPolicyConflictError. */
+  setSubagentModelPolicy(policy: AppSubagentModelPolicy, expectedVersion?: string): Promise<AppSubagentModelPolicyState>;
+  clearSubagentModelPolicy(expectedVersion?: string): Promise<AppSubagentModelPolicyState>;
+
+  // Auth — REAL endpoints
+  getAuth(): Promise<{
+    ready: boolean;
+    providersCount: number;
+    defaultModel: string | null;
+  }>;
+}

@@ -1,0 +1,45 @@
+name: Changeset policy
+
+# A major bump renames the release and breaks every pinned consumer, and npm
+# publishes are irreversible. `gen-changesets` already says a major is never an
+# agent's call; this makes that a merge gate rather than a convention.
+#
+# `labeled`/`unlabeled` are listed so adding the approval label re-runs the
+# check instead of leaving a stale red on the pull request.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  major-bump-approval:
+    name: Major bump needs approval
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned from v6.0.2
+        with:
+          # The gate diffs against the base commit, which a shallow clone of
+          # the merge ref alone does not contain.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # pinned from v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      # The gate decides what ships, so a silent break in the gate is worse
+      # than a red pull request. Its own cases run first.
+      - name: Self-test the gate
+        run: node scripts/release/check-major-changeset.mjs --self-test
+
+      # Both values reach the script through the environment and are never
+      # interpolated into a shell command. `base.sha` is used rather than the
+      # branch name so no caller-chosen text reaches git at all.
+      - name: Check for an unapproved major changeset
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: node scripts/release/check-major-changeset.mjs

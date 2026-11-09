@@ -1,0 +1,99 @@
+<svg class="ptx ptx-update-button" width="24" height="24" viewBox="0 0 24 24" fill="none"
+     xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="Download update">
+  <style>
+    /*
+      Total cycle: 4 seconds
+      - first 1 second: 3 sequential arrow hits
+      - next 3 seconds: completely still
+    */
+
+    .ptx-update-button .arrow {
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+
+    .ptx-update-button .impact-line {
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+
+    @keyframes ptx-update-button-arrow-hit {
+      /* Hit 1 */
+      0%    { transform: translateY(0); }
+      3%    { transform: translateY(-2px); }
+      6%    { transform: translateY(5px); }
+      8%    { transform: translateY(0); }
+
+      /* Hit 2 */
+      10%   { transform: translateY(0); }
+      13%   { transform: translateY(-2px); }
+      16%   { transform: translateY(5px); }
+      18%   { transform: translateY(0); }
+
+      /* Hit 3 */
+      20%   { transform: translateY(0); }
+      23%   { transform: translateY(-2px); }
+      25%   { transform: translateY(5px); }
+
+      /* Remain still for the next 3 seconds */
+      27%, 100% { transform: translateY(0); }
+    }
+
+    @keyframes ptx-update-button-line-shake {
+      /* Shake on hit 1 */
+      0%, 5% { transform: translateX(0); }
+      6%     { transform: translateX(-1.5px); }
+      6.8%   { transform: translateX(1.5px); }
+      7.6%   { transform: translateX(-0.8px); }
+      8.5%   { transform: translateX(0); }
+
+      /* Shake on hit 2 */
+      15%    { transform: translateX(0); }
+      16%    { transform: translateX(-1.5px); }
+      16.8%  { transform: translateX(1.5px); }
+      17.6%  { transform: translateX(-0.8px); }
+      18.5%  { transform: translateX(0); }
+
+      /* Shake on hit 3 */
+      24%    { transform: translateX(0); }
+      25%    { transform: translateX(-1.5px); }
+      25.8%  { transform: translateX(1.5px); }
+      26.6%  { transform: translateX(-0.8px); }
+
+      /* Remain still */
+      27.5%, 100% { transform: translateX(0); }
+    }
+
+    /* motion runs only while the host is working (.ptx-live) or hovered */
+    :is(.ptx-live .ptx-update-button, .ptx-update-button:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-update-button) .arrow { animation: ptx-update-button-arrow-hit 4s cubic-bezier(.2,.8,.2,1) infinite; }
+    :is(.ptx-live .ptx-update-button, .ptx-update-button:hover, :is(button, a, [role="button"], .ptx-hover):hover .ptx-update-button) .impact-line { animation: ptx-update-button-line-shake 4s linear infinite; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ptx-update-button .arrow, .ptx-update-button .impact-line { animation: none; }
+    }
+  </style>
+
+  <g transform="scale(.4285714286)">
+    <!-- static button -->
+    <circle cx="28" cy="28" r="22" fill="#078737"/>
+    <circle cx="28" cy="28" r="21.5" stroke="#0A7332" stroke-opacity=".22"/>
+
+    <!-- moving arrow -->
+    <g class="arrow"
+       stroke="#FFFFFF"
+       stroke-width="2.6"
+       stroke-linecap="round"
+       stroke-linejoin="round">
+      <path d="M28 15V32.5"/>
+      <path d="M19.5 25L28 33.5L36.5 25"/>
+    </g>
+
+    <!-- impact line -->
+    <path class="impact-line"
+          d="M19 40H37"
+          stroke="#FFFFFF"
+          stroke-width="2.4"
+          stroke-linecap="round"/>
+  </g>
+</svg>

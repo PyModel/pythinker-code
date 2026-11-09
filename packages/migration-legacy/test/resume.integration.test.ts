@@ -1,0 +1,210 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { encodeWorkDirKey } from '@pymodel/agent-core-v2/_base/utils/workdir-slug';
+import { reduceContextTranscript } from '@pymodel/agent-core-v2';
+import { groupMessagesIntoSnapshot } from '@pymodel/transcript';
+
+import { migrateOneSession, type MigrateOneResult } from '../src/sessions/migrate-one.js';
+import { importedSessionDir, writeImportedSession } from '../src/imported-session.js';
+import { computeWorkdirBucket } from '../src/sessions/workdir-bucket.js';
+import { listSessionsV2, readSessionSummaryV2 } from './v2-session-scan.js';
+
+const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url));
+const WORK_DIR = '/Users/example/proj';
+
+let targetHome: string;
+beforeEach(async () => {
+  targetHome = await mkdtemp(join(tmpdir(), 'resume-integ-'));
+});
+afterEach(async () => {
+  await rm(targetHome, { recursive: true, force: true });
+});
+
+async function migrateFixture(
+  uuid: string,
+  fixture: string,
+): Promise<Extract<MigrateOneResult, { outcome: 'migrated' }>> {
+  const result = await migrateOneSession({
+    source: {
+      uuid,
+      sessionDir: join(FIXTURES, fixture),
+      contextPath: join(join(FIXTURES, fixture), 'context.jsonl'),
+    },
+    workdirPath: WORK_DIR,
+    targetHome,
+  });
+  expect(result.outcome).toBe('migrated');
+  return result as Extract<MigrateOneResult, { outcome: 'migrated' }>;
+}
+
+describe('migrated session is discoverable by agent-core-v2', () => {
+  it('computeWorkdirBucket matches v2 encodeWorkDirKey', () => {
+    expect(computeWorkdirBucket(WORK_DIR)).toBe(encodeWorkDirKey(WORK_DIR));
+  });
+
+  it('v2 authoritative scan finds a migrated session under the same workDir', async () => {
+    await migrateFixture('integ-uuid', 'with-tool-calls');
+
+    const sessions = await listSessionsV2(targetHome);
+    const migrated = sessions.find((s) => s.id === 'ses_integ-uuid');
+    expect(migrated).toBeDefined();
+    expect(migrated?.custom?.['imported_from_pythinker_cli']).toBe(true);
+    expect(migrated?.cwd).toBe(WORK_DIR);
+  });
+
+  it('migrated wire history is non-empty', async () => {
+    const result = await migrateFixture('tiny-resume', 'tiny-hello-world');
+
+    const wire = await readFile(join(result.targetDir, 'agents', 'main', 'wire.jsonl'), 'utf-8');
+    const events = wire
+      .split('\n')
+      .filter((l) => l.length > 0)
+      .map((l) => JSON.parse(l) as { type: string });
+    expect(events[0]?.type).toBe('metadata');
+    expect(events.filter((e) => e.type === 'context.append_message').length).toBeGreaterThan(0);
+  });
+
+  it('v2 summary exposes the migrated title, metadata and message history', async () => {
+    const result = await migrateFixture('tiny-resume', 'tiny-hello-world');
+
+    const summary = await readSessionSummaryV2(targetHome, 'ses_tiny-resume');
+    expect(summary).toBeDefined();
+    expect(summary?.title).toBe('hi');
+    expect(summary?.cwd).toBe(WORK_DIR);
+    expect(summary?.archived).toBe(false);
+    expect(summary?.createdAt).toBeGreaterThan(0);
+
+    const wire = await readFile(join(result.targetDir, 'agents', 'main', 'wire.jsonl'), 'utf-8');
+    expect(wire).toContain('hi');
+    expect(wire).toContain('Hello! How can I help?');
+  });
+
+  it('v2 scan lists a title-only migrated session with its custom title', async () => {
+    await migrateFixture('title-only-resume', 'title-only');
+
+    const summary = await readSessionSummaryV2(targetHome, 'ses_title-only-resume');
+    expect(summary).toBeDefined();
+    expect(summary?.title).toBe('My named session');
+  });
+
+  it('migrated wire preserves a legacy todo display', async () => {
+    const result = await migrateFixture('todo-display', 'large-100msgs');
+
+    const wire = await readFile(join(result.targetDir, 'agents', 'main', 'wire.jsonl'), 'utf-8');
+    expect(wire).toContain('tool_y3SXWWQIUysddnYoklaWhUeE');
+    expect(wire).toContain('todo_list');
+    expect(wire).toContain('zhzh work-dir');
+    expect(wire).toContain('zh');
+  });
+
+  it('turn structure survives a v2 context-transcript round trip and aligns with transcript grouping', async () => {
+    const result = await migrateFixture('turn-structure', 'with-tool-calls');
+
+    const wire = await readFile(join(result.targetDir, 'agents', 'main', 'wire.jsonl'), 'utf-8');
+    const records = wire
+      .split('\n')
+      .filter((l) => l.length > 0)
+      .map((l) => JSON.parse(l) as { type: string; [key: string]: unknown });
+
+    // Content round trip: the v2 context transcript preserves the imported
+    // messages. Compare their native role/content shape while dropping UI-only
+    // displays and optional usage/timing metadata.
+    const transcript = reduceContextTranscript(records);
+    const imported = records
+      .filter((r) => r.type === 'context.append_message')
+      .map((r) => r['message']);
+    const stripDisplays = (
+      messages: readonly unknown[],
+    ): unknown[] =>
+      messages.map((m) => {
+        const {
+          toolCallDisplays: _dropped,
+          usage: _usage,
+          llmTiming: _llmTiming,
+          ...rest
+        } = m as Record<string, unknown>;
+        return rest;
+      });
+    expect(stripDisplays([...transcript.entries])).toEqual(stripDisplays(imported));
+
+    // The invariant that keeps a live turn from hijacking an imported one:
+    // every turn.prompt advances the restored turn clock by one, so the number
+    // of synthesized turn.prompt records must equal the number of turns the
+    // transcript grouping derives from the same messages. The first live turn
+    // after resume then gets an id past every imported turn.
+    const promptCount = records.filter((r) => r.type === 'turn.prompt').length;
+    const groupedTurns = groupMessagesIntoSnapshot([...transcript.entries]).items.filter(
+      (item) => item.kind === 'turn',
+    ).length;
+    expect(promptCount).toBe(groupedTurns);
+    expect(promptCount).toBeGreaterThan(0);
+
+    const endedTurnIds = records
+      .filter((r) => r.type === 'turn.ended')
+      .map((r) => r['turnId'])
+      .filter((id): id is number => typeof id === 'number');
+    // Turns without assistant content (e.g. an unanswered user message) get no
+    // turn.ended; the rest carry sequential ids within the imported range.
+    expect(endedTurnIds).toEqual([...endedTurnIds].toSorted((a, b) => a - b));
+    expect(new Set(endedTurnIds).size).toBe(endedTurnIds.length);
+    expect(Math.max(...endedTurnIds)).toBeLessThan(promptCount);
+  });
+});
+
+describe('imported external session is discoverable by agent-core-v2', () => {
+  const messages = [
+    { role: 'user', content: [{ type: 'text', text: 'Fix the login flow' }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'Running the tests.\n\n[external_agent_tool_call: Bash]\ncommand: npm test\n[/external_agent_tool_call]' }] },
+    { role: 'user', content: [{ type: 'text', text: 'Add a regression test' }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'Added.' }] },
+    { role: 'user', content: [{ type: 'text', text: '<EXTERNAL SESSION IMPORTED>\nThe conversation above was imported.' }] },
+  ] as const;
+  const write = () => writeImportedSession({
+    targetHome,
+    sessionId: 'ses_example-source',
+    workDir: WORK_DIR,
+    title: 'Fix the login flow',
+    lastPrompt: 'Add a regression test',
+    updatedAtMs: 1_700_000_000_000,
+    messages,
+    custom: { imported_from: 'claude-code', imported_source_id: 'example-source' },
+  });
+
+  it('lists the session with its title, original time and import metadata', async () => {
+    const sessionDir = await write();
+
+    expect(sessionDir).toBe(importedSessionDir(targetHome, WORK_DIR, 'ses_example-source'));
+    expect(await readSessionSummaryV2(targetHome, 'ses_example-source')).toMatchObject({
+      title: 'Fix the login flow',
+      cwd: WORK_DIR,
+      lastPrompt: 'Add a regression test',
+      createdAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+      archived: false,
+      custom: { imported_from: 'claude-code', imported_source_id: 'example-source' },
+    });
+    expect(await readFile(join(targetHome, 'session_index.jsonl'), 'utf-8')).toContain('"sessionId":"ses_example-source"');
+  });
+
+  it('replays the messages unchanged with one restored turn per prompt', async () => {
+    const sessionDir = await write();
+
+    const wire = await readFile(join(sessionDir, 'agents', 'main', 'wire.jsonl'), 'utf-8');
+    const records = wire
+      .split('\n')
+      .filter((l) => l.length > 0)
+      .map((l) => JSON.parse(l) as { type: string; [key: string]: unknown });
+    const transcript = reduceContextTranscript(records);
+    expect([...transcript.entries]).toEqual(messages.map((message) => ({ ...message, toolCalls: [] })));
+    const promptCount = records.filter((r) => r.type === 'turn.prompt').length;
+    const groupedTurns = groupMessagesIntoSnapshot([...transcript.entries]).items.filter(
+      (item) => item.kind === 'turn',
+    ).length;
+    expect(promptCount).toBe(3);
+    expect(groupedTurns).toBe(promptCount);
+  });
+});

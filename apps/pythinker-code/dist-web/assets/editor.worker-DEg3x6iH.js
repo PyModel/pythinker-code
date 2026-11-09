@@ -1,0 +1,1 @@
+function e(e){return new Worker(`/assets/editor.worker-B9tos8Rw.js`,{type:`module`,name:e?.name})}export{e as default};

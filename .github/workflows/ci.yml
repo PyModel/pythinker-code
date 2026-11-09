@@ -1,0 +1,180 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - name: Smoke test CLI bundle
+        run: pnpm -C apps/pythinker-code run smoke
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test --shard=${{ matrix.shard }}/5
+
+  # minidb's cluster/stress suite is process-heavy and flakes under the
+  # shared shard matrix; run it in its own job outside the default projects.
+  test-minidb:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @pymodel/minidb test
+
+  test-complete:
+    name: test
+    if: always()
+    needs: [test, test-minidb]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify all test shards passed
+        if: needs.test.result != 'success' || needs.test-minidb.result != 'success'
+        run: exit 1
+
+  # pi-tui's suite runs on node:test (not vitest), so the root `pnpm run test`
+  # does not execute it; it needs its own job.
+  test-pi-tui:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @pymodel/pi-tui test
+
+  test-windows:
+    runs-on: windows-latest
+    # Temporarily disabled while Windows tests are being stabilized.
+    if: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      # Windows runners are slower and run the whole suite (including
+      # in-process e2e tests) under more contention, so the default 5s test
+      # timeout causes flaky failures. Give it more headroom.
+      - run: pnpm run test -- --testTimeout=30000
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      - run: pnpm run sherif
+      - run: pnpm run test:release
+
+  typecheck:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: |
+          pnpm exec tsc --version
+          for config in packages/*/tsconfig.json apps/pythinker-code/tsconfig.json; do
+            echo "Typechecking ${config}"
+            pnpm exec tsc -p "${config}" --noEmit
+          done
+      # `pnpm --filter <name>` exits 0 when nothing matches, so a renamed
+      # package silently turns its gate into a no-op. Three of these filters
+      # had already gone stale that way: `@pymodel/dashboard-server` and
+      # `@pymodel/dashboard-web` matched nothing after the vis rename, and
+      # Typecheck published app packages. The VS Code extension package is
+      # named `pythinker` and stays on its own typecheck path when aligned.
+      # Resolving each filter first turns a stale name back into a failure.
+      - name: Typecheck workspace apps
+        run: |
+          set -euo pipefail
+          for package in @pymodel/pythinker-code @pymodel/pythinker-web @pymodel/vis-server @pymodel/vis-web @pymodel/pythinker-desktop; do
+            if [ -z "$(pnpm ls --filter "$package" --depth -1 --parseable)" ]; then
+              echo "No workspace package matches the filter '${package}'" >&2
+              exit 1
+            fi
+            echo "Typechecking ${package}"
+            pnpm --filter "$package" run typecheck
+          done

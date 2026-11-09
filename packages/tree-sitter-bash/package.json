@@ -1,0 +1,47 @@
+{
+  "name": "@pymodel/tree-sitter-bash",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A pure-TypeScript bash parser producing a syntax tree whose named node types match tree-sitter-bash one-to-one.",
+  "license": "MIT",
+  "author": "PyModel",
+  "homepage": "https://github.com/PyModel/pythinker-code/tree/main/packages/tree-sitter-bash#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PyModel/pythinker-code.git",
+    "directory": "packages/tree-sitter-bash"
+  },
+  "bugs": {
+    "url": "https://github.com/PyModel/pythinker-code/issues"
+  },
+  "keywords": [
+    "pythinker",
+    "bash",
+    "shell",
+    "parser",
+    "tree-sitter"
+  ],
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "imports": {
+    "#/*": "./src/*.ts"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "tree-sitter-bash": "0.25.0",
+    "web-tree-sitter": "0.25.10"
+  }
+}

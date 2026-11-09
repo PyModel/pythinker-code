@@ -1,0 +1,19 @@
+export default {
+  new: { desc: 'Create a new session' },
+  clear: { desc: 'Clear and start a new session' },
+  login: { desc: 'Sign in to Pythinker in the browser' },
+  plan: { desc: 'Toggle plan mode on/off' },
+  expertTalk: { desc: 'Configure and arm Discussion for the next message' },
+  dynamicWorkflow: { desc: 'Toggle Dynamic Workflow mode; /workflow <task> runs a task in parallel' },
+  goal: { desc: 'Create/control a goal: /goal <objective>, /goal pause|resume|cancel' },
+  tower: { desc: 'Toggle tower mode; /tower <base-branch> turns it on with a base branch' },
+  btw: { desc: 'Side chat: /btw <question> asks a forked side session' },
+  compact: { desc: 'Compact the conversation history' },
+  fork: { desc: 'Fork this session into a new one' },
+  export: {
+    desc: 'Download this session and troubleshooting logs as a ZIP',
+    noSession: 'Open a session before exporting it.',
+  },
+  status: { desc: 'View session status' },
+  undo: { desc: 'Undo the last message' },
+} as const;

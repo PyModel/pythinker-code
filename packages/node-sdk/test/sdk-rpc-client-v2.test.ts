@@ -1,0 +1,2801 @@
+/**
+ * Scenario: v2 wiring  the harness talks to the in-process agent-core-v2
+ * engine (klient memory transport) instead of the v1 PythinkerCore RPC pair.
+ * Responsibilities: v2-client behaviors the v1↔v2 parity gate does not
+ * compare (engine telemetry forwarding, host request headers, the Windows
+ * Git Bash probe, workspace trust, the config write cascade, deleteSession,
+ * foldAgentWireReplay).
+ * Wiring: real v2 engine bootstrapped on a temp PYTHINKER_CODE_HOME; remote provider calls are stubbed.
+ * Run: pnpm exec vitest run test/sdk-rpc-client-v2.test.ts
+ */
+import { execFile } from 'node:child_process';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
+
+import {
+  FileTokenStorage,
+    resolveOAuthTokenStorageName,
+} from '@pymodel/pythinker-code-oauth';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import {
+  buildDaemonFileUrl,
+  createPythinkerHarness,
+  ErrorCodes,
+  isDaemonFileUrl,
+  isPythinkerError,
+  PythinkerHarness,
+  limitAgentReplayByTurns,
+  SDKRpcClientBase,
+  SDKRpcClientV2,
+  Session,
+  toPythinkerErrorPayload,
+  type Event,
+} from '#/index';
+import { foldAgentWireReplay } from '#/v2/resume-replay';
+import {
+  drainQueryStoreDisposals,
+  drainSessionIndexMirror,
+  Error2,
+  getLiveSessionById,
+  HostProcessError,
+  IAgentIdentity,
+  IAgentTodoService,
+  IAgentLifecycleService,
+  IAgentLoopService,
+  IAgentContextMemoryService,
+  IAgentProfileService,
+  IAgentConversationUndoService,
+  IAgentFullCompactionService,
+  IAgentPluginCommandService,
+  IAgentPromptChannel,
+  IAgentSkillService,
+  IAgentToolActivationService,
+  IAgentToolRegistryService,
+  INotifyUserTool,
+  IAtomicDocumentStore,
+  IConfigService,
+  ISessionContext,
+  IAgentTowerService,
+  IHostRequestHeaders,
+  IMcpManagementService,
+  IMcpOAuthService,
+  ISessionManager,
+  IWorkspaceInstanceManager,
+  MAIN_AGENT_ID,
+  OsProcessErrors,
+} from '@pymodel/agent-core-v2';
+
+import { McpOAuthService as McpOAuthServiceV2 } from '@pymodel/agent-core-v2/mcpCore/oauth/service';
+import { TowerStore } from '@pymodel/agent-core-v2/features/tower/protocol/store';
+
+import { TEST_IDENTITY } from './test-identity';
+import { recordingTelemetry, type TelemetryRecord } from './telemetry';
+
+const hostEnvProbe = vi.hoisted(() => ({ failWithMissingShell: false }));
+
+vi.mock('@pymodel/agent-core-v2/_base/execEnv/environmentProbe', async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import('@pymodel/agent-core-v2/_base/execEnv/environmentProbe')
+  >();
+  return {
+    ...actual,
+    probeHostEnvironmentFromNode: () =>
+      hostEnvProbe.failWithMissingShell
+        ? Promise.reject(
+            new actual.ProbeShellNotFoundError('Git Bash missing (stubbed)', [
+              'C:\\Program Files\\Git\\bin\\bash.exe',
+            ]),
+          )
+        : actual.probeHostEnvironmentFromNode(),
+  };
+});
+
+const tempDirs: string[] = [];
+
+afterEach(async () => {
+  // The read-model mirror/query-store close asynchronously on dispose; await
+  // the drains so the rm below never races their final flush (ENOTEMPTY).
+  await drainSessionIndexMirror();
+  await drainQueryStoreDisposals();
+  for (const dir of tempDirs.splice(0)) {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+function stubProcessPlatform(platform: NodeJS.Platform): () => void {
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+  return () => {
+    if (descriptor !== undefined) {
+      Object.defineProperty(process, 'platform', descriptor);
+    }
+  };
+}
+
+async function makeHarness(): Promise<{ harness: PythinkerHarness; homeDir: string }> {
+  const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+  tempDirs.push(homeDir);
+  return { harness: createPythinkerHarness({ homeDir, identity: TEST_IDENTITY }), homeDir };
+}
+
+/** Whether the persisted session directory exists under `<home>/sessions/<bucket>/<id>`. */
+async function sessionDirExists(homeDir: string, sessionId: string): Promise<boolean> {
+  let buckets: readonly string[];
+  try {
+    buckets = await readdir(join(homeDir, 'sessions'));
+  } catch {
+    return false;
+  }
+  for (const bucket of buckets) {
+    try {
+      await readdir(join(homeDir, 'sessions', bucket, sessionId));
+      return true;
+    } catch {
+      // Not under this bucket.
+    }
+  }
+  return false;
+}
+
+/** The persisted session directory under `<home>/sessions/<bucket>/<id>`. */
+async function findSessionDir(homeDir: string, sessionId: string): Promise<string> {
+  for (const bucket of await readdir(join(homeDir, 'sessions'))) {
+    const candidate = join(homeDir, 'sessions', bucket, sessionId);
+    try {
+      await readdir(candidate);
+      return candidate;
+    } catch {
+      // Not under this bucket.
+    }
+  }
+  throw new Error(`no persisted directory found for session ${sessionId}`);
+}
+
+describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
+  it('exposes the validated runtime binding through Session', async () => {
+    const { harness } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    const session = await harness.createSession({ id: 'ses_runtime', workDir });
+    try {
+      const binding = await session.getRuntime();
+      expect(binding.runtimeId).toBe('local');
+      expect(binding.workspaceId.length).toBeGreaterThan(0);
+      await expect(session.switchRuntime('missing-runtime')).rejects.toThrow(/missing-runtime/);
+      expect(await session.getRuntime()).toEqual(binding);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('reports global MCP authorization without probing when verify is false', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const implicitOAuthUrl = 'https://implicit-oauth.example.test/mcp';
+    const authorizedUrl = 'https://authorized.example.test/mcp';
+    const requiredUrl = 'https://required.example.test/mcp';
+    await writeFile(
+      join(homeDir, 'mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          stdio: { command: 'local-command' },
+          plain: { transport: 'http', url: 'https://plain.example.test/mcp' },
+          detected: { transport: 'http', url: implicitOAuthUrl },
+          sse: { transport: 'sse', url: implicitOAuthUrl },
+          'sse-oauth': { transport: 'sse', url: implicitOAuthUrl, auth: 'oauth' },
+          bearer: {
+            transport: 'http',
+            url: 'https://bearer.example.test/mcp',
+            bearerTokenEnvVar: 'EXAMPLE_MCP_TOKEN',
+          },
+          'oauth-required': {
+            transport: 'http',
+            url: requiredUrl,
+            auth: 'oauth',
+          },
+          'oauth-authorized': {
+            transport: 'http',
+            url: authorizedUrl,
+            auth: 'oauth',
+          },
+        },
+      }),
+      'utf-8',
+    );
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    const oauth = client.engineAccessor.get(IMcpOAuthService);
+
+    try {
+      await client.engineAccessor.get(IAgentIdentity).resolved();
+      await oauth
+        .getProvider('oauth-authorized', authorizedUrl)
+        .saveTokens({ access_token: 'test-access-token', token_type: 'Bearer' });
+      await oauth
+        .getProvider('sse', implicitOAuthUrl)
+        .saveTokens({ access_token: 'stale-sse-token', token_type: 'Bearer' });
+
+      await expect(client.listGlobalMcpServerAuthStatuses({ verify: false })).resolves.toEqual([
+        { name: 'stdio', authStatus: 'not-applicable' },
+        { name: 'plain', authStatus: 'not-applicable' },
+        { name: 'detected', authStatus: 'not-applicable' },
+        { name: 'sse', authStatus: 'not-applicable' },
+        { name: 'sse-oauth', authStatus: 'oauth-required' },
+        { name: 'bearer', authStatus: 'bearer-token' },
+        { name: 'oauth-required', authStatus: 'oauth-required' },
+        { name: 'oauth-authorized', authStatus: 'oauth-authorized' },
+      ]);
+
+      await oauth
+        .getProvider('oauth-required', requiredUrl)
+        .saveTokens({ access_token: 'new-test-access-token', token_type: 'Bearer' });
+      await oauth.invalidate('oauth-authorized', authorizedUrl, 'tokens');
+
+      await expect(client.listGlobalMcpServerAuthStatuses({ verify: false })).resolves.toEqual([
+        { name: 'stdio', authStatus: 'not-applicable' },
+        { name: 'plain', authStatus: 'not-applicable' },
+        { name: 'detected', authStatus: 'not-applicable' },
+        { name: 'sse', authStatus: 'not-applicable' },
+        { name: 'sse-oauth', authStatus: 'oauth-required' },
+        { name: 'bearer', authStatus: 'bearer-token' },
+        { name: 'oauth-required', authStatus: 'oauth-authorized' },
+        { name: 'oauth-authorized', authStatus: 'oauth-required' },
+      ]);
+    } finally {
+      await client.close();
+    }
+  }, 15_000);
+
+  it('restates engine MCP management Error2s as PythinkerError, undeclared codes as internal', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      const management = client.engineAccessor.get(IMcpManagementService);
+      const listSpy = vi.spyOn(management, 'listServers');
+      const captureRejection = async (promise: Promise<unknown>): Promise<unknown> => {
+        try {
+          await promise;
+        } catch (error) {
+          return error;
+        }
+        return expect.unreachable('expected the call to reject');
+      };
+      try {
+        // A declared engine code keeps its identity across the restate: the
+        // SDK throws the same class v1 throws, and the payload serializer
+        // accepts the code.
+        listSpy.mockRejectedValueOnce(
+          new Error2('mcp.oauth_failed', 'OAuth flow timed out', {
+            details: { flowId: 'flow-1' },
+          }),
+        );
+        const oauthError = await captureRejection(client.listGlobalMcpServers());
+        expect(isPythinkerError(oauthError)).toBe(true);
+        expect(oauthError).toMatchObject({
+          code: 'mcp.oauth_failed',
+          message: 'OAuth flow timed out',
+          details: { flowId: 'flow-1' },
+        });
+        expect(toPythinkerErrorPayload(oauthError)).toMatchObject({
+          code: 'mcp.oauth_failed',
+          message: 'OAuth flow timed out',
+        });
+
+        // A code this build's registry does not declare (a newer engine than
+        // the pinned SDK) restates as `internal` instead of minting an
+        // undeclared PythinkerError code the serializer would reject.
+        listSpy.mockRejectedValueOnce(new Error2('mcp.future_code' as never, 'from a newer engine'));
+        const unknownError = await captureRejection(client.listGlobalMcpServers());
+        expect(isPythinkerError(unknownError)).toBe(true);
+        expect(unknownError).toMatchObject({
+          code: ErrorCodes.INTERNAL,
+          message: 'from a newer engine',
+        });
+        expect(toPythinkerErrorPayload(unknownError)).toMatchObject({
+          code: ErrorCodes.INTERNAL,
+          message: 'from a newer engine',
+        });
+      } finally {
+        listSpy.mockRestore();
+      }
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('restates engine session-lock Error2s as PythinkerError on the conflict-handled entry points', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(homeDir, workDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      await client.createSession({ id: 'ses_lock', workDir });
+      // The main agent materializes lazily on the first agent-scoped call;
+      // the spies below need its DI instances to exist beforehand.
+      await client.getSessionWarnings({ sessionId: 'ses_lock' });
+      const main = getLiveSessionById(client.engineAccessor, 'ses_lock')!
+        .accessor.get(IAgentLifecycleService)
+        .handleOf('main')!;
+      const submitSpy = vi.spyOn(main.accessor.get(IAgentPromptChannel), 'submit');
+      const steerSpy = vi.spyOn(main.accessor.get(IAgentPromptChannel), 'submitSteer');
+      const skillsSpy = vi.spyOn(main.accessor.get(IAgentSkillService), 'promptWithSkills');
+      const beginSpy = vi.spyOn(main.accessor.get(IAgentFullCompactionService), 'begin');
+      const undoSpy = vi.spyOn(main.accessor.get(IAgentConversationUndoService), 'undo');
+      const activateSpy = vi.spyOn(main.accessor.get(IAgentPluginCommandService), 'activate');
+
+      const lockCause = new Error('lock held');
+      const occupied = new Error2('session.occupied', 'held by another client', {
+        details: { sessionId: 'ses_lock', holder: { clientIdentity: 'other-client' } },
+        cause: lockCause,
+      });
+      const captureRejection = async (promise: Promise<unknown>): Promise<unknown> => {
+        try {
+          await promise;
+        } catch (error) {
+          return error;
+        }
+        return expect.unreachable('expected the call to reject');
+      };
+
+      const entryPoints: ReadonlyArray<{
+        name: string;
+        rejectWith: (error: Error2) => void;
+        call: () => Promise<unknown>;
+      }> = [
+        {
+          name: 'prompt',
+          rejectWith: (error) => submitSpy.mockRejectedValueOnce(error),
+          call: () =>
+            client.prompt({ sessionId: 'ses_lock', input: [{ type: 'text', text: 'hi' }] }),
+        },
+        {
+          name: 'steer',
+          rejectWith: (error) => steerSpy.mockRejectedValueOnce(error),
+          call: () =>
+            client.steer({ sessionId: 'ses_lock', input: [{ type: 'text', text: 'hi' }] }),
+        },
+        {
+          name: 'promptWithSkills',
+          rejectWith: (error) => skillsSpy.mockRejectedValueOnce(error),
+          call: () =>
+            client.promptWithSkills({
+              sessionId: 'ses_lock',
+              input: [{ type: 'text', text: 'hi' }],
+              skills: [{ name: 'skill-a' }],
+            }),
+        },
+        {
+          name: 'compact',
+          rejectWith: (error) =>
+            beginSpy.mockImplementationOnce(() => {
+              throw error;
+            }),
+          call: () => client.compact({ sessionId: 'ses_lock' }),
+        },
+        {
+          name: 'undoHistory',
+          rejectWith: (error) => undoSpy.mockRejectedValueOnce(error),
+          call: () => client.undoHistory({ sessionId: 'ses_lock', count: 1 }),
+        },
+        {
+          name: 'activatePluginCommand',
+          rejectWith: (error) => activateSpy.mockRejectedValueOnce(error),
+          call: () =>
+            client.activatePluginCommand({
+              sessionId: 'ses_lock',
+              pluginId: 'plugin-a',
+              commandName: 'cmd',
+              args: '',
+            }),
+        },
+      ];
+      for (const { name, rejectWith, call } of entryPoints) {
+        rejectWith(occupied);
+        const error = await captureRejection(call());
+        expect(isPythinkerError(error), name).toBe(true);
+        expect(error, name).toMatchObject({
+          code: occupied.code,
+          message: occupied.message,
+          details: occupied.details,
+        });
+        expect((error as { cause?: unknown }).cause, name).toBe(lockCause);
+      }
+
+      // Non-Error2 failures (DI resolution bugs, aborts) pass through untouched.
+      const plain = new Error('not an engine error');
+      undoSpy.mockRejectedValueOnce(plain);
+      expect(
+        await captureRejection(client.undoHistory({ sessionId: 'ses_lock', count: 1 })),
+      ).toBe(plain);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('reloads a stale session, runs the stale-reload handler, then retries or rethrows', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(homeDir, workDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    const mainOf = async () => {
+      await client.getSessionWarnings({ sessionId: 'ses_stale' });
+      return getLiveSessionById(client.engineAccessor, 'ses_stale')!
+        .accessor.get(IAgentLifecycleService)
+        .handleOf('main')!;
+    };
+    const stale = () => new Error2('session.stale', 'modified by another client');
+    try {
+      await client.createSession({ id: 'ses_stale', workDir });
+      const handler = vi.fn(async (_summary: unknown) => {});
+      client.setStaleReloadHandler('ses_stale', handler);
+
+      const before = getLiveSessionById(client.engineAccessor, 'ses_stale');
+      vi.spyOn((await mainOf()).accessor.get(IAgentConversationUndoService), 'undo')
+        .mockRejectedValueOnce(stale());
+      await expect(client.undoHistory({ sessionId: 'ses_stale', count: 1 })).rejects.toMatchObject({
+        code: 'session.stale',
+      });
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0]?.[0]).toMatchObject({ id: 'ses_stale' });
+      expect(getLiveSessionById(client.engineAccessor, 'ses_stale')).not.toBe(before);
+
+      const begin = vi
+        .spyOn((await mainOf()).accessor.get(IAgentFullCompactionService), 'begin')
+        .mockImplementationOnce(() => {
+          throw stale();
+        });
+      await expect(client.compact({ sessionId: 'ses_stale' })).rejects.toMatchObject({
+        code: 'compaction.unable',
+      });
+      expect(begin).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalledTimes(2);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('close() awaits the MCP OAuth service shutdown', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    // Activate the OnDemand OAuth service, then gate its shutdown behind a
+    // manual release: close() alone (no manual service.shutdown()) must
+    // trigger and await that shutdown, so a host removing homeDir right after
+    // close() cannot race in-flight token writes.
+    client.engineAccessor.get(IMcpOAuthService);
+    let releaseShutdown: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseShutdown = resolve;
+    });
+    const baseShutdown = McpOAuthServiceV2.prototype.shutdown;
+    const shutdownSpy = vi
+      .spyOn(McpOAuthServiceV2.prototype, 'shutdown')
+      .mockImplementation(function (this: McpOAuthServiceV2) {
+        return baseShutdown.call(this).then(() => gate);
+      });
+    try {
+      let closed = false;
+      const closePromise = client.close().then(() => {
+        closed = true;
+      });
+      await vi.waitFor(() => {
+        expect(shutdownSpy).toHaveBeenCalled();
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(closed).toBe(false);
+      releaseShutdown();
+      await closePromise;
+      expect(closed).toBe(true);
+    } finally {
+      releaseShutdown();
+      shutdownSpy.mockRestore();
+    }
+  });
+
+  it('close() resolves promptly when the MCP OAuth service was never used', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    // Nothing touched IMcpOAuthService: close() force-activates the OnDemand
+    // service only to shut it down, and that activate-then-shutdown cycle
+    // must be a clean no-op (the proactive-refresh sweep bows out on the
+    // shutdown flag).
+    await expect(client.close()).resolves.toBeUndefined();
+  });
+
+  it('seeds the host User-Agent request header into the engine', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      const headers = client.engineAccessor.get(IHostRequestHeaders).headers;
+      expect(headers['User-Agent']).toBe(`pythinker-code-cli/${TEST_IDENTITY.version}`);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('surfaces a missing Git Bash probe failure during ensureConfigFile on Windows', async () => {
+    hostEnvProbe.failWithMissingShell = true;
+    const restorePlatform = stubProcessPlatform('win32');
+    try {
+      const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+      tempDirs.push(homeDir);
+      const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
+      try {
+        await expect(harness.ensureConfigFile()).rejects.toBeInstanceOf(HostProcessError);
+        await expect(harness.ensureConfigFile()).rejects.toMatchObject({
+          code: OsProcessErrors.codes.SHELL_GIT_BASH_NOT_FOUND,
+        });
+      } finally {
+        await harness.close();
+      }
+    } finally {
+      hostEnvProbe.failWithMissingShell = false;
+      restorePlatform();
+    }
+  });
+
+  it('does not block ensureConfigFile on the host environment probe on POSIX', async () => {
+    hostEnvProbe.failWithMissingShell = true;
+    const restorePlatform = stubProcessPlatform('darwin');
+    try {
+      const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+      tempDirs.push(homeDir);
+      const harness = createPythinkerHarness({ homeDir, identity: TEST_IDENTITY });
+      try {
+        await expect(harness.ensureConfigFile()).resolves.toBeUndefined();
+      } finally {
+        await harness.close();
+      }
+    } finally {
+      hostEnvProbe.failWithMissingShell = false;
+      restorePlatform();
+    }
+  });
+
+  it('serves getExperimentalFeatures from the v2 engine', async () => {
+    const { harness } = await makeHarness();
+    try {
+      const features = await harness.getExperimentalFeatures();
+      expect(Array.isArray(features)).toBe(true);
+      expect(features.length).toBeGreaterThan(0);
+      for (const feature of features) {
+        expect(typeof feature.id).toBe('string');
+        expect(typeof feature.title).toBe('string');
+        expect(typeof feature.env).toBe('string');
+        expect(typeof feature.enabled).toBe('boolean');
+        expect(typeof feature.defaultEnabled).toBe('boolean');
+      }
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('uploadFile stores bytes through the klient files facade', async () => {
+    const { harness } = await makeHarness();
+    try {
+      const bytes = new Uint8Array([137, 80, 78, 71]);
+      const meta = await harness.uploadFile(bytes, {
+        name: 'pixel.png',
+        mimeType: 'image/png',
+        expiresInSec: 60,
+      });
+      expect(meta.id.startsWith('f_')).toBe(true);
+      expect(meta.name).toBe('pixel.png');
+      expect(meta.media_type).toBe('image/png');
+      expect(meta.size).toBe(bytes.length);
+      expect(typeof meta.created_at).toBe('string');
+      expect(typeof meta.expires_at).toBe('string');
+
+      // Re-export smoke only  helper behavior is pinned by agent-core-v2's
+      // mediaRef tests.
+      expect(isDaemonFileUrl(buildDaemonFileUrl(meta.id))).toBe(true);
+      await harness.deleteFile(meta.id);
+      await expect(harness.deleteFile(meta.id)).rejects.toThrow(/file not found/);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('reports session title generation unavailable without a title backend', async () => {
+    const { harness } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+
+    try {
+      const session = await harness.createSession({ id: 'ses_title_unavailable', workDir });
+      await session.importContext(
+        'Generate a concise title for this session',
+        "session 'source-session'",
+      );
+      await expect(harness.generateSessionTitle({ id: session.id })).resolves.toBeUndefined();
+      await expect(
+        harness.generateSessionTitle({ id: session.id, force: true, source: 'digest' }),
+      ).resolves.toBeUndefined();
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('re-resumes a fresh session facade while the public close is in flight', async () => {
+    const { harness } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+
+    try {
+      const session = await harness.createSession({ id: 'ses_resume_race', workDir });
+      // close() flips `isClosed` synchronously; the engine close settles
+      // asynchronously. The public resume must not hand back the closing
+      // facade  it queues behind the close and materializes a fresh one.
+      const closing = session.close();
+      const resumed = await harness.resumeSession({ id: 'ses_resume_race' });
+      await closing;
+
+      expect(resumed).not.toBe(session);
+      expect(session.isClosed).toBe(true);
+      expect(resumed.isClosed).toBe(false);
+      expect(resumed.getResumeState()).toBeTruthy();
+      // The stale facade's late onClose must not evict the live session.
+      expect(harness.getSession('ses_resume_race')).toBe(resumed);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('rejects one of two concurrent creates with the same explicit session id', async () => {
+    const { harness } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+
+    try {
+      const [first, second] = await Promise.allSettled([
+        harness.createSession({ id: 'ses_same_id', workDir }),
+        harness.createSession({ id: 'ses_same_id', workDir }),
+      ]);
+
+      const outcomes = [first, second].map((result) => result.status);
+      expect(outcomes.toSorted()).toEqual(['fulfilled', 'rejected']);
+      const rejection = [first, second].find((result) => result.status === 'rejected');
+      expect((rejection as PromiseRejectedResult).reason).toMatchObject({
+        code: 'session.already_exists',
+      });
+      await expect(harness.resumeSession({ id: 'ses_same_id' })).resolves.toMatchObject({
+        id: 'ses_same_id',
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('coalesces concurrent public resumes onto one session facade', async () => {
+    const { harness } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+
+    try {
+      const session = await harness.createSession({ id: 'ses_coalesce', workDir });
+      await session.close();
+
+      const [first, second] = await Promise.all([
+        harness.resumeSession({ id: 'ses_coalesce' }),
+        harness.resumeSession({ id: 'ses_coalesce' }),
+      ]);
+
+      // One engine handle, one facade: a later close on either reference
+      // must not strand a second live facade over the same handle.
+      expect(first).toBe(second);
+      expect(harness.getSession('ses_coalesce')).toBe(first);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('does not coalesce resumes with different options onto one facade', async () => {
+    const { harness } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+
+    try {
+      const session = await harness.createSession({ id: 'ses_no_coalesce', workDir });
+      await session.close();
+
+      const [plain, withReplay] = await Promise.all([
+        harness.resumeSession({ id: 'ses_no_coalesce' }),
+        harness.resumeSession({ id: 'ses_no_coalesce', replayTurnLimit: 3 }),
+      ]);
+
+      // Different options must not be silently dropped onto the first
+      // caller's facade  each gets its own resume.
+      expect(plain).not.toBe(withReplay);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('reports the title state in the resumed summary', async () => {
+    const { harness } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+
+    try {
+      const session = await harness.createSession({ id: 'ses_title_kind', workDir });
+      await harness.renameSession({ id: session.id, title: 'zh' });
+
+      // The resumed summary is read off the live metadata document, so it
+      // carries the canonical title state; the list path (index projection)
+      // intentionally does not.
+      await session.close();
+      const resumed = await harness.resumeSession({ id: session.id });
+      expect(resumed.summary?.titleKind).toBe('custom');
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('folds the resumed main agent replay from the persisted wire on cold and live resumes', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-resume-fold-'));
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(homeDir, workDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      await client.createSession({ id: 'ses_resume_fold', workDir });
+      await client.importContext({
+        sessionId: 'ses_resume_fold',
+        content: 'first imported turn',
+        source: "session 'source-a'",
+      });
+      await client.importContext({
+        sessionId: 'ses_resume_fold',
+        content: 'second imported turn',
+        source: "session 'source-b'",
+      });
+      await client.closeSession({ sessionId: 'ses_resume_fold' });
+      const sessionDir = await findSessionDir(homeDir, 'ses_resume_fold');
+      const wirePath = join(sessionDir, 'agents', MAIN_AGENT_ID, 'wire.jsonl');
+
+      // Cold resume with a turn window: the summary serves exactly the fold
+      // of the persisted wire, trimmed to the last user turn.
+      const limited = await client.resumeSession({ id: 'ses_resume_fold', replayTurnLimit: 1 });
+      const expectedLimited = await foldAgentWireReplay(wirePath, 1);
+      const limitedMain = limited.agents[MAIN_AGENT_ID];
+      expect(limitedMain?.replay).toEqual(expectedLimited.replay);
+      expect(limitedMain?.toolStore).toEqual(expectedLimited.toolStore);
+      expect(JSON.stringify(limitedMain?.replay)).toContain('second imported turn');
+      expect(JSON.stringify(limitedMain?.replay)).not.toContain('first imported turn');
+      expect(
+        limitedMain?.replay.flatMap((record) =>
+          record.type === 'message' ? [record.message] : [],
+        ),
+      ).toEqual([expect.objectContaining({ role: 'user', toolCalls: [] })]);
+      expect(Object.keys(limited.agents)).toEqual([MAIN_AGENT_ID]);
+
+      // A live re-resume serves the same fold off the live scope.
+      const live = await client.resumeSession({ id: 'ses_resume_fold', replayTurnLimit: 1 });
+      expect(live.agents[MAIN_AGENT_ID]?.replay).toEqual(expectedLimited.replay);
+      await client.closeSession({ sessionId: 'ses_resume_fold' });
+
+      // Without a window the whole journal folds in.
+      const full = await client.resumeSession({ id: 'ses_resume_fold' });
+      const expectedFull = await foldAgentWireReplay(wirePath);
+      expect(full.agents[MAIN_AGENT_ID]?.replay).toEqual(expectedFull.replay);
+      expect(JSON.stringify(full.agents[MAIN_AGENT_ID]?.replay)).toContain('first imported turn');
+      expect(
+        full.agents[MAIN_AGENT_ID]?.replay.flatMap((record) =>
+          record.type === 'message' ? [record.message] : [],
+        ),
+      ).toEqual([
+        expect.objectContaining({ role: 'user', toolCalls: [] }),
+        expect.objectContaining({ role: 'user', toolCalls: [] }),
+      ]);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('rejects a resume whose engine restore fails without an unhandled rejection from the overlapped fold', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-resume-fail-'));
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(homeDir, workDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+
+    try {
+      await client.createSession({ id: 'ses_resume_fail', workDir });
+      await client.importContext({
+        sessionId: 'ses_resume_fail',
+        content: 'imported turn',
+        source: "session 'source-a'",
+      });
+      await client.closeSession({ sessionId: 'ses_resume_fail' });
+      // Malform the wire's metadata record: the engine's cold restore throws,
+      // while the index entry (and thus the overlapped fold's wire path)
+      // stays intact.
+      const sessionDir = await findSessionDir(homeDir, 'ses_resume_fail');
+      await writeFile(
+        join(sessionDir, 'agents', MAIN_AGENT_ID, 'wire.jsonl'),
+        '{"type":"metadata"}\n',
+        'utf-8',
+      );
+      await expect(client.resumeSession({ id: 'ses_resume_fail' })).rejects.toThrow(
+        'Agent wire metadata is malformed',
+      );
+      // The abandoned fold promise must settle quietly.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.removeListener('unhandledRejection', onUnhandled);
+      await client.close();
+    }
+  });
+
+  it('serves listWorkspaceSkills through the engineAccessor escape hatch', async () => {
+    const { harness, homeDir } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    await writeSkill(join(homeDir, 'skills', 'demo-user-skill'), 'demo-user-skill');
+    await writeSkill(join(workDir, '.pythinker-code', 'skills', 'demo-project-skill'), 'demo-project-skill');
+    try {
+      const skills = await harness.listWorkspaceSkills(workDir);
+      const byName = new Map(skills.map((skill) => [skill.name, skill]));
+      expect(byName.get('demo-user-skill')).toMatchObject({
+        description: 'Skill demo-user-skill for the escape-hatch test',
+        source: 'user',
+      });
+      expect(byName.get('demo-project-skill')).toMatchObject({
+        description: 'Skill demo-project-skill for the escape-hatch test',
+        source: 'project',
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('serves suggestFiles through the workspace handler fs service', async () => {
+    const { harness } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    await mkdir(join(workDir, 'src'), { recursive: true });
+    await writeFile(join(workDir, 'src', 'app.ts'), 'app');
+    await writeFile(join(workDir, 'src', 'index.ts'), 'index');
+    await writeFile(join(workDir, 'README.md'), 'readme');
+    try {
+      const matched = await harness.suggestFiles(workDir, { query: 'app', limit: 20 });
+      expect(matched?.items).toContainEqual(
+        expect.objectContaining({ kind: 'file', path: 'src/app.ts', name: 'app.ts' }),
+      );
+      const appItem = matched?.items.find((item) => item.name === 'app.ts');
+      expect(appItem?.matchPositions.length).toBeGreaterThan(0);
+
+      const topLevel = await harness.suggestFiles(workDir, { query: '', limit: 20 });
+      expect(topLevel?.items).toContainEqual(expect.objectContaining({ kind: 'directory', name: 'src' }));
+      expect(topLevel?.items).toContainEqual(expect.objectContaining({ kind: 'file', name: 'README.md' }));
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('rejects an out-of-range suggestFiles limit before touching the engine', async () => {
+    const { harness } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    try {
+      for (const limit of [0, -1, 201, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+        await expect(harness.suggestFiles(workDir, { query: 'a', limit })).rejects.toMatchObject({
+          code: ErrorCodes.REQUEST_INVALID,
+        });
+      }
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('honors skillDirs (explicit dirs) over default user / project discovery', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    const explicitBase = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-explicit-'));
+    tempDirs.push(explicitBase);
+    const explicitDir = join(explicitBase, 'skills');
+    await writeSkill(join(homeDir, 'skills', 'demo-user-skill'), 'demo-user-skill');
+    await writeSkill(join(workDir, '.pythinker-code', 'skills', 'demo-project-skill'), 'demo-project-skill');
+    await writeSkill(join(explicitDir, 'demo-explicit-skill'), 'demo-explicit-skill');
+    const harness = createPythinkerHarness({
+      homeDir,
+      identity: TEST_IDENTITY,
+      skillDirs: [explicitDir],
+    });
+    try {
+      const skills = await harness.listWorkspaceSkills(workDir);
+      const byName = new Map(skills.map((skill) => [skill.name, skill]));
+      expect(byName.get('demo-explicit-skill')).toMatchObject({
+        description: 'Skill demo-explicit-skill for the escape-hatch test',
+        source: 'user',
+      });
+      expect(byName.has('demo-user-skill')).toBe(false);
+      expect(byName.has('demo-project-skill')).toBe(false);
+
+      // The session skill catalog (the Skill tool's listing) goes through the
+      // seeded engine runtime options, so it sees the same explicit source.
+      const session = await harness.createSession({ workDir });
+      const sessionNames = new Set((await session.listSkills()).map((skill) => skill.name));
+      expect(sessionNames.has('demo-explicit-skill')).toBe(true);
+      expect(sessionNames.has('demo-user-skill')).toBe(false);
+      expect(sessionNames.has('demo-project-skill')).toBe(false);
+      await session.close();
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('serves the plugin catalog from the v2 engine on an empty home', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const rpc = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      expect(await rpc.listPlugins()).toEqual([]);
+      expect(await rpc.reloadPlugins()).toEqual({ added: [], removed: [], errors: [] });
+      await expect(rpc.getPluginInfo('missing-plugin')).rejects.toThrow();
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  it('persists removeProvider as one atomic cascade (providers, models, defaults)', async () => {
+    const { harness } = await makeHarness();
+    try {
+      await harness.setConfig({
+        providers: {
+          a: { type: 'openai', baseUrl: 'https://a.example.test/v1', apiKey: 'sk-a' },
+          b: { type: 'openai', baseUrl: 'https://b.example.test/v1', apiKey: 'sk-b' },
+        },
+        models: {
+          'a/m1': { provider: 'a', model: 'm1', maxContextSize: 100 },
+          'b/m1': { provider: 'b', model: 'm1', maxContextSize: 100 },
+        },
+        defaultModel: 'b/m1',
+        defaultProvider: 'b',
+      });
+      const next = await harness.removeProvider('b');
+      expect(next.providers['b']).toBeUndefined();
+      expect(next.providers['a']).toBeDefined();
+      expect(next.models?.['b/m1']).toBeUndefined();
+      expect(next.models?.['a/m1']).toBeDefined();
+      expect(next.defaultModel).toBeUndefined();
+      expect(next.defaultProvider).toBeUndefined();
+      // A fresh read from disk sees the same state  the cascade landed as a
+      // single atomic write, never a halfway-removed intermediate.
+      const reread = await harness.getConfig({ reload: true });
+      expect(reread.providers['b']).toBeUndefined();
+      expect(reread.models?.['b/m1']).toBeUndefined();
+      expect(reread.defaultModel).toBeUndefined();
+      expect(reread.defaultProvider).toBeUndefined();
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('leaves the secondary_model pool untouched on removeProvider', async () => {
+    const { harness } = await makeHarness();
+    try {
+      await harness.setConfig({
+        providers: {
+          a: { type: 'openai', baseUrl: 'https://a.example.test/v1', apiKey: 'sk-a' },
+          b: { type: 'openai', baseUrl: 'https://b.example.test/v1', apiKey: 'sk-b' },
+        },
+        models: {
+          'a/m1': { provider: 'a', model: 'm1', maxContextSize: 100 },
+          'b/m1': { provider: 'b', model: 'm1', maxContextSize: 100 },
+        },
+        secondaryModel: {
+          defaultModel: 'a/m1',
+          models: { 'a/m1': 'fast', 'b/m1': 'smart' },
+        },
+      });
+
+      // Pool entries naming a removed model alias are kept as written; an
+      // unresolvable entry fails pool validation on the next session create.
+      const kept = await harness.removeProvider('b');
+      expect(kept.secondaryModel).toEqual({
+        defaultModel: 'a/m1',
+        models: { 'a/m1': 'fast', 'b/m1': 'smart' },
+      });
+
+      // Even a dangling default leaves the whole section in place on disk.
+      // (`setConfig` merges per domain, so the pool table is still the one
+      // written above; the default now points at the provider being removed.)
+      await harness.setConfig({
+        secondaryModel: { defaultModel: 'a/m1' },
+      });
+      const cleared = await harness.removeProvider('a');
+      expect(cleared.secondaryModel).toEqual({
+        defaultModel: 'a/m1',
+        models: { 'a/m1': 'fast', 'b/m1': 'smart' },
+      });
+      const reread = await harness.getConfig({ reload: true });
+      expect(reread.secondaryModel).toEqual({
+        defaultModel: 'a/m1',
+        models: { 'a/m1': 'fast', 'b/m1': 'smart' },
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('replaces config sections atomically and clears undefined sections', async () => {
+    const { harness } = await makeHarness();
+    try {
+      expect(harness.supportsAtomicSectionReplace()).toBe(true);
+      await harness.setConfig({
+        providers: { a: { type: 'openai', baseUrl: 'https://a.example.test/v1', apiKey: 'sk-a' } },
+        models: { 'a/m1': { provider: 'a', model: 'm1', maxContextSize: 100 } },
+        defaultModel: 'a/m1',
+      });
+      await harness.replaceConfigSections({ defaultModel: undefined });
+      const next = await harness.getConfig({ reload: true });
+      expect(next.defaultModel).toBeUndefined();
+      // Sections absent from the write stay untouched.
+      expect(next.providers['a']).toBeDefined();
+      expect(next.models?.['a/m1']).toBeDefined();
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('refreshes provider models through the harness and moves sessions off a retired default', async () => {
+    vi.stubGlobal('fetch', async () =>
+      Response.json({
+        acme: {
+          id: 'acme',
+          name: 'Acme',
+          type: 'openai',
+          api: 'https://acme.example.test/v1',
+          models: { next: { id: 'next', default_effort: 'high' } },
+        },
+      }),
+    );
+    const { harness } = await makeHarness();
+    try {
+      await harness.setConfig({
+        providers: {
+          acme: {
+            type: 'openai',
+            apiKey: 'sk-acme',
+            source: { kind: 'apiJson', url: 'https://registry.example.test/api.json', apiKey: 'sk-registry' },
+          },
+        },
+        models: {
+          'acme/current': {
+            provider: 'acme',
+            model: 'current',
+            maxContextSize: 131072,
+            capabilities: ['tool_use'],
+            displayName: 'Current',
+            supportEfforts: ['low', 'high'],
+            defaultEffort: 'high',
+            upgrade: { model: 'acme/next', migrationMarkdown: 'Use next' },
+          },
+          'acme/next': {
+            provider: 'acme',
+            model: 'next',
+            maxContextSize: 131072,
+            capabilities: ['tool_use'],
+            defaultEffort: 'high',
+          },
+        },
+        defaultModel: 'acme/current',
+        thinking: { enabled: true },
+      });
+      const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+      tempDirs.push(workDir);
+      const session = await harness.createSession({
+        id: 'ses_retired_default',
+        workDir,
+        model: 'acme/current',
+      });
+
+      const result = await harness.refreshProviderModels();
+      expect(result).toEqual({
+        changed: [{ provider_id: 'acme', provider_name: 'Acme', added: 0, removed: 1 }],
+        unchanged: [],
+        failed: [],
+        retired_default: { from: 'acme/current', to: 'acme/next', from_display_name: 'Current' },
+      });
+      const config = await harness.getConfig({ reload: true });
+      expect(config.defaultModel).toBe('acme/next');
+      expect((await session.getStatus()).model).toBe('acme/next');
+    } finally {
+      vi.unstubAllGlobals();
+      await harness.close();
+    }
+  });
+
+  it('round-trips the secondaryModel pool field to the [secondary_model] config section', async () => {
+    const { harness, homeDir } = await makeHarness();
+    try {
+      await harness.setConfig({
+        secondaryModel: {
+          defaultModel: 'provider/fast',
+          models: { 'provider/fast': 'fast and cheap' },
+        },
+      });
+
+      const toml = await readFile(join(homeDir, 'config.toml'), 'utf-8');
+      expect(toml).toContain('[secondary_model]');
+      expect(toml).toContain('default_model');
+      expect(toml).toContain('[secondary_model.models]');
+      expect(toml).not.toContain('[subagent.models]');
+
+      const reread = await harness.getConfig({ reload: true });
+      expect(reread.secondaryModel).toEqual({
+        defaultModel: 'provider/fast',
+        models: { 'provider/fast': 'fast and cheap' },
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('round-trips autoSessionTitle to the auto_session_title config.toml field', async () => {
+    const { harness, homeDir } = await makeHarness();
+    try {
+      await harness.setConfig({ autoSessionTitle: false });
+
+      const toml = await readFile(join(homeDir, 'config.toml'), 'utf-8');
+      expect(toml).toContain('auto_session_title = false');
+
+      const reread = await harness.getConfig({ reload: true });
+      expect(reread.autoSessionTitle).toBe(false);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('round-trips disableFeedbackSurvey to the disable_feedback_survey config.toml field', async () => {
+    const { harness, homeDir } = await makeHarness();
+    try {
+      await harness.setConfig({ disableFeedbackSurvey: true });
+
+      const toml = await readFile(join(homeDir, 'config.toml'), 'utf-8');
+      expect(toml).toContain('disable_feedback_survey = true');
+
+      const reread = await harness.getConfig({ reload: true });
+      expect(reread.disableFeedbackSurvey).toBe(true);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('forwards engine config section changes through onConfigSectionChanged', async () => {
+    const { harness } = await makeHarness();
+    try {
+      const changes: unknown[] = [];
+      const unsubscribe = harness.onConfigSectionChanged((change) => {
+        if (change.domain === 'disableFeedbackSurvey') changes.push(change.value);
+      });
+      await harness.setConfig({ disableFeedbackSurvey: true });
+      unsubscribe();
+      await harness.setConfig({ disableFeedbackSurvey: false });
+      expect(changes).toEqual([true]);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('deleteSession removes a session and rejects a missing id with session_not_found', async () => {
+    const { harness, homeDir } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    try {
+      const session = await harness.createSession({ workDir });
+      await harness.deleteSession(session.id);
+      await expect(harness.resumeSession({ id: session.id })).rejects.toMatchObject({
+        code: ErrorCodes.SESSION_NOT_FOUND,
+      });
+      expect(await sessionDirExists(homeDir, session.id)).toBe(false);
+      await expect(harness.deleteSession('session_missing')).rejects.toMatchObject({
+        code: ErrorCodes.SESSION_NOT_FOUND,
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it.each([
+    { enabled: false, panel: true },
+    { enabled: true, panel: false },
+    { enabled: true, panel: true },
+  ])(
+    'gates NotifyUser for all profiles and preserves fork prompts: %j',
+    async ({ enabled, panel }) => {
+      vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
+      vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_NOTIFY_USER', '');
+      const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-notify-home-'));
+      const workDir = await mkdtemp(join(tmpdir(), 'pythinker-notify-work-'));
+      tempDirs.push(homeDir, workDir);
+      const client = new SDKRpcClientV2({
+        homeDir,
+        identity: TEST_IDENTITY,
+        uiCapabilities: panel ? ['update_panel'] : [],
+      });
+      try {
+        await client.setConfig({
+          providers: {
+            stub: {
+              type: 'openai',
+              baseUrl: 'https://model.example.test/v1',
+              apiKey: 'YOUR_API_KEY',
+            },
+          },
+          models: { stub: { provider: 'stub', model: 'stub', maxContextSize: 32000 } },
+          defaultModel: 'stub',
+          experimental: { notify_user: enabled },
+        });
+        await client.createSession({ id: 'ses_notify', workDir });
+        const session = getLiveSessionById(client.engineAccessor, 'ses_notify')!;
+        const lifecycle = session.accessor.get(IAgentLifecycleService);
+        for (const profile of ['agent', 'coder', 'explore', 'plan']) {
+          const id = profile === 'agent' ? 'main' : `worker-${profile}`;
+          if (lifecycle.get(id) === undefined)
+            await lifecycle.create({ agentId: id, binding: { profile, model: 'stub' } });
+          const agent = lifecycle.handleOf(id)!;
+          await agent.accessor.get(IAgentToolActivationService).activate();
+          const offered = agent.accessor
+            .get(IAgentToolRegistryService)
+            .list()
+            .some((tool) => tool.name === 'NotifyUser');
+          expect(offered).toBe(enabled && panel);
+          if (profile === 'agent') {
+            const delegation = agent.accessor
+              .get(IAgentToolRegistryService)
+              .list()
+              .find((tool) => tool.name === 'Agent');
+            expect(delegation?.description.includes('NotifyUser')).toBe(enabled && panel);
+          }
+          const prompt = agent.accessor.get(IAgentProfileService).getSystemPrompt();
+          expect(prompt.includes('When `NotifyUser` is available')).toBe(enabled && panel);
+          if (offered) {
+            expect(
+              agent.accessor
+                .get(INotifyUserTool)
+                .resolveExecution({ title: 'Checking', message: 'Checking this subtask.' }),
+            ).toMatchObject({ accesses: [], approvalRule: 'NotifyUser' });
+          }
+        }
+        const main = lifecycle.handleOf('main')!;
+        const originalPrompt = main.accessor.get(IAgentProfileService).getSystemPrompt();
+        const fork = await lifecycle.fork(lifecycle.get('main')!, { agentId: 'fork-worker' });
+        expect(
+          lifecycle.handleOf(fork.agentId)!.accessor.get(IAgentProfileService).getSystemPrompt(),
+        ).toBe(originalPrompt);
+        const originalTools = structuredClone(main.accessor.get(IAgentToolRegistryService).list());
+        for (const [index, nextEnabled] of [!enabled, enabled, !enabled].entries()) {
+          await client.setConfig({ experimental: { notify_user: nextEnabled } });
+          let current = getLiveSessionById(client.engineAccessor, 'ses_notify')!;
+          let currentMain = current.accessor.get(IAgentLifecycleService).handleOf('main')!;
+          expect(currentMain.accessor.get(IAgentProfileService).getSystemPrompt()).toBe(
+            originalPrompt,
+          );
+          expect(currentMain.accessor.get(IAgentToolRegistryService).list()).toEqual(originalTools);
+          if (enabled && panel) {
+            const execution = currentMain.accessor
+              .get(INotifyUserTool)
+              .resolveExecution({ title: 'Working', message: 'Still working.' });
+            if (!('execute' in execution)) throw new Error('Expected executable notification');
+            expect(
+              await execution.execute({ signal: new AbortController().signal } as never),
+            ).toEqual({
+              isError: false,
+              output: nextEnabled
+                ? 'Update shown to the user.'
+                : 'Notifications are disabled; the update was not displayed.',
+            });
+          }
+          await current.accessor.get(IAgentLifecycleService).create({
+            agentId: `late-worker-${index}`,
+            binding: { profile: 'coder', model: 'stub' },
+          });
+          const child = current.accessor
+            .get(IAgentLifecycleService)
+            .handleOf(`late-worker-${index}`)!;
+          expect(
+            child.accessor
+              .get(IAgentToolRegistryService)
+              .list()
+              .some((tool) => tool.name === 'NotifyUser'),
+          ).toBe(enabled && panel);
+          expect(
+            child.accessor
+              .get(IAgentProfileService)
+              .getSystemPrompt()
+              .includes('When `NotifyUser` is available'),
+          ).toBe(enabled && panel);
+          await client.reloadSession({ sessionId: 'ses_notify' });
+          current = getLiveSessionById(client.engineAccessor, 'ses_notify')!;
+          currentMain = current.accessor.get(IAgentLifecycleService).handleOf('main')!;
+          expect(currentMain.accessor.get(IAgentToolRegistryService).list()).toEqual(originalTools);
+          expect(currentMain.accessor.get(IAgentProfileService).getSystemPrompt()).toBe(
+            originalPrompt,
+          );
+        }
+        await client.createSession({ id: 'ses_notify_fresh', workDir });
+        await client.setConfig({ experimental: { notify_user: enabled } });
+        await client.getStatus({ sessionId: 'ses_notify_fresh' });
+        const fresh = getLiveSessionById(client.engineAccessor, 'ses_notify_fresh')!
+          .accessor.get(IAgentLifecycleService)
+          .handleOf('main')!;
+        expect(
+          fresh.accessor
+            .get(IAgentToolRegistryService)
+            .list()
+            .some((tool) => tool.name === 'NotifyUser'),
+        ).toBe(!enabled && panel);
+        expect(
+          fresh.accessor
+            .get(IAgentProfileService)
+            .getSystemPrompt()
+            .includes('When `NotifyUser` is available'),
+        ).toBe(!enabled && panel);
+        if (enabled || !panel) {
+          expect(fresh.accessor.get(IAgentProfileService).getSystemPrompt()).not.toContain(
+            'NotifyUser',
+          );
+          expect(
+            JSON.stringify(fresh.accessor.get(IAgentToolRegistryService).list()),
+          ).not.toContain('NotifyUser');
+        }
+        await client.setConfig({ experimental: { notify_user: !enabled } });
+        const legacy = getLiveSessionById(client.engineAccessor, 'ses_notify')!;
+        await legacy.accessor
+          .get(IAtomicDocumentStore)
+          .delete(legacy.accessor.get(ISessionContext).scope('notify'), 'state.json');
+        await client.reloadSession({ sessionId: 'ses_notify' });
+        const migrated = getLiveSessionById(client.engineAccessor, 'ses_notify')!
+          .accessor.get(IAgentLifecycleService)
+          .handleOf('main')!;
+        expect(migrated.accessor.get(IAgentProfileService).getSystemPrompt()).toBe(originalPrompt);
+        expect(migrated.accessor.get(IAgentToolRegistryService).list()).toEqual(originalTools);
+      } finally {
+        await client.close();
+        vi.unstubAllEnvs();
+      }
+    },
+    30_000,
+  );
+
+  it('keeps the session quiescent while reloadSession reloads configuration', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      await client.createSession({ id: 'ses_reload_hold', workDir });
+      const manager = getLiveSessionById(client.engineAccessor, 'ses_reload_hold')!.accessor.get(
+        IAgentLifecycleService,
+      );
+      await manager.create({ agentId: MAIN_AGENT_ID });
+      const loop = manager.handleOf(MAIN_AGENT_ID)!.accessor.get(IAgentLoopService);
+      const config = client.engineAccessor.get(IConfigService);
+      const original = config.reload.bind(config);
+      const probes: boolean[] = [];
+      const reload = vi.spyOn(config, 'reload').mockImplementation(async () => {
+        const hold = loop.tryAcquireQuiescence();
+        probes.push(hold === undefined);
+        hold?.dispose();
+        await original();
+      });
+      try {
+        await client.reloadSession({ sessionId: 'ses_reload_hold' });
+        expect(probes).toEqual([true]);
+      } finally {
+        reload.mockRestore();
+      }
+
+      const live = getLiveSessionById(client.engineAccessor, 'ses_reload_hold')!;
+      const reloadedLoop = live.accessor
+        .get(IAgentLifecycleService)
+        .handleOf(MAIN_AGENT_ID)!
+        .accessor.get(IAgentLoopService);
+      const realSnapshot = reloadedLoop.snapshot.bind(reloadedLoop);
+      let queued: { mockRestore(): void } | undefined;
+      const late = vi.spyOn(config, 'reload').mockImplementation(async () => {
+        await original();
+        queued = vi
+          .spyOn(reloadedLoop, 'snapshot')
+          .mockImplementation(() => ({ ...realSnapshot(), queue: [{} as never] }));
+      });
+      try {
+        await expect(client.reloadSession({ sessionId: 'ses_reload_hold' })).rejects.toMatchObject({
+          code: ErrorCodes.TURN_AGENT_BUSY,
+        });
+        expect(getLiveSessionById(client.engineAccessor, 'ses_reload_hold')).toBe(live);
+      } finally {
+        queued?.mockRestore();
+        late.mockRestore();
+      }
+
+      const reloaded = live.accessor.get(IAgentLifecycleService);
+      const busy = vi
+        .spyOn(reloaded.handleOf(MAIN_AGENT_ID)!.accessor.get(IAgentLoopService), 'tryAcquireQuiescence')
+        .mockReturnValue(undefined);
+      try {
+        await expect(client.reloadSession({ sessionId: 'ses_reload_hold' })).rejects.toMatchObject({
+          code: ErrorCodes.TURN_AGENT_BUSY,
+        });
+      } finally {
+        busy.mockRestore();
+      }
+    } finally {
+      await client.close();
+    }
+  });
+  it('reloads workspace dirs without duplicating agent reminders', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    const extraDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-extra-'));
+    const failureDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-failure-'));
+    tempDirs.push(homeDir, workDir, extraDir, failureDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      await client.setConfig({
+        providers: {
+          stub: {
+            type: 'openai',
+            baseUrl: 'https://model.example.test/v1',
+            apiKey: 'YOUR_API_KEY',
+          },
+        },
+        models: { stub: { provider: 'stub', model: 'stub', maxContextSize: 32000 } },
+        defaultModel: 'stub',
+      });
+      await client.createSession({ id: 'ses_dirs_reload', workDir });
+      await client.getStatus({ sessionId: 'ses_dirs_reload' });
+      const before = getLiveSessionById(client.engineAccessor, 'ses_dirs_reload')!;
+      const workspaceId = before.accessor.get(ISessionContext).workspaceId;
+      const currentProgram = () => {
+        const current = client.engineAccessor.get(IWorkspaceInstanceManager).get(workspaceId);
+        if (current === undefined) throw new Error('expected the current workspace program');
+        return current.program;
+      };
+      const reloadDirs = vi.spyOn(currentProgram().dirs, 'reload');
+      const projectsPath = join(homeDir, 'projects.json');
+      const projects = JSON.parse(await readFile(projectsPath, 'utf8')) as {
+        projects: Record<string, { root: string; additional_dirs?: string[] }>;
+      };
+      const project = Object.values(projects.projects).find((entry) => entry.root === workDir);
+      if (project === undefined) throw new Error('expected the session project');
+      project.additional_dirs = [extraDir];
+      await writeFile(projectsPath, JSON.stringify(projects), 'utf8');
+
+      await client.reloadSession({ sessionId: 'ses_dirs_reload' });
+      expect(reloadDirs).toHaveBeenCalledTimes(1);
+      const context = () =>
+        getLiveSessionById(client.engineAccessor, 'ses_dirs_reload')!
+          .accessor.get(IAgentLifecycleService)
+          .handleOf('main')!
+          .accessor.get(IAgentContextMemoryService)
+          .get();
+      const dirsReminders = () =>
+        context().filter(
+          (message) =>
+            message.origin?.kind === 'injection' &&
+            message.origin.variant === 'workspace_dirs_change',
+        );
+      expect(dirsReminders()).toHaveLength(1);
+      expect(JSON.stringify(dirsReminders()[0])).toContain(`Added directories: ${extraDir}.`);
+
+      const secondReloadDirs = vi.spyOn(currentProgram().dirs, 'reload');
+      await client.reloadSession({ sessionId: 'ses_dirs_reload' });
+      expect(secondReloadDirs).toHaveBeenCalledTimes(1);
+      expect(dirsReminders()).toHaveLength(1);
+
+      const beforeFailure = getLiveSessionById(client.engineAccessor, 'ses_dirs_reload')!;
+      const latestProjects = JSON.parse(await readFile(projectsPath, 'utf8')) as {
+        projects: Record<string, { root: string; additional_dirs?: string[] }>;
+      };
+      const latestProject = Object.values(latestProjects.projects).find(
+        (entry) => entry.root === workDir,
+      );
+      if (latestProject === undefined) throw new Error('expected the latest session project');
+      latestProject.additional_dirs = [extraDir, failureDir];
+      await writeFile(projectsPath, JSON.stringify(latestProjects), 'utf8');
+      const failureReloadDirs = vi.spyOn(currentProgram().dirs, 'reload');
+      vi.spyOn(currentProgram().instructions, 'reload').mockRejectedValueOnce(
+        new Error('instructions reload failed'),
+      );
+      await expect(client.reloadSession({ sessionId: 'ses_dirs_reload' })).rejects.toThrow(
+        'instructions reload failed',
+      );
+      expect(getLiveSessionById(client.engineAccessor, 'ses_dirs_reload')).toBe(beforeFailure);
+      expect(failureReloadDirs).toHaveBeenCalledTimes(1);
+      expect(dirsReminders()).toHaveLength(2);
+      expect(JSON.stringify(dirsReminders().at(-1))).toContain(
+        `Added directories: ${failureDir}.`,
+      );
+
+      await client.reloadSession({ sessionId: 'ses_dirs_reload' });
+      expect(dirsReminders()).toHaveLength(2);
+    } finally {
+      await client.close();
+    }
+  }, 15_000);
+
+  it('serves getTodos from the live session todo state', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      await client.createSession({ id: 'ses_todos', workDir });
+      expect(await client.getTodos({ sessionId: 'ses_todos' })).toEqual([]);
+
+      const handle = getLiveSessionById(client.engineAccessor, 'ses_todos');
+      expect(handle).toBeDefined();
+      const manager = handle!.accessor.get(IAgentLifecycleService);
+      await manager.create({ agentId: 'main' });
+      const todo = manager.handleOf('main')!.accessor.get(IAgentTodoService);
+      await todo.replace([
+        { title: 'write tests', status: 'in_progress' },
+        { title: 'ship it', status: 'pending' },
+      ]);
+
+      expect(await client.getTodos({ sessionId: 'ses_todos' })).toEqual([
+        { title: 'write tests', status: 'in_progress' },
+        { title: 'ship it', status: 'pending' },
+      ]);
+
+      const served = await client.getTodos({ sessionId: 'ses_todos' });
+      const stored = todo.get();
+      expect(served).not.toBe(stored);
+      expect(served[0]).not.toBe(stored[0]);
+      await expect(client.getTodos({ sessionId: 'ses_missing' })).rejects.toMatchObject({
+        code: ErrorCodes.SESSION_NOT_FOUND,
+      });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('defaults getTowerStatus to not_implemented on backends without support', async () => {
+    const rpc = Object.create(SDKRpcClientBase.prototype) as SDKRpcClientBase;
+    const session = new Session({ id: 'ses_tower_unsupported', workDir: '/tmp/work', rpc });
+
+    await expect(session.getTowerStatus()).rejects.toMatchObject({
+      code: ErrorCodes.NOT_IMPLEMENTED,
+    });
+  });
+
+  it('serves setTowerMode and getStatus towerMode through the agent scope tower service', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_TOWER', '1');
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      await client.createSession({ id: 'ses_tower', workDir });
+      expect((await client.getStatus({ sessionId: 'ses_tower' })).towerMode).toBe(false);
+
+      const mainTower = () => {
+        const handle = getLiveSessionById(client.engineAccessor, 'ses_tower');
+        expect(handle).toBeDefined();
+        const agent = handle!.accessor.get(IAgentLifecycleService).handleOf('main');
+        expect(agent).toBeDefined();
+        return agent!.accessor.get(IAgentTowerService);
+      };
+
+      await client.setTowerMode({ sessionId: 'ses_tower', enabled: true });
+      // A refused enter() rejects with a typed reason, so a resolved call
+      // means the engine activated tower mode; the wire mirrors it.
+      expect((await client.getStatus({ sessionId: 'ses_tower' })).towerMode).toBe(
+        mainTower().isActive,
+      );
+
+      await client.setTowerMode({ sessionId: 'ses_tower', enabled: false });
+      expect((await client.getStatus({ sessionId: 'ses_tower' })).towerMode).toBe(false);
+
+      await expect(client.setTowerMode({ sessionId: 'ses_missing', enabled: true }))
+        .rejects.toMatchObject({
+          code: ErrorCodes.SESSION_NOT_FOUND,
+        });
+    } finally {
+      vi.unstubAllEnvs();
+      await client.close();
+    }
+  });
+
+  it('rejects setTowerMode when the tower feature is unavailable', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_TOWER', '0');
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_FLAG', '0');
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      await client.createSession({ id: 'ses_tower_off', workDir });
+
+      await expect(client.setTowerMode({ sessionId: 'ses_tower_off', enabled: true }))
+        .rejects.toMatchObject({
+          code: 'session.tower_mode_invalid',
+          message: expect.stringContaining('the tower experiment is disabled'),
+        });
+      expect((await client.getStatus({ sessionId: 'ses_tower_off' })).towerMode).toBe(false);
+
+      await client.setTowerMode({ sessionId: 'ses_tower_off', enabled: false });
+      expect((await client.getStatus({ sessionId: 'ses_tower_off' })).towerMode).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+      await client.close();
+    }
+  });
+
+  it('exposes Session tower mode and status APIs on the v2 harness', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_TOWER', '1');
+    const { harness } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    try {
+      const session = await harness.createSession({ workDir });
+      expect((await session.getStatus()).towerMode).toBe(false);
+      expect(await session.getTowerStatus()).toBe('Tower mode: OFF');
+
+      await expect(session.setTowerMode(true)).resolves.toBeUndefined();
+      expect(typeof (await session.getStatus()).towerMode).toBe('boolean');
+      expect(await session.getTowerStatus()).toBe('Tower mode: ON\nTower is not initialized.');
+
+      await expect(session.setTowerMode(false)).resolves.toBeUndefined();
+      expect((await session.getStatus()).towerMode).toBe(false);
+      expect(await session.getTowerStatus()).toBe('Tower mode: OFF');
+
+      await expect(session.setTowerMode('yes' as unknown as boolean)).rejects.toMatchObject({
+        code: ErrorCodes.REQUEST_INVALID,
+      });
+    } finally {
+      vi.unstubAllEnvs();
+      await harness.close();
+    }
+  });
+
+  it('serves the initialized tower status as an engine-rendered text summary', async () => {
+    vi.stubEnv('PYTHINKER_CODE_EXPERIMENTAL_TOWER', '1');
+    const { harness } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    try {
+      const exec = promisify(execFile);
+      await exec('git', ['init', '-b', 'main'], { cwd: workDir });
+      await exec(
+        'git',
+        [
+          '-c',
+          'user.email=tower-test@example.com',
+          '-c',
+          'user.name=Tower Test',
+          'commit',
+          '--allow-empty',
+          '-m',
+          'initial',
+        ],
+        { cwd: workDir },
+      );
+      const session = await harness.createSession({ id: 'ses_tower_status', workDir });
+      await session.setTowerMode(true);
+      const store = new TowerStore(workDir);
+      await store.init(session.id, 'main');
+      await store.plan([{ title: 'Build engine', scope: ['src/engine/**'] }]);
+
+      const status = await session.getTowerStatus();
+
+      const [headline, ...bodyLines] = status.split('\n');
+      expect(headline).toBe('Tower status — ON');
+      const body = bodyLines.join('\n');
+      expect(body).toContain('Base: main (mode: branch) · You are: tower');
+      expect(body).toContain('Missions:\n  M1 Build engine — planned · owner — · feat/build-engine');
+      expect(body).toContain('Roster:\n  (none)');
+      expect(body).toContain('Review gate:\n  M1 feat/build-engine — BLOCKED: not-completed');
+      expect(body).toContain('Inbox: 0 message(s)');
+      expect(body).toContain('Concurrency: budget: ');
+      expect(body).toContain('Recent activity:');
+      expect(body).toContain(' tower init');
+
+      await session.setTowerMode(false);
+      const inactiveStatus = await session.getTowerStatus();
+      const [inactiveHeadline, ...inactiveBodyLines] = inactiveStatus.split('\n');
+      expect(inactiveHeadline).toBe('Tower mode: OFF');
+      const inactiveBody = inactiveBodyLines.join('\n');
+      expect(inactiveBody).toContain(body);
+      expect(inactiveBody).toContain(' tower release session=ses_tower_status');
+    } finally {
+      vi.unstubAllEnvs();
+      await harness.close();
+    }
+  });
+});
+
+describe('SDKRpcClientV2 workspace trust', () => {
+  it('reports an untrusted workspace with the project MCP servers it gates', async () => {
+    const { harness } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    await writeFile(
+      join(workDir, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          'root-server': {
+            command: 'root-cmd',
+            args: ['--safe'],
+            cwd: '/tmp/root',
+            env: { SECRET: 'hidden' },
+          },
+          'disabled-server': {
+            command: 'never-runs',
+            enabled: false,
+          },
+          'http-server': {
+            transport: 'http',
+            url: 'https://example.test/mcp',
+            headers: { Authorization: 'Bearer hidden' },
+            bearerTokenEnvVar: 'TOKEN',
+          },
+        },
+      }),
+      'utf-8',
+    );
+    await mkdir(join(workDir, '.pythinker-code'), { recursive: true });
+    await writeFile(
+      join(workDir, '.pythinker-code', 'mcp.json'),
+      JSON.stringify({ mcpServers: { 'nested-server': { command: 'nested-cmd' } } }),
+      'utf-8',
+    );
+    try {
+      const info = await harness.getWorkspaceTrustInfo(workDir);
+      expect(info.trusted).toBe(false);
+      expect(info.gatedMcpServers).toEqual([
+        {
+          name: 'http-server',
+          transport: 'http',
+          url: 'https://example.test/mcp',
+          origin: await realpath(join(workDir, '.mcp.json')),
+        },
+        {
+          name: 'nested-server',
+          transport: 'stdio',
+          command: 'nested-cmd',
+          origin: await realpath(join(workDir, '.pythinker-code', 'mcp.json')),
+        },
+        {
+          name: 'root-server',
+          transport: 'stdio',
+          command: 'root-cmd',
+          args: ['--safe'],
+          cwd: '/tmp/root',
+          origin: await realpath(join(workDir, '.mcp.json')),
+        },
+      ]);
+      const serialized = JSON.stringify(info);
+      // Environment variables and headers stay in the source configuration.
+      expect(serialized).not.toContain('hidden');
+      expect(serialized).not.toContain('SECRET');
+      expect(serialized).not.toContain('TOKEN');
+      // Disabled servers never connect, so they are not part of the disclosure.
+      expect(serialized).not.toContain('disabled-server');
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('reports project servers that override same-named user entries', async () => {
+    const { harness, homeDir } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    await writeFile(
+      join(homeDir, 'mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          github: { command: 'user-github', enabled: false },
+        },
+      }),
+      'utf-8',
+    );
+    await writeFile(
+      join(workDir, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          github: { command: 'project-github' },
+          toString: { transport: 'http', url: 'https://example.test/mcp' },
+        },
+      }),
+      'utf-8',
+    );
+    try {
+      const info = await harness.getWorkspaceTrustInfo(workDir);
+      expect(info.trusted).toBe(false);
+      expect(info.gatedMcpServers).toEqual([
+        {
+          name: 'github',
+          transport: 'stdio',
+          command: 'project-github',
+          args: undefined,
+          cwd: workDir,
+          origin: await realpath(join(workDir, '.mcp.json')),
+        },
+        {
+          name: 'toString',
+          transport: 'http',
+          url: 'https://example.test/mcp',
+          origin: await realpath(join(workDir, '.mcp.json')),
+        },
+      ]);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('reports failed configuration and instruction sources while retaining readable instructions', async () => {
+    const { harness } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    await writeFile(join(workDir, '.mcp.json'), '{not json', 'utf-8');
+    await writeFile(join(workDir, 'AGENTS.md'), '# Project instructions\n', 'utf-8');
+    await mkdir(join(workDir, '.pythinker-code'));
+    await symlink(join(workDir, 'missing.md'), join(workDir, '.pythinker-code', 'AGENTS.md'));
+    try {
+      const info = await harness.getWorkspaceTrustInfo(workDir);
+      expect(info).toEqual({
+        trusted: false,
+        gatedMcpServers: [],
+        gatedAdditionalDirs: [],
+        additionalDirSources: [],
+        warnings: expect.arrayContaining([
+          'Could not inspect MCP configuration.',
+          expect.stringContaining(join(workDir, '.pythinker-code', 'AGENTS.md')),
+        ]),
+        instructionSources: {
+          agentsMdPaths: [await realpath(join(workDir, 'AGENTS.md'))],
+          skills: [], agentProfiles: [], paths: [await realpath(join(workDir, 'AGENTS.md'))],
+        },
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('trustWorkspace flips the state and persists the marker in the pythinker home', async () => {
+    const { harness, homeDir } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    try {
+      await harness.trustWorkspace(workDir);
+      expect(await harness.getWorkspaceTrustInfo(workDir)).toEqual({
+        trusted: true,
+        gatedMcpServers: [],
+        gatedAdditionalDirs: [],
+        additionalDirSources: [],
+        warnings: [],
+        instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] },
+      });
+      // The trust marker lives in the pythinker home, never in the checkout.
+      const markers = await readdir(join(homeDir, 'workspace-trust'));
+      expect(markers.length).toBe(1);
+      expect(await readdir(workDir)).not.toContain('workspace-trust');
+    } finally {
+      await harness.close();
+    }
+  });
+});
+
+describe('foldAgentWireReplay', () => {
+  it('folds a journal into v1 replay records and the tool store', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-fold-'));
+    tempDirs.push(dir);
+    const wirePath = join(dir, 'wire.jsonl');
+    const toolCalls = [
+      { type: 'function', id: 'call_1', name: 'Bash', arguments: '{"command":"ls"}' },
+    ];
+    const records = [
+      { type: 'metadata', protocol_version: '1.5', created_at: 1000 },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'hello' },
+            { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAA' } },
+          ],
+        },
+        time: 1001,
+      },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'running' },
+            { type: 'audio_url', audioUrl: { url: 'data:audio/mpeg;base64,BBB' } },
+          ],
+          toolCalls,
+        },
+        time: 1002,
+      },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'tool',
+          content: [
+            { type: 'text', text: 'ok' },
+            { type: 'video_url', videoUrl: { url: 'https://example.com/result.mp4' } },
+          ],
+          toolCalls: [],
+          toolCallId: 'call_1',
+        },
+        time: 1003,
+      },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'context summary' }],
+          origin: { kind: 'compaction_summary' },
+        },
+        time: 1004,
+      },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'goal fork cleared' }],
+          origin: { kind: 'system_trigger', name: 'goal_fork_cleared' },
+        },
+        time: 1005,
+      },
+      {
+        type: 'context.apply_compaction',
+        summary: {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'legacy compaction' },
+            { type: 'image_url', imageUrl: { url: 'media://media_legacy' } },
+          ],
+        },
+        compactedCount: 1,
+        tokensAfter: 10,
+        keptUserMessageCount: 1,
+        time: 1006,
+      },
+      { type: 'permission.set_mode', mode: 'auto', time: 1007 },
+      {
+        type: 'tools.update_store',
+        key: 'todo',
+        value: [{ title: 'old', status: 'done' }],
+        time: 1008,
+      },
+      {
+        type: 'tools.update_store',
+        key: 'todo',
+        value: [{ title: 'new', status: 'pending' }],
+        time: 1009,
+      },
+      // A v2-only op the v1 restore switch does not know: ignored.
+      { type: 'profile.bind', profileName: 'agent', systemPrompt: 'x', thinkingEffort: 'off', disallowedTools: [], time: 1010 },
+    ];
+    await writeFile(wirePath, records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf-8');
+    for (const turnLimit of [undefined, 1]) {
+      const folded = await foldAgentWireReplay(wirePath, turnLimit);
+      expect(folded.replay).toEqual([
+        {
+          type: 'message',
+          message: {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'hello' },
+              { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAA' } },
+            ],
+            toolCalls: [],
+          },
+          time: 1001,
+        },
+        {
+          type: 'message',
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'text', text: 'running' },
+              { type: 'audio_url', audioUrl: { url: 'data:audio/mpeg;base64,BBB' } },
+            ],
+            toolCalls,
+          },
+          time: 1002,
+        },
+        {
+          type: 'message',
+          message: {
+            role: 'tool',
+            content: [
+              { type: 'text', text: 'ok' },
+              { type: 'video_url', videoUrl: { url: 'https://example.com/result.mp4' } },
+            ],
+            toolCallId: 'call_1',
+            toolCalls: [],
+          },
+          time: 1003,
+        },
+        {
+          type: 'message',
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'context summary' }],
+            toolCalls: [],
+            origin: { kind: 'compaction_summary' },
+          },
+          time: 1004,
+        },
+        {
+          type: 'message',
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'goal fork cleared' }],
+            toolCalls: [],
+            origin: { kind: 'system_trigger', name: 'goal_fork_cleared' },
+          },
+          time: 1005,
+        },
+        { type: 'permission_updated', mode: 'auto', time: 1007 },
+      ]);
+      // Last write wins per store key.
+      expect(folded.toolStore).toEqual({ todo: [{ title: 'new', status: 'pending' }] });
+    }
+  });
+
+  it('degrades to an empty fold on a missing or corrupt journal', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-fold-'));
+    tempDirs.push(dir);
+    const empty = { replay: [], toolStore: {} };
+    await expect(foldAgentWireReplay(join(dir, 'missing.jsonl'))).resolves.toEqual(empty);
+    const emptyFile = join(dir, 'empty.jsonl');
+    await writeFile(emptyFile, '', 'utf-8');
+    await expect(foldAgentWireReplay(emptyFile)).resolves.toEqual({ ...empty, userTurnCount: 0 });
+    const corrupt = join(dir, 'corrupt.jsonl');
+    await writeFile(
+      corrupt,
+      '{"type":"metadata","protocol_version":"1.5","created_at":1}\n{not json\n{"type":"permission.set_mode","mode":"auto"}\n',
+      'utf-8',
+    );
+    await expect(foldAgentWireReplay(corrupt)).resolves.toEqual(empty);
+    // A truncated TAIL line is tolerated: everything before it still folds.
+    const truncatedTail = join(dir, 'truncated.jsonl');
+    await writeFile(
+      truncatedTail,
+      '{"type":"metadata","protocol_version":"1.5","created_at":1}\n{"type":"permission.set_mode","mode":"auto","time":2}\n{"type":"context.append_messa',
+      'utf-8',
+    );
+    const folded = await foldAgentWireReplay(truncatedTail);
+    expect(folded.replay).toEqual([{ type: 'permission_updated', mode: 'auto', time: 2 }]);
+  });
+});
+
+describe('foldAgentWireReplay turn limiting', () => {
+  function appendUser(
+    text: string,
+    time: number,
+    origin?: Record<string, unknown>,
+  ): Record<string, unknown> {
+    return {
+      type: 'context.append_message',
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text }],
+        toolCalls: [],
+        ...(origin === undefined ? {} : { origin }),
+      },
+      time,
+    };
+  }
+
+  function stepRecords(
+    uuid: string,
+    time: number,
+    opts: { readonly withTool?: boolean; readonly text?: string } = {},
+  ): Record<string, unknown>[] {
+    const records: Record<string, unknown>[] = [
+      { type: 'context.append_loop_event', event: { type: 'step.begin', uuid }, time },
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'content.part',
+          stepUuid: uuid,
+          part: { type: 'text', text: opts.text ?? `answer ${uuid}` },
+        },
+        time: time + 1,
+      },
+    ];
+    if (opts.withTool === true) {
+      records.push(
+        {
+          type: 'context.append_loop_event',
+          event: {
+            type: 'tool.call',
+            stepUuid: uuid,
+            toolCallId: `call-${uuid}`,
+            name: 'Bash',
+            args: { command: 'ls' },
+          },
+          time: time + 2,
+        },
+        {
+          type: 'context.append_loop_event',
+          event: {
+            type: 'tool.result',
+            toolCallId: `call-${uuid}`,
+            result: { output: 'ok', isError: false },
+          },
+          time: time + 3,
+        },
+        { type: 'context.append_loop_event', event: { type: 'step.end', uuid }, time: time + 4 },
+      );
+    } else {
+      records.push({
+        type: 'context.append_loop_event',
+        event: { type: 'step.end', uuid },
+        time: time + 2,
+      });
+    }
+    return records;
+  }
+
+  function turnRecords(index: number, time: number): Record<string, unknown>[] {
+    return [
+      appendUser(`prompt ${index}`, time),
+      ...stepRecords(`s${index}`, time + 1, { withTool: index % 3 === 0 }),
+    ];
+  }
+
+  async function writeWire(records: readonly Record<string, unknown>[]): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-fold-limit-'));
+    tempDirs.push(dir);
+    const wirePath = join(dir, 'wire.jsonl');
+    await writeFile(
+      wirePath,
+      records.map((record) => JSON.stringify(record)).join('\n') + '\n',
+      'utf-8',
+    );
+    return wirePath;
+  }
+
+  async function referenceFold(wirePath: string, turnLimit?: number) {
+    const full = await foldAgentWireReplay(wirePath);
+    return {
+      replay: limitAgentReplayByTurns(full.replay, turnLimit),
+      toolStore: full.toolStore,
+      userTurnCount: full.userTurnCount,
+    };
+  }
+
+  it('counts every started user turn independently of the replay window', async () => {
+    const records: Record<string, unknown>[] = [
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+    ];
+    for (let index = 0; index < 3; index++) {
+      records.push(
+        {
+          type: 'turn.prompt',
+          agentId: 'main',
+          turnId: index,
+          origin: { kind: 'user' },
+          input: [{ type: 'text', text: `prompt ${index}` }],
+          time: 100 + index * 10,
+        },
+        appendUser(`prompt ${index}`, 101 + index * 10, { kind: 'user' }),
+        ...stepRecords(`s${index}`, 102 + index * 10),
+      );
+    }
+    const wirePath = await writeWire(records);
+
+    for (const limit of [undefined, 0, 1, 11]) {
+      expect(await foldAgentWireReplay(wirePath, limit)).toMatchObject({ userTurnCount: 3 });
+    }
+  });
+
+  it('counts only user-origin prompts, not steers or automatic turns', async () => {
+    const origins = [
+      { kind: 'user' },
+      { kind: 'skill_activation', trigger: 'user-slash' },
+      { kind: 'plugin_command', trigger: 'user-slash' },
+      { kind: 'shell_command', phase: 'input' },
+      { kind: 'skill_activation', trigger: 'model' },
+      { kind: 'plugin_command', trigger: 'model' },
+      { kind: 'shell_command', phase: 'output' },
+      { kind: 'cron_job' },
+      { kind: 'cron_missed' },
+      { kind: 'system_trigger', name: 'goal_continuation' },
+      { kind: 'background_task' },
+      { kind: 'hook_result' },
+      { kind: 'compaction_summary' },
+      { kind: 'injection' },
+      { kind: 'retry' },
+    ];
+    const wirePath = await writeWire([
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      ...origins.map((origin, turnId) => ({ type: 'turn.prompt', agentId: 'main', origin, turnId })),
+      { type: 'turn.steer', agentId: 'main', origin: { kind: 'user' }, turnId: 0 },
+      { type: 'turn.queued', agentId: 'main', origin: { kind: 'user' } },
+    ]);
+
+    for (const limit of [undefined, 0, 1]) {
+      expect(await foldAgentWireReplay(wirePath, limit)).toMatchObject({ userTurnCount: 4 });
+    }
+  });
+
+  it('leaves the count unknown when historical user messages have no turn prompts', async () => {
+    const journals = [
+      [appendUser('legacy prompt', 2)],
+      [appendUser('legacy prompt', 2, { kind: 'user' })],
+      [
+        appendUser('legacy prompt', 2, { kind: 'user' }),
+        { type: 'turn.prompt', agentId: 'main', origin: { kind: 'user' }, turnId: 1, time: 3 },
+        appendUser('new prompt', 4, { kind: 'user' }),
+      ],
+    ];
+    for (const journal of journals) {
+      const wirePath = await writeWire([
+        { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+        ...journal,
+      ]);
+      for (const limit of [undefined, 0, 1]) {
+        expect(await foldAgentWireReplay(wirePath, limit)).toHaveProperty('userTurnCount', undefined);
+      }
+    }
+  });
+
+  it.each([null, { kind: 'skill_activation' }, { kind: 'plugin_command' }, { kind: 'shell_command' }])(
+    'preserves replay when a turn prompt has an invalid origin %j',
+    async (origin) => {
+      const wirePath = await writeWire([
+        { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+        { type: 'turn.prompt', agentId: 'main', origin, turnId: 0, time: 2 },
+        appendUser('kept question', 3, { kind: 'user' }),
+        ...stepRecords('kept', 4),
+      ]);
+
+      for (const limit of [undefined, 1]) {
+        const folded = await foldAgentWireReplay(wirePath, limit);
+        expect(folded.replay).toEqual([
+          {
+            type: 'message',
+            time: 3,
+            message: {
+              role: 'user',
+              content: [{ type: 'text', text: 'kept question' }],
+              toolCalls: [],
+              origin: { kind: 'user' },
+            },
+          },
+          {
+            type: 'message',
+            time: 4,
+            message: {
+              role: 'assistant',
+              content: [{ type: 'text', text: 'answer kept' }],
+              toolCalls: [],
+            },
+          },
+        ]);
+        expect(folded.userTurnCount).toBeUndefined();
+      }
+    },
+  );
+
+  it('does not treat standalone shell commands as missing user turns', async () => {
+    const wirePath = await writeWire([
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      appendUser('pwd', 2, { kind: 'shell_command', phase: 'input' }),
+      appendUser('/example', 3, { kind: 'shell_command', phase: 'output' }),
+      { type: 'turn.prompt', agentId: 'main', origin: { kind: 'user' }, turnId: 0, time: 4 },
+      appendUser('first question', 5, { kind: 'user' }),
+    ]);
+
+    for (const limit of [undefined, 0, 1]) {
+      expect(await foldAgentWireReplay(wirePath, limit)).toMatchObject({ userTurnCount: 1 });
+    }
+  });
+
+  it('reports zero for an empty journal instead of an unknown count', async () => {
+    const wirePath = await writeWire([]);
+    for (const limit of [undefined, 0, 1]) {
+      expect(await foldAgentWireReplay(wirePath, limit)).toMatchObject({ userTurnCount: 0 });
+    }
+  });
+
+  it('leaves the count unknown when a trailing turn prompt is truncated', async () => {
+    const wirePath = await writeWire([
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      { type: 'turn.prompt', agentId: 'main', origin: { kind: 'user' }, turnId: 0, time: 2 },
+      appendUser('kept question', 3, { kind: 'user' }),
+    ]);
+    await writeFile(
+      wirePath,
+      await readFile(wirePath, 'utf-8') + '{"type":"turn.prompt","origin":{"kind":"user"}',
+      'utf-8',
+    );
+
+    for (const limit of [undefined, 0, 1]) {
+      const folded = await foldAgentWireReplay(wirePath, limit);
+      expect(folded.userTurnCount).toBeUndefined();
+      expect(folded.replay).toHaveLength(limit === 0 ? 0 : 1);
+    }
+  });
+
+  it.each(['llm.request', 'context.append_message'])(
+    'keeps truncated %s tail counts consistent across replay windows',
+    async (type) => {
+      const wirePath = await writeWire([
+        { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+        { type: 'turn.prompt', agentId: 'main', origin: { kind: 'user' }, turnId: 0, time: 2 },
+        appendUser('kept question', 3, { kind: 'user' }),
+      ]);
+      await writeFile(wirePath, (await readFile(wirePath, 'utf-8')) + `{"type":"${type}","data":`);
+
+      for (const limit of [undefined, 0, 1]) {
+        const folded = await foldAgentWireReplay(wirePath, limit);
+        expect(folded.userTurnCount).toBeUndefined();
+        expect(folded.replay).toHaveLength(limit === 0 ? 0 : 1);
+      }
+    },
+  );
+
+  it('counts valid turn prompts with whitespace around JSON separators', async () => {
+    const wirePath = await writeWire([
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      { type: 'turn.prompt', agentId: 'main', origin: { kind: 'user' }, turnId: 0, time: 2 },
+      appendUser('first question', 3, { kind: 'user' }),
+      { type: 'turn.prompt', agentId: 'main', origin: { kind: 'user' }, turnId: 1, time: 4 },
+      appendUser('second question', 5, { kind: 'user' }),
+    ]);
+    await writeFile(wirePath, (await readFile(wirePath, 'utf-8')).replaceAll('":', '": '));
+
+    for (const limit of [undefined, 0, 1]) {
+      expect(await foldAgentWireReplay(wirePath, limit)).toMatchObject({ userTurnCount: 2 });
+    }
+  });
+
+  it('preserves the replay window when a noncanonical turn prompt is corrupt', async () => {
+    const wirePath = await writeWire([
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      { type: 'turn.prompt', agentId: 'main', origin: { kind: 'user' }, turnId: 0, time: 2 },
+      appendUser('first question', 3, { kind: 'user' }),
+      ...stepRecords('first', 4),
+    ]);
+    await writeFile(
+      wirePath,
+      (await readFile(wirePath, 'utf-8')) +
+        '{"time":10,"type":"turn.prompt","origin":null\n' +
+        JSON.stringify({ type: 'turn.prompt', agentId: 'main', origin: { kind: 'user' }, turnId: 1, time: 11 }) + '\n' +
+        JSON.stringify(appendUser('last question', 12, { kind: 'user' })) + '\n',
+      'utf-8',
+    );
+
+    const folded = await foldAgentWireReplay(wirePath, 1);
+    expect(folded.userTurnCount).toBeUndefined();
+    expect(folded.replay).toEqual([
+      {
+        type: 'message',
+        time: 12,
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'last question' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+    ]);
+  });
+
+  it('counts turn prompts whose type header crosses a scan chunk boundary', async () => {
+    const assistant = {
+      type: 'context.append_message',
+      message: { role: 'assistant', content: [{ type: 'text', text: '' }], toolCalls: [] },
+      time: 6,
+    };
+    const records = [
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      { type: 'turn.prompt', agentId: 'main', origin: { kind: 'user' }, turnId: 0, time: 2 },
+      appendUser('first question', 3, { kind: 'user' }),
+      { type: 'turn.prompt', agentId: 'main', origin: { kind: 'user' }, turnId: 1, time: 4 },
+      appendUser('second question', 5, { kind: 'user' }),
+      assistant,
+    ];
+    const promptStart = records
+      .slice(0, 3)
+      .map((record) => JSON.stringify(record) + '\n')
+      .join('').length;
+    const emptySize = records.map((record) => JSON.stringify(record) + '\n').join('').length;
+    const padding = 4 * 1024 * 1024 + promptStart + '{"type":"tur'.length - emptySize;
+    assistant.message.content[0]!.text = 'x'.repeat(padding);
+    const wirePath = await writeWire(records);
+
+    for (const limit of [undefined, 0, 1]) {
+      expect(await foldAgentWireReplay(wirePath, limit)).toMatchObject({ userTurnCount: 2 });
+    }
+  });
+
+  it('matches the unlimited fold truncated to the last N turns on a rich journal', async () => {
+    const records: Record<string, unknown>[] = [
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      { type: 'config.update', modelAlias: 'm1', thinkingEffort: 'high', time: 2 },
+      { type: 'permission.set_mode', mode: 'auto', time: 3 },
+      { type: 'goal.create', goalId: 'g1', objective: 'ship it', time: 4 },
+      {
+        type: 'tools.update_store',
+        key: 'todo',
+        value: [{ title: 'early', status: 'pending' }],
+        time: 5,
+      },
+    ];
+    let time = 100;
+    for (let index = 0; index < 15; index++) {
+      records.push({
+        type: 'turn.prompt',
+        agentId: 'main',
+        origin: { kind: 'user' },
+        turnId: index,
+        time: time++,
+      });
+      records.push(...turnRecords(index, time));
+      time += 10;
+      records.push({
+        type: 'goal.update',
+        status: 'active',
+        turnsUsed: index + 1,
+        tokensUsed: (index + 1) * 100,
+        wallClockMs: (index + 1) * 1000,
+        time: time++,
+      });
+      if (index === 5) {
+        records.push({
+          type: 'tools.update_store',
+          key: 'todo',
+          value: [{ title: 'mid', status: 'done' }],
+          time: time++,
+        });
+      }
+      if (index === 7) {
+        records.push(
+          { type: 'plan_mode.enter', time: time++ },
+          { type: 'plan_mode.exit', time: time++ },
+        );
+      }
+      if (index === 9 || index === 13) {
+        records.push(
+          { type: 'full_compaction.begin', instruction: 'compact', time: time++ },
+          {
+            type: 'context.apply_compaction',
+            summary: 'summary',
+            contextSummary: 'context summary',
+            compactedCount: 3,
+            tokensBefore: 1000,
+            tokensAfter: 100,
+            keptUserMessageCount: 2,
+            time: time++,
+          },
+        );
+      }
+      if (index === 12) {
+        records.push({ type: 'forked', time: time++ });
+      }
+    }
+    records.push({
+      type: 'tools.update_store',
+      key: 'todo',
+      value: [{ title: 'final', status: 'done' }],
+      time: time++,
+    });
+    const wirePath = await writeWire(records);
+    for (const limit of [undefined, 0, 1, 3, 11, 15, 16]) {
+      const folded = await foldAgentWireReplay(wirePath, limit);
+      expect(folded.userTurnCount).toBe(15);
+      if (limit !== undefined) expect(folded).toEqual(await referenceFold(wirePath, limit));
+    }
+  });
+
+  it('matches the reference on a legacy-version journal with goal usage records', async () => {
+    const records: Record<string, unknown>[] = [
+      { type: 'metadata', protocol_version: '1.3', created_at: 1 },
+      { type: 'goal.create', goalId: 'g1', objective: 'legacy goal', time: 2 },
+      { type: 'goal.account_usage', goalId: 'g1', tokensUsed: 42, wallClockMs: 900, time: 3 },
+      { type: 'goal.continuation', goalId: 'g1', turnsUsed: 7, time: 4 },
+    ];
+    let time = 100;
+    for (let index = 0; index < 6; index++) {
+      records.push(...turnRecords(index, time));
+      time += 10;
+    }
+    records.push({
+      type: 'goal.update',
+      goalId: 'g1',
+      status: 'complete',
+      reason: 'done',
+      turnsUsed: 8,
+      time: time++,
+    });
+    const wirePath = await writeWire(records);
+    expect(await foldAgentWireReplay(wirePath, 2)).toEqual(await referenceFold(wirePath, 2));
+  });
+
+  it('shifts the window across undo-erased turns exactly like the reference', async () => {
+    const records: Record<string, unknown>[] = [
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+    ];
+    let time = 100;
+    for (let index = 0; index < 14; index++) {
+      records.push(...turnRecords(index, time));
+      time += 10;
+    }
+    records.push(
+      appendUser('cron fire', time++, {
+        kind: 'cron_job',
+        jobId: 'job-1',
+        cron: '*/15 * * * *',
+        recurring: true,
+        coalescedCount: 1,
+        stale: false,
+      }),
+      ...stepRecords('cron-step', time, {}),
+    );
+    time += 10;
+    records.push({ type: 'context.undo', count: 2, time: time++ });
+    const wirePath = await writeWire(records);
+    for (const limit of [5, 11, 12, 13]) {
+      expect(await foldAgentWireReplay(wirePath, limit)).toEqual(
+        await referenceFold(wirePath, limit),
+      );
+    }
+  });
+
+  it('reproduces a tool call pending across the turn boundary', async () => {
+    const records: Record<string, unknown>[] = [
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+    ];
+    let time = 100;
+    for (let index = 0; index < 3; index++) {
+      records.push(...turnRecords(index, time));
+      time += 10;
+    }
+    records.push(
+      { type: 'context.append_loop_event', event: { type: 'step.begin', uuid: 'sx' }, time: time++ },
+      {
+        type: 'context.append_loop_event',
+        event: { type: 'tool.call', stepUuid: 'sx', toolCallId: 'call-x', name: 'Bash', args: {} },
+        time: time++,
+      },
+      appendUser('prompt while pending', time++),
+      { type: 'context.append_loop_event', event: { type: 'step.begin', uuid: 'sy' }, time: time++ },
+      {
+        type: 'context.append_loop_event',
+        event: {
+          type: 'content.part',
+          stepUuid: 'sy',
+          part: { type: 'text', text: 'recovered' },
+        },
+        time: time++,
+      },
+      { type: 'context.append_loop_event', event: { type: 'step.end', uuid: 'sy' }, time: time++ },
+    );
+    const wirePath = await writeWire(records);
+    for (const limit of [1, 2, 4]) {
+      expect(await foldAgentWireReplay(wirePath, limit)).toEqual(
+        await referenceFold(wirePath, limit),
+      );
+    }
+  });
+
+  it('falls back to a full fold when a legacy compaction lands inside the window', async () => {
+    const records: Record<string, unknown>[] = [
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+    ];
+    let time = 100;
+    for (let index = 0; index < 11; index++) {
+      if (index === 8) {
+        records.push(
+          { type: 'full_compaction.begin', instruction: 'compact', time: time++ },
+          {
+            type: 'context.apply_compaction',
+            summary: 'legacy summary',
+            compactedCount: 2,
+            tokensBefore: 5000,
+            time: time++,
+          },
+        );
+      }
+      records.push(...turnRecords(index, time));
+      time += 10;
+    }
+    const wirePath = await writeWire(records);
+    for (const limit of [1, 3]) {
+      expect(await foldAgentWireReplay(wirePath, limit)).toEqual(
+        await referenceFold(wirePath, limit),
+      );
+    }
+  });
+
+  it('returns the full replay when the journal has fewer turns than the limit', async () => {
+    const records: Record<string, unknown>[] = [
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      { type: 'permission.set_mode', mode: 'auto', time: 2 },
+      ...turnRecords(0, 100),
+      ...turnRecords(1, 200),
+    ];
+    const wirePath = await writeWire(records);
+    expect(await foldAgentWireReplay(wirePath, 11)).toEqual(await referenceFold(wirePath, 11));
+  });
+
+  it('returns an empty replay but the full tool store for a zero turn limit', async () => {
+    const records: Record<string, unknown>[] = [
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      { type: 'tools.update_store', key: 'todo', value: [{ title: 'kept', status: 'done' }], time: 2 },
+      ...turnRecords(0, 100),
+      ...turnRecords(1, 200),
+    ];
+    const wirePath = await writeWire(records);
+    expect(await foldAgentWireReplay(wirePath, 0)).toEqual(await referenceFold(wirePath, 0));
+  });
+
+  it('tolerates a truncated tail line with a turn limit and degrades like the reference', async () => {
+    const records: Record<string, unknown>[] = [
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      ...turnRecords(0, 100),
+      ...turnRecords(1, 200),
+      ...turnRecords(2, 300),
+    ];
+    const wirePath = await writeWire(records);
+    await writeFile(
+      wirePath,
+      records.map((record) => JSON.stringify(record)).join('\n') + '\n{"type":"context.append_messa',
+      'utf-8',
+    );
+    expect(await foldAgentWireReplay(wirePath, 2)).toEqual(await referenceFold(wirePath, 2));
+    await expect(foldAgentWireReplay(join(wirePath, '..', 'missing.jsonl'), 2)).resolves.toEqual({
+      replay: [],
+      toolStore: {},
+    });
+  });
+});
+
+describe('SDKRpcClientV2 engine telemetry', () => {
+  it('forwards engine-side events to the host-supplied telemetry client', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-tel-'));
+    tempDirs.push(homeDir);
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-tel-work-'));
+    tempDirs.push(workDir);
+    const records: TelemetryRecord[] = [];
+    const harness = createPythinkerHarness({
+      homeDir,
+      identity: TEST_IDENTITY,
+      telemetry: recordingTelemetry(records),
+    });
+    try {
+      const session = await harness.createSession({ workDir });
+      await session.setPermission('yolo');
+      expect(records.some((record) => record.event === 'yolo_toggle')).toBe(true);
+      await session.close();
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('honors telemetry = false for engine-side events', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-tel-off-'));
+    tempDirs.push(homeDir);
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-tel-off-work-'));
+    tempDirs.push(workDir);
+    await writeFile(join(homeDir, 'config.toml'), 'telemetry = false\n', 'utf-8');
+    const records: TelemetryRecord[] = [];
+    const harness = createPythinkerHarness({
+      homeDir,
+      identity: TEST_IDENTITY,
+      telemetry: recordingTelemetry(records),
+    });
+    try {
+      const session = await harness.createSession({ workDir });
+      await session.setPermission('yolo');
+      expect(records.some((record) => record.event === 'yolo_toggle')).toBe(false);
+      await session.close();
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('emits session_started once per open, with the harness schema and enabled experimental flags', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-tel-flags-'));
+    tempDirs.push(homeDir);
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-tel-flags-work-'));
+    tempDirs.push(workDir);
+    await writeFile(join(homeDir, 'config.toml'), '[experimental]\nsubagent_fork = true\n', 'utf-8');
+    const records: TelemetryRecord[] = [];
+    const harness = createPythinkerHarness({
+      homeDir,
+      identity: TEST_IDENTITY,
+      telemetry: recordingTelemetry(records),
+    });
+    try {
+      const session = await harness.createSession({ workDir });
+      // The harness row is the sole producer: the forwarding appender drops
+      // the engine's own session_started, or every open would double-count.
+      const started = records.filter((record) => record.event === 'session_started');
+      expect(started).toHaveLength(1);
+      expect(started[0]).toMatchObject({
+        sessionId: session.id,
+        properties: {
+          client_id: '',
+          client_name: 'pythinker-code-cli',
+          client_version: '0.0.0-test',
+          ui_mode: 'shell',
+          resumed: false,
+        },
+      });
+      for (const record of started) {
+        const flags = String(record.properties?.['experimental_flags'] ?? '').split(',');
+        expect(flags).toContain('subagent_fork');
+        expect(flags).toContain('wait_for');
+      }
+      await session.close();
+      await harness.resumeSession({ id: session.id });
+      const afterResume = records.filter((record) => record.event === 'session_started');
+      expect(afterResume).toHaveLength(2);
+      expect(afterResume[1]).toMatchObject({
+        sessionId: session.id,
+        properties: { resumed: true },
+      });
+      const distinct = new Set(afterResume.map((record) => record.properties?.['experimental_flags']));
+      expect(distinct.size).toBe(1);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('keeps forwarding the engine session_started to a direct SDKRpcClientV2 consumer', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-tel-direct-'));
+    tempDirs.push(homeDir);
+    const workDir = await mkdtemp(join(tmpdir(), 'pythinker-sdk-v2-tel-direct-work-'));
+    tempDirs.push(workDir);
+    const records: TelemetryRecord[] = [];
+    const client = new SDKRpcClientV2({
+      homeDir,
+      identity: TEST_IDENTITY,
+      telemetry: recordingTelemetry(records),
+    });
+    try {
+      // No harness wraps this client, so nothing else emits session_started 
+      // the engine's own row must survive forwarding.
+      const summary = await client.createSession({ workDir });
+      const started = records.filter((record) => record.event === 'session_started');
+      expect(started).toHaveLength(1);
+      expect(started[0]).toMatchObject({ properties: { resumed: false } });
+      await client.closeSession({ sessionId: summary.id });
+      await client.resumeSession({ id: summary.id });
+      const afterResume = records.filter((record) => record.event === 'session_started');
+      expect(afterResume).toHaveLength(2);
+      expect(afterResume[1]).toMatchObject({ properties: { resumed: true } });
+    } finally {
+      await client.close();
+    }
+  });
+});
+
+async function writeSkill(dir: string, name: string): Promise<void> {  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, 'SKILL.md'),
+    `---\nname: ${name}\ndescription: Skill ${name} for the escape-hatch test\n---\n\nBody of ${name}.\n`,
+    'utf-8',
+  );
+}

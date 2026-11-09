@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Scheduled version updates remain disabled because Dependabot's updater
+    # does not satisfy this workspace's strict Node 24.15 engine requirement.
+    # Security updates remain enabled and no dependency is ignored.
+    open-pull-requests-limit: 0
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

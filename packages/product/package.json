@@ -1,0 +1,45 @@
+{
+  "name": "@pymodel/pythinker-code-product",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Pythinker Code product logic shared by clients and hosts.",
+  "license": "MIT",
+  "author": "PyModel",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PyModel/pythinker-code.git",
+    "directory": "packages/product"
+  },
+  "bugs": {
+    "url": "https://github.com/PyModel/pythinker-code/issues"
+  },
+  "type": "module",
+  "imports": {
+    "#/*": "./src/*.ts"
+  },
+  "exports": {
+    "./client-configs/node": {
+      "types": "./src/client-configs/node/index.ts",
+      "default": "./src/client-configs/node/index.ts"
+    },
+    "./session-rating": {
+      "types": "./src/session-rating/common/index.ts",
+      "default": "./src/session-rating/common/index.ts"
+    },
+    "./session-rating/node": {
+      "types": "./src/session-rating/node/index.ts",
+      "default": "./src/session-rating/node/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@pymodel/agent-core-v2": "workspace:^",
+    "@pymodel/pythinker-code-oauth": "workspace:^",
+    "zod": "catalog:"
+  }
+}

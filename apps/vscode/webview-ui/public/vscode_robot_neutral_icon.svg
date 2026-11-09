@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" role="img">
+  <title>Neutral robot icon</title>
+  <line x1="12" y1="2.8" x2="12" y2="5.4" />
+  <circle cx="12" cy="1.9" r="1.5" />
+
+  <rect x="4" y="6" width="16" height="10.4" rx="3.2" ry="3.2" />
+
+  <rect x="1.8" y="8.5" width="2.4" height="4.8" rx="0.7" ry="0.7" />
+  <rect x="19.8" y="8.5" width="2.4" height="4.8" rx="0.7" ry="0.7" />
+
+  <circle cx="8.4" cy="11.1" r="1.35" />
+  <circle cx="15.6" cy="11.1" r="1.35" />
+
+  <line x1="10.2" y1="14.2" x2="13.8" y2="14.2" />
+</svg>

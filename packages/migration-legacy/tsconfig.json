@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "noResolve": false
+  },
+  "include": [
+    "src",
+    "../agent-core-v2/src/env.d.ts"
+  ],
+  "exclude": [
+    "test",
+    "dist"
+  ]
+}

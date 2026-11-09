@@ -1,0 +1,161 @@
+import { ScrollView, TuiAltScreen, TuiMainScreen, VStack } from '@pymodel/pi-tui';
+import { describe, it, expect } from 'vitest';
+
+import { GutterContainer } from '#/tui/components/chrome/gutter-container';
+import { StickyUserMessageComponent } from '#/tui/components/messages/sticky-user-message';
+import { TranscriptView } from '#/tui/components/messages/transcript-view';
+import { createTUIState, type PythinkerTUIOptions } from '#/tui/pythinker-tui';
+import type { AppState } from '#/tui/types';
+
+function fakeInitialAppState(): AppState {
+  return {
+    model: 'test-model',
+    workDir: '/tmp/pythinker-test',
+    additionalDirs: [],
+    sessionId: 'sess-1',
+    permissionMode: 'manual',
+    planMode: false,
+    inputMode: 'prompt',
+    dynamicWorkflowMode: false,
+    towerMode: false,
+    thinkingEffort: 'off',
+    contextUsage: 0,
+    contextTokens: 0,
+    maxContextTokens: 0,
+    isCompacting: false,
+    isReplaying: false,
+    streamingPhase: 'idle',
+    streamingStartTime: 0,
+    stepRetry: null,
+    theme: 'dark',
+    version: '0.0.0-test',
+    editorCommand: null,
+    notifications: { enabled: true, condition: 'unfocused' },
+    upgrade: { autoInstall: true },
+    availableModels: {},
+    availableProviders: {},
+    sessionTitle: null,
+    mcpServersSummary: null,
+  };
+}
+
+describe('createTUIState', () => {
+  it('initializes all fields with sensible defaults', () => {
+    const opts: PythinkerTUIOptions = {
+      initialAppState: fakeInitialAppState(),
+      startup: {
+        continueLast: false,
+        yolo: false,
+        auto: false,
+        plan: false,
+      },
+    };
+    const state = createTUIState(opts);
+
+    // UI objects are created.
+    expect(state.ui).toBeDefined();
+    expect(state.terminal).toBeDefined();
+    expect(state.transcriptContainer).toBeDefined();
+    expect(state.activityContainer).toBeDefined();
+    expect(state.queueContainer).toBeDefined();
+    expect(state.surveyContainer).toBeDefined();
+    expect(state.editorContainer).toBeDefined();
+    expect(state.editor).toBeDefined();
+    expect(state.footer).toBeDefined();
+    expect(state.notifyPanelContainer).toBeDefined();
+    expect(state.notifyPanel).toBeDefined();
+    expect(state.theme.palette).toBeDefined();
+
+    // App state is cloned from initialAppState, not reused by reference.
+    expect(state.appState).not.toBe(opts.initialAppState);
+    expect(state.appState.model).toBe('test-model');
+    expect(state.appState.additionalDirs).toEqual([]);
+    expect(state.appState.sessionId).toBe('sess-1');
+    expect(state.startupState).toBe('pending');
+
+    // LivePane defaults.
+    expect(state.livePane.mode).toBe('idle');
+    expect(state.livePane.pendingApproval).toBeNull();
+    expect(state.livePane.pendingQuestion).toBeNull();
+
+    // Empty collections.
+    expect(state.transcriptEntries).toHaveLength(0);
+    expect(state.queuedMessages).toHaveLength(0);
+
+    // Boolean, counter, and optional-field defaults.
+    expect(state.toolOutputExpanded).toBe(false);
+    expect(state.activeDialog).toBeNull();
+    expect(state.externalEditorRunning).toBe(false);
+    expect(state.loadingSessions).toBe(false);
+    expect(state.sessionsScope).toBe('cwd');
+    expect(state.activitySpinner).toBeNull();
+  });
+
+  it('uses the main-screen renderer by default', () => {
+    const state = createTUIState({
+      initialAppState: fakeInitialAppState(),
+      startup: {
+        continueLast: false,
+        yolo: false,
+        auto: false,
+        plan: false,
+      },
+    });
+
+    expect(state.ui).toBeInstanceOf(TuiMainScreen);
+    expect(state.ui.mode).toBe('regular');
+    expect(state.dockContainer).toBeUndefined();
+  });
+
+  it('builds an alternate-screen renderer with a docked layout in fullscreen mode', () => {
+    const state = createTUIState({
+      initialAppState: { ...fakeInitialAppState(), tuiMode: 'fullscreen' },
+      startup: {
+        continueLast: false,
+        yolo: false,
+        auto: false,
+        plan: false,
+      },
+    });
+
+    expect(state.ui).toBeInstanceOf(TuiAltScreen);
+    expect(state.ui.mode).toBe('fullscreen');
+
+    // The chrome docks below the transcript ScrollView, in z-order.
+    const dock = state.dockContainer;
+    expect(dock).toBeDefined();
+    expect(dock?.children).toEqual([
+      state.activityContainer,
+      state.notifyPanelContainer,
+      state.queueContainer,
+      state.btwPanelContainer,
+      state.surveyContainer,
+      state.editorSlot,
+    ]);
+    expect(state.editorSlot?.children).toEqual([state.editorContainer]);
+
+    // The layout root is mounted and the root children list stays empty.
+    expect((state.ui as TuiAltScreen).getLayoutRoot()).toBeDefined();
+    expect(state.ui.children).toHaveLength(0);
+
+    // The sticky user message sits above the transcript ScrollView, outside
+    // the scrolling region, so it is never carried away by scrolling.
+    const rootChildren = ((state.ui as TuiAltScreen).getLayoutRoot() as VStack).children;
+    expect(rootChildren[0]).toBeInstanceOf(TranscriptView);
+    const transcriptChildren = (rootChildren[0] as TranscriptView).children;
+    expect((transcriptChildren[0] as GutterContainer).children[0]).toBeInstanceOf(
+      StickyUserMessageComponent,
+    );
+    expect(transcriptChildren[1]).toBeInstanceOf(ScrollView);
+    expect(rootChildren[1]).toBe(state.dockContainer);
+
+    // Mouse capture replaces native terminal link activation / right-click
+    // paste, so both must be routed through renderer callbacks.
+    const internals = state.ui as unknown as {
+      openUrl?: (url: string) => void;
+      onRightClickPaste?: () => void;
+    };
+    expect(typeof internals.openUrl).toBe('function');
+    expect(typeof internals.onRightClickPaste).toBe('function');
+  });
+});

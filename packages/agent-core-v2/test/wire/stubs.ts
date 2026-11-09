@@ -1,0 +1,261 @@
+import { SyncDescriptor } from '#/_base/di/descriptors';
+import { toDisposable } from '#/_base/di/lifecycle';
+import type { ServiceRegistration, TestInstantiationService } from '#/_base/di/test';
+import { Event } from '#/_base/event';
+import { ILogService } from '#/_base/log/log';
+import { IAgentBlobService } from '#/agent/blob/agentBlobService';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { AgentStateService } from '#/agent/state/agentStateService';
+import { IAgentScopeContext, makeAgentScopeContext, type IAgentScopeContext as AgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { InMemorySessionLockService } from '#/persistence/backends/memory/sessionLockService';
+import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { ISessionLockService } from '#/persistence/interface/sessionLock';
+
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { EventDispatcherService } from '#/state/eventDispatcherService';
+import { AgentTodoService, IAgentTodoService } from '#/features/todo/todoService';
+import { AgentGoalService, IAgentGoalService } from '#/features/goal/goalService';
+import {
+  IWireService,
+  type IWireService as AgentWire,
+} from '#/wire/wire';
+import { WireService } from '#/wire/wireService';
+import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+
+interface TestAgentWireDependencies {
+  readonly log?: IAppendLogStore;
+  readonly blob?: IAgentBlobService;
+  readonly eventBus?: IEventBus;
+  readonly storage?: IFileSystemStorageService;
+  readonly logger?: ILogService;
+  readonly telemetry?: ITelemetryService;
+  readonly agentId?: string;
+}
+
+const noopLog: IAppendLogStore = {
+  _serviceBrand: undefined,
+  onDidWrite: Event.None as IAppendLogStore['onDidWrite'],
+  append: () => {},
+  read: async function* () {},
+  rewrite: async () => {},
+  flush: async () => {},
+  flushLog: async () => {},
+  close: async () => {},
+  acquire: () => toDisposable(() => {}),
+  drainRetirements: () => Promise.resolve(),
+  externallyModified: () => false,
+  bindWriteGuard: () => ({ dispose: () => undefined }),
+};
+
+const noopBlob: IAgentBlobService = {
+  _serviceBrand: undefined,
+  offloadParts: async (parts) => parts,
+  loadParts: async (parts) => parts,
+  isBlobRef: () => false,
+};
+
+const noopEventBus: IEventBus = {
+  _serviceBrand: undefined,
+  publish: () => {},
+  subscribe: () => toDisposable(() => {}),
+};
+
+export const noopLogger: ILogService = {
+  _serviceBrand: undefined,
+  level: 'off',
+  error: () => {},
+  warn: () => {},
+  info: () => {},
+  debug: () => {},
+  child: () => noopLogger,
+  setLevel: () => {},
+  flush: async () => {},
+};
+
+export function testWireScope(scope: string, journal: string): string {
+  return `${scope}/${journal}`;
+}
+
+function stubSessionContext(): ISessionContext {
+  return makeSessionContext({
+    sessionId: 'test-session',
+    workspaceId: 'test-workspace',
+    sessionDir: '/tmp/test-session',
+    sessionScope: 'sessions/test-workspace/test-session',
+    cwd: '/tmp/test-session',
+  });
+}
+
+export function stubAgentScopeContext(scope: string, agentId = 'test-agent'): AgentScopeContext {
+  return makeAgentScopeContext({ agentId, agentScope: scope, generation: 0 });
+}
+
+export function registerTestAgentWire(
+  ix: TestInstantiationService,
+  scope: string,
+  dependencies: TestAgentWireDependencies = {},
+): AgentWire {
+  const agentScope = stubAgentScopeContext(scope, dependencies.agentId);
+  ix.stub(IAgentScopeContext, agentScope);
+  ix.set(IAppendLogStore, dependencies.log ?? noopLog);
+  ix.set(IAgentBlobService, dependencies.blob ?? noopBlob);
+  ix.set(IEventBus, dependencies.eventBus ?? noopEventBus);
+  if (dependencies.storage !== undefined) {
+    ix.stub(IFileSystemStorageService, dependencies.storage);
+  }
+  if (dependencies.logger !== undefined) {
+    ix.stub(ILogService, dependencies.logger);
+  }
+  if (dependencies.telemetry !== undefined) {
+    ix.stub(ITelemetryService, dependencies.telemetry);
+  }
+  const previousContext = ix.set(ISessionContext, stubSessionContext());
+  if (previousContext !== undefined) {
+    ix.set(ISessionContext, previousContext as ISessionContext);
+  }
+  const previousLocks = ix.set(ISessionLockService, new InMemorySessionLockService());
+  if (previousLocks !== undefined) {
+    ix.set(ISessionLockService, previousLocks as ISessionLockService);
+  }
+  ix.set(IWireService, new SyncDescriptor(WireService));
+  const eventBus = ix.get(IEventBus);
+  if (typeof (eventBus as Partial<ISessionEventBus>).activateAgent === 'function') {
+    (eventBus as ISessionEventBus).activateAgent(agentScope.agentContext);
+  }
+  return ix.get(IWireService);
+}
+
+export function registerTestAgentWireServices(
+  registration: ServiceRegistration,
+  scope = 'wire/test-agent',
+  agentId?: string,
+): void {
+  registration.defineInstance(IAgentScopeContext, stubAgentScopeContext(scope, agentId));
+  registration.defineInstance(IAppendLogStore, noopLog);
+  registration.defineInstance(IAgentBlobService, noopBlob);
+  registration.defineInstance(IEventBus, noopEventBus);
+  registration.defineInstance(IFileSystemStorageService, new InMemoryStorageService());
+  registration.defineInstance(ILogService, noopLogger);
+  registration.defineInstance(ITelemetryService, noopTelemetryService);
+  registration.defineInstance(ISessionContext, stubSessionContext());
+  registration.defineInstance(ISessionLockService, new InMemorySessionLockService());
+  registration.defineInstance(IAgentStateService, new AgentStateService());
+  registration.define(IWireService, WireService);
+  registration.define(IEventDispatcher, EventDispatcherService);
+}
+
+export function registerTestEventDispatcher(ix: TestInstantiationService): IEventDispatcher {
+  const previous = ix.set(IAgentStateService, new AgentStateService());
+  if (previous !== undefined) {
+    ix.set(IAgentStateService, previous as IAgentStateService);
+  }
+  ix.set(IEventDispatcher, new SyncDescriptor(EventDispatcherService));
+  return ix.get(IEventDispatcher);
+}
+
+export function attachTodoService(ix: TestInstantiationService): AgentTodoService {
+  ix.set(IAgentTodoService, new SyncDescriptor(AgentTodoService));
+  return ix.get(IAgentTodoService) as AgentTodoService;
+}
+
+export function attachGoalService(ix: TestInstantiationService): AgentGoalService {
+  ix.set(IAgentGoalService, new SyncDescriptor(AgentGoalService));
+  return ix.get(IAgentGoalService) as AgentGoalService;
+}
+
+export async function restoreTestEventDispatcher(
+  dispatcher: IEventDispatcher,
+  log: IAppendLogStore,
+  scope: string,
+  records: readonly WireRecord[],
+): Promise<void> {
+  await log.rewrite(scope, AGENT_WIRE_RECORD_KEY, records);
+  await dispatcher.restore();
+}
+
+export function stubAgentWire(
+  flush: () => Promise<void> = async () => {},
+): AgentWire {
+  return {
+    _serviceBrand: undefined,
+    seal: async () => {},
+    appendRecord: () => {},
+    readJournal: async function* () {},
+    readRestorable: async function* () {},
+    readRestoreChains: async () => ({ restorable: [], journal: [] }),
+    readHumanChain: () => [],
+    flush,
+    drainPersisted: async () => {},
+    lineCount: () => 0,
+    lastContextClearLine: () => undefined,
+    journalPath: () => undefined,
+    externallyModified: () => false,
+    journalRef: { tree: 'stub', branch: 'main' },
+    append: () => {},
+    read: async function* () {},
+    readRaw: async function* () {},
+    switchBranch: async () => {
+      throw new Error('stubAgentWire.switchBranch is not implemented');
+    },
+    branches: () => ['main'],
+    nextSeq: () => 1,
+    settled: async () => {},
+  };
+}
+
+export function stubWireJournal(journal: WireRecord[]): AgentWire {
+  return {
+    ...stubAgentWire(),
+    appendRecord: (record) => {
+      journal.push(record);
+    },
+    append: (record) => {
+      journal.push(record);
+    },
+    readJournal: async function* () {
+      for (const record of journal) yield record;
+    },
+    readRestorable: async function* () {
+      for (const record of journal) yield record;
+    },
+    readRestoreChains: async () => ({ restorable: [...journal], journal: [...journal] }),
+    read: async function* () {
+      for (const record of journal) yield record;
+    },
+    readRaw: async function* () {
+      for (const record of journal) yield record;
+    },
+  };
+}
+
+export function recordingWireLog(
+  records: WireRecord[],
+  onAppend?: (record: WireRecord) => void,
+): IAppendLogStore {
+  return {
+    _serviceBrand: undefined,
+    onDidWrite: Event.None as IAppendLogStore['onDidWrite'],
+    append: (_scope, _key, record) => {
+      records.push(record as WireRecord);
+      onAppend?.(record as WireRecord);
+    },
+    read: async function* <R>() {
+      for (const record of records) yield record as R;
+    },
+    rewrite: async (_scope, _key, next) => {
+      records.splice(0, records.length, ...(next as readonly WireRecord[]));
+    },
+    flush: async () => {},
+    flushLog: async () => {},
+    close: async () => {},
+    acquire: () => toDisposable(() => {}),
+    drainRetirements: () => Promise.resolve(),
+    externallyModified: () => false,
+    bindWriteGuard: () => ({ dispose: () => undefined }),
+  };
+}

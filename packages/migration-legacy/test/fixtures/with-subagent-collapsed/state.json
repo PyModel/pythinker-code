@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "approval": {
+    "yolo": false,
+    "auto_approve_actions": []
+  },
+  "additional_dirs": [],
+  "custom_title": "Launch three sub agents; each one must run a few simple commands that require approval — run at least two",
+  "title_generated": false,
+  "title_generate_attempts": 1,
+  "plan_mode": false,
+  "plan_session_id": null,
+  "plan_slug": null,
+  "wire_mtime": 1774273468.238773,
+  "archived": false,
+  "archived_at": null,
+  "auto_archive_exempt": false
+}

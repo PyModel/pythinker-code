@@ -1,0 +1,639 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import {
+  WIRE_PROTOCOL_VERSION,
+  EVENT2_REGISTRY,
+  IAgentContextMemoryService,
+  IAgentGoalService,
+  type ContextMessage,
+  type WireRecord,
+} from '#/index';
+import {
+  InMemoryWireRecordPersistence,
+  createTestAgent,
+  testAgent,
+  type TestAgentContext,
+} from './harness';
+import { SyncDescriptor } from '#/_base/di/descriptors';
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { TestInstantiationService } from '#/_base/di/test';
+import {
+  ContextAppendMessage,
+  ContextApplyCompaction,
+  ContextClear,
+  ContextUndo,
+} from '#/agent/contextMemory/contextEvents';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { TokenCountingMeasured } from '#/agent/tokenCounting/tokenCountingOps';
+import { TurnStepInterrupted } from '#/agent/loop/turnEvents';
+import { TurnStepRetrying } from '#/agent/loop/turnEvents';
+import { ToolsUpdateStore } from '#/features/todo/todoOps';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import type { Event2Class } from '#/app/event/event2';
+import { AGENT_WIRE_RECORD_KEY } from '#/wire/record';
+import { attachTodoService, registerTestAgentWire, registerTestEventDispatcher, restoreTestEventDispatcher } from './wire/stubs';
+import { BUILTIN_REPLAYABLE_STATE_KEYS } from './state/builtinReplayableKeys';
+
+const V1_RECORD_TYPES: ReadonlySet<string> = new Set([
+  'metadata',
+  'forked',
+  'turn.prompt',
+  'turn.steer',
+  'turn.cancel',
+  'config.update',
+  'permission.set_mode',
+  'permission.record_approval_result',
+  'full_compaction.begin',
+  'full_compaction.cancel',
+  'full_compaction.complete',
+  'micro_compaction.apply',
+  'plan_mode.enter',
+  'plan_mode.cancel',
+  'plan_mode.exit',
+  'dynamic_workflow_mode.enter',
+  'dynamic_workflow_mode.exit',
+  'tools.register_user_tool',
+  'tools.unregister_user_tool',
+  'tools.set_active_tools',
+  'tools.update_store',
+  'usage.record',
+  'context.append_message',
+  'context.append_loop_event',
+  'context.clear',
+  'context.apply_compaction',
+  'context.undo',
+  'goal.create',
+  'goal.update',
+  'goal.clear',
+  'llm.tools_snapshot',
+  'llm.request',
+  'mcp.tools_discovered',
+]);
+const V2_ONLY_RECORD_TYPES: ReadonlySet<string> = new Set([
+  'tools.reset_active_tools',
+  'profile.bind',
+]);
+
+const V2_RECORD_TYPES: ReadonlySet<string> = new Set([
+  'tower_mode.enter',
+  'tower_mode.exit',
+  'task.started',
+  'task.terminated',
+  'task.waitDelivered',
+  'interaction.request',
+  'interaction.resolved',
+  'plan.revision',
+  'file_history.tracked',
+  'file_history.checkpoint',
+  'interruptionReminder.recorded',
+  'plugin.session_start',
+  'changeNotifier.snapshot',
+  'runtime.set_binding',
+  'turn.ended',
+  'prompt.aborted',
+  'prompt.completed',
+  'prompt.steered',
+  'token_counting.measured',
+  'token_counting.truncated',
+  'token_counting.rebased',
+  'cron.add',
+  'cron.delete',
+  'cron.cursor',
+  'token_counting.turn_recorded',
+  'turn.step.retrying',
+  'turn.step.interrupted',
+  'subagent.spawned',
+  'subagent.started',
+  'subagent.completed',
+  'subagent.failed',
+  'subagent.cancelled',
+  'mcp.server_failed',
+  'mcp.server_failure_resolved',
+]);
+
+describe('v1 wire vocabulary', () => {
+  const SCOPE = 'wire';
+
+  let disposables: DisposableStore;
+  let dispatcher: IEventDispatcher;
+  let log: IAppendLogStore;
+
+  beforeEach(() => {
+    disposables = new DisposableStore();
+    const ix = disposables.add(new TestInstantiationService());
+    ix.stub(IFileSystemStorageService, new InMemoryStorageService());
+    ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
+    log = ix.get(IAppendLogStore);
+    registerTestAgentWire(ix, SCOPE, { log });
+    dispatcher = registerTestEventDispatcher(ix);
+  });
+
+  afterEach(() => disposables.dispose());
+
+  async function readRecords(): Promise<WireRecord[]> {
+    await dispatcher.flush();
+    const out: WireRecord[] = [];
+    for await (const record of log.read<WireRecord>(SCOPE, AGENT_WIRE_RECORD_KEY)) {
+      out.push(record);
+    }
+    return out;
+  }
+
+  it('every durable event type is a known (v1 or v2) record type', () => {
+    for (const type of EVENT2_REGISTRY.keys()) {
+      expect(
+        V1_RECORD_TYPES.has(type) ||
+          V2_ONLY_RECORD_TYPES.has(type) ||
+          V2_RECORD_TYPES.has(type),
+        `event "${type}" persists an unregistered record type`,
+      ).toBe(true);
+    }
+  });
+
+  it('stamps persisted records with time, except the metadata envelope', async () => {
+    await dispatcher.restore();
+    await dispatcher.dispatch(
+      new ToolsUpdateStore({ agentId: 'test-agent', key: 'todo', value: [{ title: 'x', status: 'pending' }] }),
+    );
+
+    const records = await readRecords();
+    expect(records).toEqual([
+      {
+        type: 'metadata',
+        protocol_version: WIRE_PROTOCOL_VERSION,
+        created_at: expect.any(Number),
+      },
+      {
+        type: 'tools.update_store',
+        agentId: 'test-agent',
+        key: 'todo',
+        value: [{ title: 'x', status: 'pending' }],
+        time: expect.any(Number),
+      },
+    ]);
+  });
+
+  it('persists step retrying and interrupted records with full payloads and replays them safely', async () => {
+    await dispatcher.restore();
+    await dispatcher.dispatch(
+      new TurnStepRetrying({
+        agentId: 'test-agent',
+        turnId: 1,
+        step: 2,
+        failedAttempt: 1,
+        nextAttempt: 2,
+        maxAttempts: 10,
+        delayMs: 500,
+        errorName: 'APIStatusError',
+        errorMessage: 'Overloaded',
+        statusCode: 429,
+      }),
+    );
+    await dispatcher.dispatch(
+      new TurnStepInterrupted({
+        agentId: 'test-agent',
+        turnId: 1,
+        step: 2,
+        reason: 'error',
+        message: 'boom',
+      }),
+    );
+    const records = await readRecords();
+    expect(records).toEqual([
+      {
+        type: 'metadata',
+        protocol_version: WIRE_PROTOCOL_VERSION,
+        created_at: expect.any(Number),
+      },
+      {
+        type: 'turn.step.retrying',
+        agentId: 'test-agent',
+        turnId: 1,
+        step: 2,
+        failedAttempt: 1,
+        nextAttempt: 2,
+        maxAttempts: 10,
+        delayMs: 500,
+        errorName: 'APIStatusError',
+        errorMessage: 'Overloaded',
+        statusCode: 429,
+        time: expect.any(Number),
+      },
+      {
+        type: 'turn.step.interrupted',
+        agentId: 'test-agent',
+        turnId: 1,
+        step: 2,
+        reason: 'error',
+        message: 'boom',
+        time: expect.any(Number),
+      },
+    ]);
+
+    const store = new DisposableStore();
+    disposables.add(store);
+    const ix2 = store.add(new TestInstantiationService());
+    ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
+    ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
+    const log2 = ix2.get(IAppendLogStore);
+    registerTestAgentWire(ix2, SCOPE, { log: log2 });
+    const fresh = registerTestEventDispatcher(ix2);
+
+    await restoreTestEventDispatcher(fresh, log2, SCOPE, records);
+
+    const replayed: WireRecord[] = [];
+    for await (const record of log2.read<WireRecord>(SCOPE, AGENT_WIRE_RECORD_KEY)) {
+      replayed.push(record);
+    }
+    expect(replayed).toEqual(records);
+  });
+
+  it('round-trips the todo list through the persisted tools.update_store record', async () => {
+    await dispatcher.dispatch(
+      new ToolsUpdateStore({ agentId: 'test-agent', key: 'todo', value: [{ title: 'restore me', status: 'in_progress' }] }),
+    );
+    const records = await readRecords();
+
+    const store = new DisposableStore();
+    disposables.add(store);
+    const ix2 = store.add(new TestInstantiationService());
+    ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
+    ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
+    const log2 = ix2.get(IAppendLogStore);
+    registerTestAgentWire(ix2, SCOPE, { log: log2 });
+    const fresh = registerTestEventDispatcher(ix2);
+    const todo = attachTodoService(ix2);
+    store.add({ dispose: () => { todo.dispose(); } });
+
+    await restoreTestEventDispatcher(fresh, log2, SCOPE, records);
+
+    expect(todo.get()).toEqual([
+      { title: 'restore me', status: 'in_progress' },
+    ]);
+  });
+});
+
+describe('conversation-time checkpoint registration', () => {
+  const CHECKPOINT_EXEMPT_STATES: ReadonlySet<string> = new Set([
+    'goalForkNotice',
+    'turn',
+    'fullCompaction.wireRanges',
+  ]);
+  const CONTEXT_OWNER_STATE = 'contextMemory';
+  const CONTEXT_EVENTS: readonly Event2Class[] = [
+    ContextAppendMessage,
+    ContextApplyCompaction,
+    ContextClear,
+    ContextUndo,
+  ];
+
+  it('registers every context-reacting state as checkpointed or explicitly exempt', () => {
+    const violations: string[] = [];
+    let entries = 0;
+    const undoable = new Set(BUILTIN_REPLAYABLE_STATE_KEYS.filter(
+      (key) => key.replayable.undoable !== undefined,
+    ));
+    for (const key of BUILTIN_REPLAYABLE_STATE_KEYS) {
+      if (key.name === CONTEXT_OWNER_STATE) continue;
+      if (!CONTEXT_EVENTS.some((cls) => key.replayable.folds.has(cls))) continue;
+      entries += 1;
+      if (undoable.has(key)) continue;
+      if (CHECKPOINT_EXEMPT_STATES.has(key.name)) continue;
+      violations.push(key.name);
+    }
+    expect(entries).toBeGreaterThan(0);
+    expect(violations).toEqual([]);
+  });
+});
+
+describe('AgentRecords persistence metadata', () => {
+  let context: IAgentContextMemoryService;
+  let tokenCounting: TestAgentContext['tokenCounting'];
+  let ctx: TestAgentContext;
+  let expectResumeMatches: boolean;
+  let persistence: RecordingInMemoryWireRecordPersistence;
+
+  beforeEach(() => {
+    expectResumeMatches = true;
+    persistence = new RecordingInMemoryWireRecordPersistence();
+    ctx = createTestAgent({ persistence, autoConfigure: false });
+    context = ctx.get(IAgentContextMemoryService);
+    tokenCounting = ctx.tokenCounting;
+  });
+
+  afterEach(async () => {
+    try {
+      if (expectResumeMatches) {
+        await ctx.expectResumeMatches();
+      }
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  it('heals an envelope-less stream on restore instead of rejecting it', async () => {
+    persistence.records.push(
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'orphaned prompt' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+    );
+
+    expectResumeMatches = false;
+    await ctx.restorePersisted();
+
+    expect(persistence.records.map((record) => record.type)).toEqual([
+      'metadata',
+      'context.append_message',
+    ]);
+    expect(persistence.records[0]).toMatchObject({
+      type: 'metadata',
+      protocol_version: WIRE_PROTOCOL_VERSION,
+    });
+    expect(ctx.context.get()).toHaveLength(1);
+  });
+
+  it('restores existing metadata records without rewriting them', async () => {
+    persistence.records.push(
+      {
+        type: 'metadata',
+        protocol_version: WIRE_PROTOCOL_VERSION,
+        created_at: 1,
+      },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'restored' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      },
+    );
+
+    await ctx.restorePersisted();
+
+    expect(persistence.rewrites).toEqual([]);
+    expect(persistence.records.filter((record) => record.type === 'metadata')).toHaveLength(1);
+  });
+
+  it('keeps restore history stable after a consumer stops reading the journal early', async () => {
+    persistence.records.push(
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      ...['first', 'second'].map((text) => ({
+        type: 'context.append_message',
+        message: {
+          role: 'user', content: [{ type: 'text', text }], toolCalls: [], origin: { kind: 'user' },
+        },
+      })),
+    );
+    for await (const record of ctx.get(IAppendLogStore).read<WireRecord>('', AGENT_WIRE_RECORD_KEY)) {
+      if (record.type === 'context.append_message') break;
+    }
+    await ctx.restorePersisted();
+    expect(ctx.context.get()).toHaveLength(2);
+  });
+
+  it('rewrites migrated records to the current wire version after replay', async () => {
+    persistence.records.push(
+      {
+        type: 'metadata',
+        protocol_version: '1.0',
+        created_at: 1,
+      },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'assistant',
+          content: [],
+          toolCalls: [
+            {
+              type: 'function',
+              id: 'call_legacy_bash',
+              function: {
+                name: 'Bash',
+                arguments: '{"command":"pwd"}',
+              },
+            },
+          ],
+        },
+      } as unknown as WireRecord,
+    );
+
+    await ctx.restorePersisted();
+
+    expect(persistence.rewrites).toHaveLength(1);
+    expect(persistence.records[0]).toMatchObject({
+      type: 'metadata',
+      protocol_version: WIRE_PROTOCOL_VERSION,
+    });
+    const migrated = persistence.records[1] as unknown as {
+      readonly message: {
+        readonly toolCalls: readonly Record<string, unknown>[];
+      };
+    };
+    expect(persistence.records[1]?.type).toBe('context.append_message');
+    expect(migrated.message.toolCalls[0]).toMatchObject({
+      name: 'Bash',
+      arguments: '{"command":"pwd"}',
+    });
+    expect(migrated.message.toolCalls[0]?.['function']).toBeUndefined();
+  });
+
+  it('replays a newer wire version without rewriting its metadata', async () => {
+    persistence.records.push(
+      {
+        type: 'metadata',
+        protocol_version: '9.9',
+        created_at: 1,
+      },
+    );
+
+    await expect(ctx.restorePersisted()).resolves.toBeUndefined();
+    expect(persistence.records[0]).toMatchObject({
+      type: 'metadata',
+      protocol_version: '9.9',
+    });
+  });
+
+  it('rejects replaying records without a registered migration path', async () => {
+    persistence.records.push(
+      {
+        type: 'metadata',
+        protocol_version: '0.9',
+        created_at: 1,
+      },
+    );
+
+    expectResumeMatches = false;
+    await expect(ctx.restorePersisted()).rejects.toThrow('Missing wire migration for version 0.9');
+  });
+
+  it('restores goal.* records during replay', async () => {
+    persistence.records.push(
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      {
+        type: 'goal.create',
+        goalId: 'g1',
+        objective: 'do work',
+        completionCriterion: 'tests pass',
+      },
+      { type: 'goal.update', budgetLimits: { turnBudget: 20 } },
+      { type: 'goal.update', tokensUsed: 5, wallClockMs: 0 },
+      { type: 'goal.update', turnsUsed: 1 },
+      { type: 'goal.update', status: 'blocked', reason: 'needs credentials', actor: 'model' },
+    );
+
+    await expect(ctx.restorePersisted()).resolves.toBeUndefined();
+    expect(context.get()).toHaveLength(0);
+    expect(ctx.get(IAgentGoalService).getGoal().goal).toMatchObject({
+      goalId: 'g1',
+      objective: 'do work',
+      completionCriterion: 'tests pass',
+      status: 'blocked',
+      turnsUsed: 1,
+      tokensUsed: 5,
+      terminalReason: 'needs credentials',
+    });
+  });
+
+  it('restores forked records as fork boundaries that clear copied goals', async () => {
+    persistence.records.push(
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      {
+        type: 'goal.create',
+        goalId: 'source-goal',
+        objective: 'source work',
+      },
+      { type: 'forked', time: 2 },
+    );
+
+    await expect(ctx.restorePersisted()).resolves.toBeUndefined();
+    expect(persistence.records.slice(0, 3).map((record) => record.type)).toEqual([
+      'metadata',
+      'goal.create',
+      'forked',
+    ]);
+    expect(ctx.get(IAgentGoalService).getGoal().goal).toBeNull();
+    const reminder = context.get().at(-1);
+    expect(reminder?.origin).toEqual({
+      kind: 'injection',
+      variant: 'goal_fork_cleared',
+    });
+    expect(JSON.stringify(reminder?.content)).toContain('This fork does not have a current goal.');
+  });
+
+  it('keeps goals created after the forked boundary', async () => {
+    persistence.records.push(
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      {
+        type: 'goal.create',
+        goalId: 'source-goal',
+        objective: 'source work',
+      },
+      { type: 'forked', time: 2 },
+      {
+        type: 'goal.create',
+        goalId: 'fork-goal',
+        objective: 'fork work',
+      },
+    );
+
+    await expect(ctx.restorePersisted()).resolves.toBeUndefined();
+    expect(ctx.get(IAgentGoalService).getGoal().goal).toMatchObject({
+      goalId: 'fork-goal',
+      objective: 'fork work',
+    });
+    expect(context.get().at(-1)?.origin).toEqual({
+      kind: 'injection',
+      variant: 'goal_fork_cleared',
+    });
+  });
+
+  it('does not add a fork-cleared reminder when a forked record has no copied goal', async () => {
+    persistence.records.push(
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      { type: 'forked', time: 2 },
+    );
+
+    await expect(ctx.restorePersisted()).resolves.toBeUndefined();
+    expect(context.get()).toHaveLength(0);
+  });
+
+  it('keeps context size tracking live across runtime restore', async () => {
+    await ctx.restore([
+      { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },
+      {
+        type: 'context.append_message',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'restored prompt' }],
+          toolCalls: [],
+        },
+      },
+      {
+        type: 'usage.record',
+        model: 'restored-model',
+        usageScope: 'turn',
+        usage: {
+          inputOther: 40,
+          output: 2,
+          inputCacheRead: 0,
+          inputCacheCreation: 0,
+        },
+      },
+    ]);
+
+    expect(context.get()).toHaveLength(1);
+    const restored = tokenCounting.get();
+    expect(restored.measured).toBe(0);
+    expect(restored.size).toBe(restored.estimated);
+    expect(restored.size).toBeGreaterThan(0);
+
+    await ctx.dispatcher.dispatch(
+      new TokenCountingMeasured({ agentId: 'main', length: 1, tokens: 42 }),
+    );
+    expect(tokenCounting.get()).toEqual({
+      size: 42,
+      measured: 42,
+      estimated: 0,
+    });
+  });
+});
+
+describe.skip('agent replay range build', () => {
+});
+
+class RecordingInMemoryWireRecordPersistence extends InMemoryWireRecordPersistence {
+  readonly rewrites: WireRecord[][] = [];
+
+  override rewrite(records: readonly WireRecord[]): void {
+    this.rewrites.push([...records]);
+    super.rewrite(records);
+  }
+}
+
+
+function userMessage(text: string): ContextMessage {
+  return {
+    role: 'user',
+    content: [{ type: 'text', text }],
+  };
+}
+
+function compactionSummaryMessage(text: string): ContextMessage {
+  return {
+    role: 'assistant',
+    content: [{ type: 'text', text }],
+    toolCalls: [],
+    origin: { kind: 'compaction_summary' },
+  };
+}

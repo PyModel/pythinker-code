@@ -1,0 +1,22 @@
+import { createDecorator } from '#/_base/di/instantiation';
+import type { ToolSource } from '#/tool/toolContract';
+
+import type { ToolActivationPolicy } from './evaluate';
+
+export interface IAgentToolPolicyService {
+  readonly _serviceBrand: undefined;
+
+  isToolActive(name: string, source?: ToolSource): boolean;
+  isToolDenied(name: string, source?: ToolSource): boolean;
+  getPolicyFingerprint(): string;
+  isToolActiveForDisclosure(name: string, source?: ToolSource): boolean;
+  isToolActiveForProfile(
+    profile: ToolActivationPolicy,
+    name: string,
+    source?: ToolSource,
+  ): boolean;
+  setSessionDisabledTools(names: readonly string[]): Promise<void>;
+}
+
+export const IAgentToolPolicyService =
+  createDecorator<IAgentToolPolicyService>('agentToolPolicyService');

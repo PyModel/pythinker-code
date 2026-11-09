@@ -1,0 +1,686 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { CTRL_C_HINT, DOUBLE_ESC_WINDOW_MS } from '#/tui/constant/pythinker-tui';
+import {
+  EditorKeyboardController,
+  type EditorKeyboardHost,
+} from '#/tui/controllers/editor-keyboard';
+import { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
+
+interface Harness {
+  readonly host: EditorKeyboardHost;
+  readonly editor: Record<string, ((...args: never[]) => unknown) | undefined>;
+  readonly controller: EditorKeyboardController;
+  readonly openUndoSelector: ReturnType<typeof vi.fn>;
+  readonly cancelRunningShellCommand: ReturnType<typeof vi.fn>;
+  readonly cancelCompaction: ReturnType<typeof vi.fn>;
+  readonly btwCancelRunning: ReturnType<typeof vi.fn>;
+  readonly btwCloseOrCancel: ReturnType<typeof vi.fn>;
+  readonly footerHint: ReturnType<typeof vi.fn>;
+  readonly stop: ReturnType<typeof vi.fn>;
+  readonly survey: {
+    readonly handlePreInput: ReturnType<typeof vi.fn<(data: string) => boolean>>;
+    readonly handleSubmit: ReturnType<typeof vi.fn<(text: string) => boolean>>;
+    readonly handleEditorChange: ReturnType<typeof vi.fn<(text: string) => void>>;
+    readonly notifyDisplaced: ReturnType<typeof vi.fn<() => void>>;
+  };
+}
+
+function createHarness(options: { streamingPhase?: string; isCompacting?: boolean } = {}): Harness {
+  const editor: Record<string, ((...args: never[]) => unknown) | undefined> = {
+    setHistoryFilter: vi.fn() as unknown as (...args: never[]) => unknown,
+    setInputMode: vi.fn() as unknown as (...args: never[]) => unknown,
+    getText: vi.fn(() => '') as unknown as (...args: never[]) => unknown,
+    setText: vi.fn() as unknown as (...args: never[]) => unknown,
+  };
+  const openUndoSelector = vi.fn();
+  const cancelRunningShellCommand = vi.fn();
+  const cancelCompaction = vi.fn(async () => {});
+  const btwCancelRunning = vi.fn(() => false);
+  const btwCloseOrCancel = vi.fn(() => false);
+  const footerHint = vi.fn();
+  const stop = vi.fn();
+  const survey = {
+    handlePreInput: vi.fn<(data: string) => boolean>(() => false),
+    handleSubmit: vi.fn<(text: string) => boolean>(() => false),
+    handleEditorChange: vi.fn<(text: string) => void>(() => {}),
+    notifyDisplaced: vi.fn<() => void>(() => {}),
+  };
+  const session = { cancel: vi.fn(async () => {}), cancelCompaction };
+
+  const host = {
+    state: {
+      editor,
+      activeDialog: null,
+      appState: {
+        streamingPhase: options.streamingPhase ?? 'idle',
+        isCompacting: options.isCompacting ?? false,
+        editorCommand: null,
+      },
+      footer: { setTransientHint: footerHint },
+      ui: { requestRender: vi.fn() },
+    },
+    session,
+    btwPanelController: { cancelRunning: btwCancelRunning, closeOrCancel: btwCloseOrCancel },
+    surveyController: survey,
+    openUndoSelector,
+    cancelRunningShellCommand,
+    updateEditorBorderHighlight: vi.fn(),
+    updateGoalLengthWarning: vi.fn(),
+    handleUserInput: vi.fn(),
+    track: vi.fn(),
+    openExternalEditor: vi.fn(),
+    showError: vi.fn(),
+    stop,
+  } as unknown as EditorKeyboardHost;
+
+  const controller = new EditorKeyboardController(
+    host,
+    undefined as unknown as ImageAttachmentStore,
+  );
+  controller.install();
+
+  return {
+    host,
+    editor,
+    controller,
+    openUndoSelector,
+    cancelRunningShellCommand,
+    cancelCompaction,
+    btwCancelRunning,
+    btwCloseOrCancel,
+    footerHint,
+    stop,
+    survey,
+  };
+}
+
+function pressEscape(editor: Harness['editor']): void {
+  const handler = editor['onEscape'];
+  if (handler === undefined) throw new Error('onEscape handler not installed');
+  (handler as () => void)();
+}
+
+function pressCtrlC(editor: Harness['editor']): void {
+  const handler = editor['onCtrlC'];
+  if (handler === undefined) throw new Error('onCtrlC handler not installed');
+  (handler as () => void)();
+}
+
+function pressCtrlD(editor: Harness['editor']): void {
+  const handler = editor['onCtrlD'];
+  if (handler === undefined) throw new Error('onCtrlD handler not installed');
+  (handler as () => void)();
+}
+
+function pressNonEscape(editor: Harness['editor']): void {
+  const handler = editor['onNonEscapeInput'];
+  if (handler === undefined) throw new Error('onNonEscapeInput handler not installed');
+  (handler as () => void)();
+}
+
+describe('EditorKeyboardController double-Esc undo', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('opens the undo selector when Esc is pressed twice within the window while idle', () => {
+    const { editor, openUndoSelector } = createHarness();
+
+    pressEscape(editor);
+    expect(openUndoSelector).not.toHaveBeenCalled();
+
+    pressEscape(editor);
+    expect(openUndoSelector).toHaveBeenCalledOnce();
+  });
+
+  it('does nothing for a single Esc while idle', () => {
+    const { editor, openUndoSelector } = createHarness();
+
+    pressEscape(editor);
+
+    expect(openUndoSelector).not.toHaveBeenCalled();
+  });
+
+  it('does not trigger when the second Esc arrives after the window expires', () => {
+    const { editor, openUndoSelector } = createHarness();
+
+    pressEscape(editor);
+    vi.advanceTimersByTime(DOUBLE_ESC_WINDOW_MS + 1);
+    pressEscape(editor);
+
+    expect(openUndoSelector).not.toHaveBeenCalled();
+  });
+
+  it('does not trigger when another key is pressed between the two Esc presses', () => {
+    const { editor, openUndoSelector } = createHarness();
+
+    pressEscape(editor);
+    pressNonEscape(editor);
+    pressEscape(editor);
+
+    expect(openUndoSelector).not.toHaveBeenCalled();
+  });
+
+  it('does not trigger undo while streaming; Esc cancels the stream instead', () => {
+    const { editor, host, openUndoSelector, cancelRunningShellCommand } = createHarness({
+      streamingPhase: 'waiting',
+    });
+
+    pressEscape(editor);
+    pressEscape(editor);
+
+    expect(openUndoSelector).not.toHaveBeenCalled();
+    expect(cancelRunningShellCommand).toHaveBeenCalled();
+    const session = host.session as unknown as { cancel: ReturnType<typeof vi.fn> };
+    expect(session.cancel).toHaveBeenCalled();
+  });
+});
+
+describe('EditorKeyboardController btw panel priority', () => {
+  it('Esc closes the btw panel first while compacting, without cancelling compaction', () => {
+    const { editor, btwCloseOrCancel, cancelCompaction } = createHarness({ isCompacting: true });
+    btwCloseOrCancel.mockReturnValue(true);
+
+    pressEscape(editor);
+
+    expect(btwCloseOrCancel).toHaveBeenCalledOnce();
+    expect(cancelCompaction).not.toHaveBeenCalled();
+  });
+
+  it('Esc cancels compaction on the next press once the btw panel is gone', () => {
+    const { editor, btwCloseOrCancel, cancelCompaction } = createHarness({ isCompacting: true });
+    btwCloseOrCancel.mockReturnValueOnce(true);
+
+    pressEscape(editor);
+    expect(cancelCompaction).not.toHaveBeenCalled();
+
+    pressEscape(editor);
+    expect(cancelCompaction).toHaveBeenCalledOnce();
+  });
+
+  it('Esc cancels compaction directly when no btw panel is open', () => {
+    const { editor, btwCloseOrCancel, cancelCompaction } = createHarness({ isCompacting: true });
+
+    pressEscape(editor);
+
+    expect(btwCloseOrCancel).toHaveBeenCalledOnce();
+    expect(cancelCompaction).toHaveBeenCalledOnce();
+  });
+
+  it('Ctrl+C cancels a running btw question first while compacting', () => {
+    const { editor, btwCancelRunning, cancelCompaction } = createHarness({ isCompacting: true });
+    btwCancelRunning.mockReturnValue(true);
+
+    pressCtrlC(editor);
+
+    expect(btwCancelRunning).toHaveBeenCalledOnce();
+    expect(cancelCompaction).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl+C closes an idle btw panel while compacting, without cancelling compaction', () => {
+    const { editor, btwCloseOrCancel, cancelCompaction } = createHarness({ isCompacting: true });
+    btwCloseOrCancel.mockReturnValue(true);
+
+    pressCtrlC(editor);
+
+    expect(btwCloseOrCancel).toHaveBeenCalledOnce();
+    expect(cancelCompaction).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl+C cancels compaction when no btw panel is open', () => {
+    const { editor, btwCancelRunning, btwCloseOrCancel, cancelCompaction } = createHarness({
+      isCompacting: true,
+    });
+
+    pressCtrlC(editor);
+
+    expect(btwCancelRunning).toHaveBeenCalledOnce();
+    expect(btwCloseOrCancel).toHaveBeenCalledOnce();
+    expect(cancelCompaction).toHaveBeenCalledOnce();
+  });
+});
+
+describe('EditorKeyboardController disposal', () => {
+  it('consumes every key after dispose so shutdown feedback is not clobbered', () => {
+    const { editor, controller, footerHint, stop } = createHarness();
+
+    pressCtrlC(editor);
+    expect(footerHint).toHaveBeenCalledWith(CTRL_C_HINT);
+
+    controller.dispose();
+    footerHint.mockClear();
+
+    const onPreInput = editor['onPreInput'];
+    if (onPreInput === undefined) throw new Error('onPreInput handler not installed');
+    expect((onPreInput as (data: string) => boolean)('\u0003')).toBe(true);
+    expect((onPreInput as (data: string) => boolean)('\u001B')).toBe(true);
+    expect((onPreInput as (data: string) => boolean)('a')).toBe(true);
+
+    expect(stop).not.toHaveBeenCalled();
+    expect(footerHint).not.toHaveBeenCalled();
+  });
+});
+
+describe('EditorKeyboardController shell history recall', () => {
+  type Recall = (entry: string, direction: 1 | -1) => string | undefined;
+  type Mock = ReturnType<typeof vi.fn>;
+
+  it('installs a filter that allows shell entries only in bash mode', () => {
+    const { editor } = createHarness();
+    const setHistoryFilter = editor['setHistoryFilter'] as unknown as Mock;
+    expect(setHistoryFilter).toHaveBeenCalledOnce();
+    const [filter] = setHistoryFilter.mock.calls[0] as [(entry: string) => boolean];
+
+    (editor as unknown as { inputMode: string }).inputMode = 'prompt';
+    expect(filter('!cmd')).toBe(true);
+    expect(filter('hello')).toBe(true);
+
+    (editor as unknown as { inputMode: string }).inputMode = 'bash';
+    expect(filter('!cmd')).toBe(true);
+    expect(filter('hello')).toBe(false);
+  });
+
+  it('locks the filter to the browse-entry mode once browsing starts', () => {
+    const { editor } = createHarness();
+    const setHistoryFilter = editor['setHistoryFilter'] as unknown as Mock;
+    const [filter] = setHistoryFilter.mock.calls[0] as [(entry: string) => boolean];
+    const save = editor['onHistoryDraftSave'] as unknown as () => unknown;
+
+    // Enter browse from prompt mode, then simulate landing on a shell entry
+    // (which flips inputMode to bash). The filter should stay locked to prompt
+    // and keep allowing plain entries.
+    (editor as unknown as { inputMode: string }).inputMode = 'prompt';
+    save();
+    (editor as unknown as { inputMode: string }).inputMode = 'bash';
+
+    expect(filter('hello')).toBe(true);
+    expect(filter('!cmd')).toBe(true);
+  });
+
+  it('strips the leading ! and switches to bash mode when recalling a shell entry', () => {
+    const { editor } = createHarness();
+    const onRecall = editor['onRecall'] as unknown as Recall;
+
+    const result = onRecall('!cmd', -1);
+
+    expect(result).toBe('cmd');
+    expect(editor['setInputMode'] as unknown as Mock).toHaveBeenCalledWith('bash');
+  });
+
+  it('keeps plain entries as-is and switches to prompt mode', () => {
+    const { editor } = createHarness();
+    const onRecall = editor['onRecall'] as unknown as Recall;
+
+    const result = onRecall('hello', -1);
+
+    expect(result).toBeUndefined();
+    expect(editor['setInputMode'] as unknown as Mock).toHaveBeenCalledWith('prompt');
+  });
+
+  it('saves the current input mode as the history draft host state', () => {
+    const { editor } = createHarness();
+    const save = editor['onHistoryDraftSave'] as unknown as () => unknown;
+
+    (editor as unknown as { inputMode: string }).inputMode = 'prompt';
+    expect(save()).toBe('prompt');
+
+    (editor as unknown as { inputMode: string }).inputMode = 'bash';
+    expect(save()).toBe('bash');
+  });
+
+  it('restores the input mode from the saved draft host state', () => {
+    const { editor } = createHarness();
+    const restore = editor['onHistoryDraftRestore'] as unknown as (state: unknown) => void;
+
+    restore('prompt');
+
+    expect(editor['setInputMode'] as unknown as Mock).toHaveBeenCalledWith('prompt');
+  });
+});
+
+describe('EditorKeyboardController input changes', () => {
+  function installExpandedText(
+    editor: Harness['editor'],
+    expanded: string,
+  ): ReturnType<typeof vi.fn> {
+    const getExpandedText = vi.fn(() => expanded);
+    editor['getExpandedText'] = getExpandedText as unknown as (...args: never[]) => unknown;
+    return getExpandedText;
+  }
+
+  it('forwards text changes to the border highlight and goal length warning', () => {
+    const { host, editor } = createHarness();
+    installExpandedText(editor, '/goal Ship feature X');
+    const onChange = editor['onChange'] as unknown as (text: string) => void;
+
+    onChange('/goal Ship feature X');
+
+    expect(host.updateEditorBorderHighlight).toHaveBeenCalledWith('/goal Ship feature X');
+    expect(host.updateGoalLengthWarning).toHaveBeenCalledWith('/goal Ship feature X');
+  });
+
+  it('measures the goal length warning on paste-expanded text, not the collapsed marker', () => {
+    const { host, editor } = createHarness();
+    const expanded = `/goal ${'x'.repeat(4001)}`;
+    installExpandedText(editor, expanded);
+    const onChange = editor['onChange'] as unknown as (text: string) => void;
+
+    // The visible text only holds the collapsed paste marker.
+    onChange('/goal [paste #1 +4000 chars]');
+
+    expect(host.updateGoalLengthWarning).toHaveBeenCalledWith(expanded);
+  });
+
+  it('expands a leading paste marker because its content may start with /goal', () => {
+    const { host, editor } = createHarness();
+    const expanded = `/goal ${'x'.repeat(4001)}`;
+    const getExpandedText = installExpandedText(editor, expanded);
+    const onChange = editor['onChange'] as unknown as (text: string) => void;
+
+    onChange('[paste #1 +4000 chars]');
+
+    expect(getExpandedText).toHaveBeenCalled();
+    expect(host.updateGoalLengthWarning).toHaveBeenCalledWith(expanded);
+  });
+
+  it('expands a paste that can complete a partially typed /goal command', () => {
+    const { host, editor } = createHarness();
+    const expanded = `/goal ${'x'.repeat(4001)}`;
+    const getExpandedText = installExpandedText(editor, expanded);
+    const onChange = editor['onChange'] as unknown as (text: string) => void;
+
+    // Visible text is `/go[paste #1 …]`; the paste completes the command.
+    onChange('/go[paste #1 +3999 chars]');
+
+    expect(getExpandedText).toHaveBeenCalled();
+    expect(host.updateGoalLengthWarning).toHaveBeenCalledWith(expanded);
+  });
+
+  it('skips paste expansion entirely for non-goal input', () => {
+    const { host, editor } = createHarness();
+    const getExpandedText = installExpandedText(editor, 'whatever');
+    const onChange = editor['onChange'] as unknown as (text: string) => void;
+
+    onChange('just a normal prompt');
+    onChange('/help');
+
+    expect(getExpandedText).not.toHaveBeenCalled();
+    expect(host.updateGoalLengthWarning).toHaveBeenCalledWith(undefined);
+  });
+
+  it('gates on trimmed text because submit trims leading whitespace', () => {
+    const { host, editor } = createHarness();
+    const expanded = `/goal ${'x'.repeat(4001)}`;
+    const getExpandedText = installExpandedText(editor, expanded);
+    const onChange = editor['onChange'] as unknown as (text: string) => void;
+
+    onChange(`  /goal ${'x'.repeat(4001)}`);
+
+    expect(getExpandedText).toHaveBeenCalled();
+    expect(host.updateGoalLengthWarning).toHaveBeenCalledWith(expanded);
+  });
+
+  it('skips the goal length warning in bash mode', () => {
+    const { host, editor } = createHarness();
+    const getExpandedText = installExpandedText(editor, '/goal x');
+    (editor as unknown as { inputMode: string }).inputMode = 'bash';
+    const onChange = editor['onChange'] as unknown as (text: string) => void;
+
+    onChange('/goal x');
+
+    expect(getExpandedText).not.toHaveBeenCalled();
+    expect(host.updateGoalLengthWarning).toHaveBeenCalledWith(undefined);
+  });
+});
+
+describe('EditorKeyboardController Shift-Tab effort cycle', () => {
+  it('cycles thinking effort instead of toggling plan mode', () => {
+    const editor: Record<string, ((...args: never[]) => unknown) | undefined> = {
+      setHistoryFilter: vi.fn() as unknown as (...args: never[]) => unknown,
+    };
+    const cycleThinkingEffort = vi.fn();
+    const track = vi.fn();
+    const host = {
+      state: {
+        editor,
+        activeDialog: null,
+        appState: { streamingPhase: 'idle', isCompacting: false, planMode: false },
+        footer: { setTransientHint: vi.fn() },
+        ui: { requestRender: vi.fn() },
+      },
+      session: { cancel: vi.fn(async () => {}) },
+      cycleThinkingEffort,
+      track,
+      btwPanelController: { cancelRunning: vi.fn(), closeOrCancel: vi.fn() },
+    } as unknown as EditorKeyboardHost;
+    new EditorKeyboardController(host, undefined as unknown as ImageAttachmentStore).install();
+
+    (editor['onShiftTab'] as unknown as () => void)();
+
+    expect(cycleThinkingEffort).toHaveBeenCalledOnce();
+    expect(track).toHaveBeenCalledWith('shortcut_effort_cycle');
+  });
+});
+
+describe('EditorKeyboardController Ctrl-S steering', () => {
+  function createCtrlSHarness(options: {
+    editorText: string;
+    queued: Array<Record<string, unknown>>;
+    skillCommandMap?: Map<string, string>;
+    pluginCommandMap?: Map<string, string>;
+    steering?: boolean;
+  }) {
+    const steerQueuedMessagesIntoRunningTurn = vi.fn();
+    const updateQueueDisplay = vi.fn();
+    const setText = vi.fn();
+    const editor: Record<string, ((...args: never[]) => unknown) | undefined> = {
+      setHistoryFilter: vi.fn() as unknown as (...args: never[]) => unknown,
+      setInputMode: vi.fn() as unknown as (...args: never[]) => unknown,
+      getText: vi.fn(() => options.editorText) as unknown as (...args: never[]) => unknown,
+      setText: setText as unknown as (...args: never[]) => unknown,
+      inputMode: 'prompt' as unknown as (...args: never[]) => unknown,
+    };
+    const host = {
+      state: {
+        editor,
+        activeDialog: null,
+        queuedMessages: options.queued,
+        appState: { streamingPhase: 'waiting', isCompacting: false, model: 'k2' },
+        footer: { setTransientHint: vi.fn() },
+        ui: { requestRender: vi.fn() },
+      },
+      session: { id: 's1' },
+      skillCommandMap: options.skillCommandMap ?? new Map(),
+      pluginCommandMap: options.pluginCommandMap ?? new Map(),
+      steerQueuedMessagesIntoRunningTurn,
+      isSteeringQueuedMessages: vi.fn(() => options.steering ?? false),
+      updateQueueDisplay,
+      validateMediaCapabilities: vi.fn(() => true),
+      showError: vi.fn(),
+      track: vi.fn(),
+      btwPanelController: {
+        cancelRunning: vi.fn(() => false),
+        closeOrCancel: vi.fn(() => false),
+      },
+    } as unknown as EditorKeyboardHost;
+    const controller = new EditorKeyboardController(host, new ImageAttachmentStore());
+    controller.install();
+    const onCtrlS = editor['onCtrlS'];
+    if (onCtrlS === undefined) throw new Error('onCtrlS handler not installed');
+    return {
+      host,
+      editor,
+      setText,
+      steerQueuedMessagesIntoRunningTurn,
+      updateQueueDisplay,
+      onCtrlS: onCtrlS as () => void,
+    };
+  }
+
+  it('leaves queued inputs owned by the coordinator until dispatch succeeds', () => {
+    const queued = [
+      { text: 'earlier note', agentId: 'main' },
+      {
+        text: 'check /skill:review',
+        agentId: 'main',
+        inlineSkillActivations: [{ skillName: 'review' }],
+      },
+      { text: 'later note', agentId: 'main' },
+      { text: '!ls', agentId: 'main', mode: 'bash' },
+    ];
+    const { host, steerQueuedMessagesIntoRunningTurn, updateQueueDisplay, onCtrlS } =
+      createCtrlSHarness({ editorText: '', queued });
+
+    onCtrlS();
+
+    expect(steerQueuedMessagesIntoRunningTurn).toHaveBeenCalledWith(true);
+    expect(host.state.queuedMessages).toEqual(queued);
+    expect(updateQueueDisplay).toHaveBeenCalled();
+  });
+
+  it('ignores Ctrl-S while a queue steer is still in flight', () => {
+    const queued = [
+      { text: 'already steering', agentId: 'main' },
+      { text: 'later text', agentId: 'main' },
+    ];
+    const { host, setText, steerQueuedMessagesIntoRunningTurn, onCtrlS } = createCtrlSHarness({
+      editorText: 'draft',
+      queued,
+      steering: true,
+    });
+
+    onCtrlS();
+
+    expect(steerQueuedMessagesIntoRunningTurn).not.toHaveBeenCalled();
+    expect(setText).not.toHaveBeenCalled();
+    expect(host.state.queuedMessages).toEqual(queued);
+  });
+
+  it('includes the draft after a leading grouped skill input', () => {
+    const queued = {
+      text: 'check /skill:review',
+      agentId: 'main',
+      inlineSkillActivations: [{ skillName: 'review' }],
+    };
+    const { host, setText, steerQueuedMessagesIntoRunningTurn, onCtrlS } = createCtrlSHarness({
+      editorText: 'later note',
+      queued: [queued],
+    });
+
+    onCtrlS();
+
+    expect(steerQueuedMessagesIntoRunningTurn).toHaveBeenCalledWith(true);
+    expect(host.state.queuedMessages).toEqual([queued, { text: 'later note' }]);
+    expect(setText).toHaveBeenCalledWith('');
+  });
+
+  it.each([
+    ['/skill:review src/app.ts', [{ skillName: 'review', args: 'src/app.ts' }]],
+    ['check /skill:review', [{ skillName: 'review' }]],
+    ['/skill:review check /skill:review', [{ skillName: 'review' }]],
+  ])('parses skill draft %s before asking the coordinator to steer', (text, activations) => {
+    const { host, setText, steerQueuedMessagesIntoRunningTurn, onCtrlS } = createCtrlSHarness({
+      editorText: text,
+      queued: [],
+      skillCommandMap: new Map([['skill:review', 'review']]),
+    });
+
+    onCtrlS();
+
+    expect(steerQueuedMessagesIntoRunningTurn).toHaveBeenCalledWith(true);
+    expect(host.state.queuedMessages).toEqual([
+      { text, inlineSkillActivations: activations },
+    ]);
+    expect(setText).toHaveBeenCalledWith('');
+  });
+});
+
+describe('EditorKeyboardController survey wiring', () => {
+  it('clears the pending undo-escape sequence only when the survey consumes Escape', () => {
+    const { editor, openUndoSelector, survey } = createHarness();
+    const onPreInput = editor['onPreInput'] as unknown as (data: string) => boolean;
+
+    pressEscape(editor);
+    survey.handlePreInput.mockReturnValueOnce(true);
+    onPreInput('\u001B');
+    pressEscape(editor);
+    expect(openUndoSelector).not.toHaveBeenCalled();
+
+    pressEscape(editor);
+    pressEscape(editor);
+    expect(openUndoSelector).toHaveBeenCalledOnce();
+  });
+
+  it('clears a pending exit when Escape arrives through the survey pre-input hook', () => {
+    const { host, editor } = createHarness();
+    const onPreInput = editor['onPreInput'] as unknown as (data: string) => boolean;
+
+    pressCtrlD(editor);
+    onPreInput('\u001B');
+    pressCtrlD(editor);
+
+    expect(host.stop).not.toHaveBeenCalled();
+  });
+
+  it('routes raw keys to the survey pre-input hook first', () => {
+    const { editor, survey } = createHarness();
+    const onPreInput = editor['onPreInput'] as unknown as (data: string) => boolean;
+
+    survey.handlePreInput.mockReturnValueOnce(true);
+    expect(onPreInput('\u001B[D')).toBe(true);
+    expect(survey.handlePreInput).toHaveBeenCalledWith('\u001B[D');
+
+    survey.handlePreInput.mockReturnValueOnce(false);
+    expect(onPreInput('x')).toBe(false);
+  });
+
+  it('forwards editor text changes to the survey', () => {
+    const { editor, survey } = createHarness();
+    const onChange = editor['onChange'] as unknown as (text: string) => void;
+
+    onChange('1');
+
+    expect(survey.handleEditorChange).toHaveBeenCalledWith('1');
+  });
+
+  it('lets the survey intercept a submit instead of sending it', () => {
+    const { host, editor, survey } = createHarness();
+    const onSubmit = editor['onSubmit'] as unknown as (text: string) => void;
+
+    survey.handleSubmit.mockReturnValueOnce(true);
+    onSubmit('1');
+
+    expect(survey.handleSubmit).toHaveBeenCalledWith('1');
+    expect(host.handleUserInput).not.toHaveBeenCalled();
+  });
+
+  it('sends the submit when the survey passes it through', () => {
+    const { host, editor, survey } = createHarness();
+    const onSubmit = editor['onSubmit'] as unknown as (text: string) => void;
+
+    survey.handleSubmit.mockReturnValueOnce(false);
+    onSubmit('hello');
+
+    expect(host.handleUserInput).toHaveBeenCalledWith('hello');
+  });
+
+  it('displaces the survey when the external editor opens', () => {
+    vi.stubEnv('VISUAL', '');
+    vi.stubEnv('EDITOR', '');
+    try {
+      const { editor, survey } = createHarness();
+      const onOpenExternalEditor = editor['onOpenExternalEditor'] as unknown as () => void;
+
+      onOpenExternalEditor();
+
+      expect(survey.notifyDisplaced).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
