@@ -186,7 +186,7 @@ export async function handleSecondaryModelCommand(host: SlashCommandHost, args: 
   if (Object.keys(models).length === 0) {
     host.showNotice(
       'No models configured',
-      'Run /login to sign in to Pythinker, or /provider to add another provider from a model catalog.',
+      'Run /login to sign in to a provider, or /provider to add one from a model catalog.',
     );
     return;
   }
@@ -362,7 +362,7 @@ export function showModelPicker(host: SlashCommandHost, selectedValue: string = 
   if (entries.length === 0) {
     host.showNotice(
       'No models configured',
-      'Run /login to sign in to Pythinker, or /provider to add another provider from a model catalog.',
+      'Run /login to sign in to a provider, or /provider to add one from a model catalog.',
     );
     return;
   }

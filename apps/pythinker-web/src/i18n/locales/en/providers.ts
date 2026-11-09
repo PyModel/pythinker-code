@@ -33,7 +33,6 @@ export default {
   deleteProvider: 'Delete provider',
   deleteConfirm: 'Delete {id} and its {count} models?',
   deleteConfirmYes: 'Delete',
-  loginPythinker: 'Sign in to Pythinker',
   loginAnthropic: 'Sign in to Anthropic',
   enterApiKey: 'Enter API Key',
   fieldId: 'Name',

@@ -81,13 +81,6 @@ const compactionCancelled = {
 } as const;
 
 describe('SessionEventHandler compaction cache bookkeeping', () => {
-  it('records activity and resets the cache-break baseline after a completed compaction', () => {
-    const { host } = makeHost();
-    const handler = new SessionEventHandler(host);
-    handler.handleEvent(compactionCompleted, vi.fn());
-    expect(host.recordSessionActivity).toHaveBeenCalledOnce();
-    expect(host.noteCompactionFinished).toHaveBeenCalledOnce();
-  });
 
   it('keeps both baselines after a cancelled compaction (context was not cut)', () => {
     const { host } = makeHost();

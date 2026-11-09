@@ -1,6 +1,6 @@
 import type { TurnStartedEvent } from '@pymodel/pythinker-code-sdk';
 import {
-  cloudSurveyPopupConfigFeed,
+  localSurveyPopupConfigFeed,
   mountSessionRating,
   ratingCooldownFile,
   type RatingConfigFeed,
@@ -14,7 +14,6 @@ import type { RatingOffer, RatingResponse } from '@pymodel/pythinker-code-produc
 import { isTelemetryDisabledByEnv } from '@pymodel/pythinker-telemetry';
 import { Key, matchesKey, Spacer } from '@pymodel/pi-tui';
 
-import { clientConfigs } from '#/utils/client-configs';
 import { getDataDir } from '#/utils/paths';
 
 import { SurveyPanelComponent, type SurveyPanelView } from '../components/panes/survey-panel';
@@ -65,16 +64,6 @@ export interface SurveyControllerDeps {
   readonly telemetryDisabled?: () => boolean;
   readonly terminalHeight?: () => number;
   readonly terminalWidth?: () => number;
-  readonly accessToken?: () => Promise<string | undefined>;
-}
-
-function modelRoute(appState: TUIState['appState']): RatingEnvironment['model'] {
-  const entry = appState.availableModels[appState.model];
-  if (entry === undefined) return { modelId: undefined, baseUrl: undefined };
-  return {
-    modelId: entry.model,
-    baseUrl: entry.baseUrl ?? appState.availableProviders[entry.provider]?.baseUrl,
-  };
 }
 
 export class SurveyController {
@@ -101,7 +90,7 @@ export class SurveyController {
     private readonly deps: SurveyControllerDeps = {},
   ) {
     this.configFeed =
-      deps.configFeed ?? cloudSurveyPopupConfigFeed(clientConfigs, deps.accessToken);
+      deps.configFeed ?? localSurveyPopupConfigFeed();
     this.cooldown = deps.cooldown ?? ratingCooldownFile(getDataDir());
     this.ledger = new SessionRatingLedger({
       telemetryDisabled: () => (this.deps.telemetryDisabled ?? isTelemetryDisabledByEnv)(),
@@ -334,7 +323,6 @@ export class SurveyController {
     return {
       sessionId: appState.sessionId ?? '',
       currentModel: appState.model,
-      model: modelRoute(appState),
       cumulativeTokens: appState.cumulativeTokens ?? 0,
       contextTokens: appState.contextTokens,
       permissionMode: appState.permissionMode,

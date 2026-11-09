@@ -25,8 +25,6 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
-import { CacheHintDialogComponent } from '#/tui/components/dialogs/cache-hint-dialog';
-import * as cacheHintConfig from '#/utils/cache-hint-config';
 import { EffortSelectorComponent } from '#/tui/components/dialogs/effort-selector';
 import { pythinkerCodePluginMarketplaceUrl } from '#/constant/app';
 import { BRAILLE_SPINNER_FRAMES } from '#/tui/constant/rendering';
@@ -3722,26 +3720,6 @@ command = "vim"
     });
   });
 
-  it('still deletes the staging upload when a cache-hint dismissal precedes the resend', async () => {
-    const { driver, session, harness } = await makeDriver();
-    const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
-    const attachment = stagedImage(imageStore, 'file-dismissed');
-    const text = `describe ${attachment.placeholder}`;
-
-    const extraction = extractMediaAttachments(text, imageStore);
-    driver.recallStashedMedia(extraction);
-
-    driver.handleUserInput(text);
-
-    expect(session.prompt).toHaveBeenCalledOnce();
-    emitTurn(driver, 1, () => {
-      expect(harness.deleteFile).not.toHaveBeenCalled();
-    });
-    await vi.waitFor(() => {
-      expect(harness.deleteFile).toHaveBeenCalledWith('file-dismissed');
-    });
-    expect(harness.deleteFile).toHaveBeenCalledTimes(1);
-  });
 
   it('waits briefly for a pending paste ingestion so the submit uses the daemon-ref form', async () => {
     const { driver, session } = await makeDriver();
@@ -3980,89 +3958,6 @@ command = "vim"
     await vi.waitFor(() => { expect(existsSync(path!)).toBe(false); });
   });
 
-  it.each(['image', 'video'])('preserves skill media arguments when the cache hint starts a new session (%s)', async (kind) => {
-    process.env['PYTHINKER_CODE_HOME'] = await makeTempHome();
-    vi.stubEnv('CUSTOM_API_BASE_URL', 'https://api.example.test/v1');
-    const listSkills = vi.fn(async () => [
-      { name: 'review', description: 'Review skill', path: '/tmp/review', source: 'user' },
-    ]);
-    const session = makeSession({ listSkills });
-    const nextSession = makeSession({
-      id: 'ses-next', listSkills,
-      promptWithSkills: vi.fn(async (_input: unknown, _skills: unknown) => {}),
-    });
-    const { driver } = await makeDriver(session, {
-      createSession: vi.fn(async () => nextSession),
-    });
-    await (
-      driver as unknown as { refreshSkillCommands(s: unknown): Promise<void> }
-    ).refreshSkillCommands(session);
-    driver.state.appState.availableModels = {
-      k2: { model: 'example-model', provider: 'example-provider', maxContextSize: 100 },
-    };
-    driver.state.appState.availableProviders = {
-      'example-provider': {
-        type: 'pythinker',
-        baseUrl: 'https://api.example.test/v1',
-        oauth: { key: 'pythinker-code', storage: 'file' },
-      },
-    };
-    driver.state.appState.contextTokens = 150000;
-    const peek = vi.spyOn(cacheHintConfig, 'peekCacheHintConfig').mockReturnValue({
-      version: 1,
-      config: { 'example-model': { min_tokens_to_hint: 100000, cache_duration: 600 } },
-    });
-    (driver as unknown as { cacheHint: { recordActivity(): void } }).cacheHint.recordActivity();
-    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
-    const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
-    const attachment = kind === 'image'
-      ? stagedImage(imageStore, 'file-cached-skill')
-      : imageStore.addVideo('video/mp4', join(process.env['PYTHINKER_CODE_HOME'], 'example.mp4'));
-    if (attachment.kind === 'video') {
-      await writeFile(attachment.sourcePath, 'example video');
-      imageStore.completeVideo(attachment, {
-        fileId: 'file-cached-skill', fileExpiresAt: Date.now() + 3600_000,
-      });
-    }
-    const input = `/skill:review describe ${attachment.placeholder}`;
-    try {
-      driver.state.editor.setText(input);
-      driver.state.editor.handleInput('\r');
-      const dialog = driver.state.editorContainer.children[0];
-      expect(dialog).toBeInstanceOf(CacheHintDialogComponent);
-      now.mockRestore();
-      dialog!.handleInput!('\u001B[B');
-      dialog!.handleInput!('\r');
-      await vi.waitFor(() => {
-        expect(nextSession.promptWithSkills).toHaveBeenCalledOnce();
-      });
-
-      expect(session.promptWithSkills).not.toHaveBeenCalled();
-      const [parts, skills] = (
-        nextSession.promptWithSkills as ReturnType<typeof vi.fn<(input: unknown, skills: unknown) => Promise<void>>>
-      ).mock.calls[0]!;
-      expect(parts).toContainEqual(kind === 'image'
-        ? { type: 'image_url', imageUrl: { url: 'data:image/png;base64,qrs=' } }
-        : { type: 'video_url', videoUrl: { url: 'pythinker-file://file-cached-skill' } });
-      expect(skills).toEqual([{ name: 'review', args: expect.stringContaining(`Attached ${kind} file:`) }]);
-      const args = (skills as Array<{ args: string }>)[0]!.args;
-      expect(args).not.toContain(attachment.placeholder);
-      const path = args.match(/Attached (?:image|video) file: (.+?) \(open it with ReadMediaFile\)/)?.[1];
-      expect(path).toBeDefined();
-      expect(await readFile(path!)).toEqual(kind === 'image' ? Buffer.from([0xaa, 0xbb]) : Buffer.from('example video'));
-      expect(driver.state.transcriptEntries).toContainEqual(expect.objectContaining({
-        kind: 'user', content: input,
-      }));
-      emitTurn(driver, 1);
-      expect(existsSync(path!)).toBe(true);
-      await driver.closeSession('test');
-      await vi.waitFor(() => { expect(existsSync(path!)).toBe(false); });
-    } finally {
-      now.mockRestore();
-      peek.mockRestore();
-      vi.unstubAllEnvs();
-    }
-  });
 
   it.each([
     { prefix: '/skill:review', skills: [{ name: 'review', args: expect.stringContaining('Attached video file:') }] },
@@ -11502,7 +11397,6 @@ describe('PythinkerTUI session rating survey', () => {
           subagent_count: 0,
           dynamic_workflow_run_count: 0,
           config_probability: 0.005,
-          config_on_for_models: '*',
           config_min_time_before_feedback_ms: 600_000,
           config_min_user_turns_before_feedback: 5,
           config_min_time_between_feedback_ms: 3_600_000,

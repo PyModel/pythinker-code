@@ -25,7 +25,6 @@ function passingSession(overrides: Partial<SessionArmGateInput> = {}): SessionAr
     turnInProgress: false,
     feedbackSurveyDisabled: false,
     telemetryDisabled: false,
-    kfcModelId: 'k3',
     mountedForMs: 600_000,
     userTurnsSinceMount: 5,
     msSinceLastShown: undefined,
@@ -43,7 +42,6 @@ function passingLongContext(
     turnInProgress: false,
     feedbackSurveyDisabled: false,
     telemetryDisabled: false,
-    kfcModelId: 'k3',
     cumulativeTokens: 0,
     virtualContextTokens: 0,
     mountRollConsumed: false,
@@ -101,37 +99,6 @@ describe('evaluateSurveyGate (session arm)', () => {
     expect(evaluateSurveyGate(gate({ sample: 0 }, { ...CONFIG, probability: 0 })).show).toBe(
       false,
     );
-  });
-
-  describe('model gate', () => {
-    it('opens for everything with "*", even without a resolved kfc id', () => {
-      expect(evaluateSurveyGate(gate({ kfcModelId: 'anything' })).show).toBe(true);
-      expect(evaluateSurveyGate(gate({ kfcModelId: undefined })).show).toBe(true);
-    });
-
-    it('closes both arms with an empty list', () => {
-      expect(evaluateSurveyGate(gate({}, { ...CONFIG, on_for_models: [] }))).toEqual({
-        show: false,
-        reason: 'model-gated',
-      });
-    });
-
-    it('requires a resolved kfc id that exactly matches otherwise', () => {
-      const config = { ...CONFIG, on_for_models: ['k3'] };
-      expect(evaluateSurveyGate(gate({ kfcModelId: 'k3' }, config)).show).toBe(true);
-      expect(evaluateSurveyGate(gate({ kfcModelId: 'k2' }, config))).toEqual({
-        show: false,
-        reason: 'model-gated',
-      });
-      expect(evaluateSurveyGate(gate({ kfcModelId: undefined }, config))).toEqual({
-        show: false,
-        reason: 'model-gated',
-      });
-      expect(evaluateSurveyGate(gate({ kfcModelId: 'k3-fictional' }, config))).toEqual({
-        show: false,
-        reason: 'model-gated',
-      });
-    });
   });
 
   describe('in-session pacing', () => {
@@ -214,16 +181,6 @@ describe('evaluateLongContextArm', () => {
     });
   });
 
-  it('applies the model gate before the threshold', () => {
-    expect(arm({}, { ...CONFIG, on_for_models: [], long_context_survey_threshold: 0 })).toEqual({
-      show: false,
-      reason: 'model-gated',
-    });
-    expect(arm({ kfcModelId: undefined }, { ...CONFIG, on_for_models: ['k3'] })).toEqual({
-      show: false,
-      reason: 'model-gated',
-    });
-  });
 
   it('shows at the counter boundary (counter == threshold)', () => {
     expect(arm({ virtualContextTokens: 200_000 })).toEqual({
@@ -445,8 +402,6 @@ describe('buildSurveyEventProperties', () => {
 
   const ENVIRONMENT: SurveyEventEnvironmentFields = {
     current_model: 'k2',
-    pfc_model_id: 'k3',
-    pfc_trace_id: 'trace-1',
     user_turn_count: 9,
     cumulative_tokens: 123,
     virtual_context_tokens: 45,
@@ -479,7 +434,6 @@ describe('buildSurveyEventProperties', () => {
       response: 'fine',
       ...ENVIRONMENT,
       config_probability: 0.005,
-      config_on_for_models: '*',
       config_min_time_before_feedback_ms: 600_000,
       config_min_user_turns_before_feedback: 5,
       config_min_time_between_feedback_ms: 3_600_000,
@@ -512,10 +466,9 @@ describe('buildSurveyEventProperties', () => {
         appearance_index: 1,
       },
       ENVIRONMENT,
-      { ...CONFIG, probability: 0.5, on_for_models: ['k3', 'k2'] },
+      { ...CONFIG, probability: 0.5 },
     );
     expect(properties['config_probability']).toBe(0.5);
-    expect(properties['config_on_for_models']).toBe('k3,k2');
   });
 
   it('keeps every property a telemetry primitive so sanitize drops nothing', () => {
@@ -527,7 +480,7 @@ describe('buildSurveyEventProperties', () => {
         response: 'bad',
       },
       ENVIRONMENT,
-      { ...CONFIG, on_for_models: [] },
+      CONFIG,
     );
     for (const [key, value] of Object.entries(properties)) {
       const isPrimitive =
@@ -538,6 +491,5 @@ describe('buildSurveyEventProperties', () => {
         typeof value === 'string';
       expect(isPrimitive, `property ${key} is not a primitive`).toBe(true);
     }
-    expect(properties['config_on_for_models']).toBe('');
   });
 });

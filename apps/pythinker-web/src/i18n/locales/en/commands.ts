@@ -1,7 +1,7 @@
 export default {
   new: { desc: 'Create a new session' },
   clear: { desc: 'Clear and start a new session' },
-  login: { desc: 'Sign in to Pythinker in the browser' },
+  login: { desc: 'Sign in to a model provider in the browser' },
   plan: { desc: 'Toggle plan mode on/off' },
   expertTalk: { desc: 'Configure and arm Discussion for the next message' },
   dynamicWorkflow: { desc: 'Toggle Dynamic Workflow mode; /workflow <task> runs a task in parallel' },

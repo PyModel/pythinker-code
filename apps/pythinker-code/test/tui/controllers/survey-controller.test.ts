@@ -1,7 +1,6 @@
 import type { TurnStartedEvent } from '@pymodel/pythinker-code-sdk';
 import {
   DEFAULT_SURVEY_POPUP_PAYLOAD,
-  SurveyPopupConfigFeed,
   type SurveyPopupPayload,
 } from '@pymodel/pythinker-code-product/session-rating/node';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -83,7 +82,6 @@ interface Harness {
 
 interface HarnessOptions extends Partial<SurveyControllerDeps> {
   readonly config?: () => SurveyPopupPayload;
-  readonly refreshConfig?: () => unknown;
 }
 
 function createHarness(deps: HarnessOptions = {}): Harness {
@@ -127,20 +125,17 @@ function createHarness(deps: HarnessOptions = {}): Harness {
   };
   let randomCallCount = 0;
   let appearanceCounter = 0;
-  const { random: randomOverride, config, refreshConfig, ...restDeps } = deps;
+  const { random: randomOverride, config, ...restDeps } = deps;
   const host = {
     state,
     btwPanelController: { isActive: () => false },
     track,
   } as unknown as SurveyHost;
   const controller = new SurveyController(host, {
-    configFeed: new SurveyPopupConfigFeed({
-      peek: config ?? (() => DEFAULT_SURVEY_POPUP_PAYLOAD),
-      isFresh: () => true,
-      region: () => 'region-a',
-      refresh: refreshConfig,
-      now: () => clock.mono,
-    }),
+    configFeed: {
+      readyForEvaluation: () => true,
+      payload: config ?? (() => DEFAULT_SURVEY_POPUP_PAYLOAD),
+    },
     cooldown: {
       read: () => writes.at(-1),
       write: (wallTime) => {
@@ -231,7 +226,6 @@ const HARNESS_ENVIRONMENT = {
 
 const DEFAULT_SNAPSHOT = {
   config_probability: 0.005,
-  config_on_for_models: '*',
   config_min_time_before_feedback_ms: 600_000,
   config_min_user_turns_before_feedback: 5,
   config_min_time_between_feedback_ms: 3_600_000,
@@ -316,79 +310,7 @@ describe('SurveyController UI veto', () => {
   });
 });
 
-describe('SurveyController model route', () => {
-  const MANAGED_BASE_URL = 'https://api.example.com/v1/v1';
-  const GATEWAY_BASE_URL = 'https://gateway.example.com/coding/v1';
-  const savedBaseUrl = process.env['CUSTOM_API_BASE_URL'];
 
-  beforeEach(() => {
-    process.env['CUSTOM_API_BASE_URL'] = MANAGED_BASE_URL;
-  });
-
-  afterEach(() => {
-    if (savedBaseUrl === undefined) {
-      delete process.env['CUSTOM_API_BASE_URL'];
-    } else {
-      process.env['CUSTOM_API_BASE_URL'] = savedBaseUrl;
-    }
-  });
-
-  function useModel(
-    harness: Harness,
-    options: { entryBaseUrl?: string; providerBaseUrl?: string } = {},
-  ): void {
-    harness.state.appState.model = 'main';
-    harness.state.appState.availableModels = {
-      main: {
-        provider: 'openai',
-        model: 'k3',
-        maxContextSize: 256_000,
-        baseUrl: options.entryBaseUrl,
-      },
-    };
-    harness.state.appState.availableProviders = {
-      'openai': { type: 'pythinker', baseUrl: options.providerBaseUrl ?? MANAGED_BASE_URL },
-    };
-  }
-
-  it('prefers the entry baseUrl over the provider baseUrl when the entry is managed', async () => {
-    const harness = createHarness({
-      config: () => ({ ...DEFAULT_SURVEY_POPUP_PAYLOAD, on_for_models: ['k3'] }),
-    });
-    useModel(harness, { entryBaseUrl: MANAGED_BASE_URL, providerBaseUrl: GATEWAY_BASE_URL });
-    await harness.flush();
-    await harness.appear();
-
-    expect(harness.container.children).not.toHaveLength(0);
-    expect(harness.track).toHaveBeenCalledWith(
-      'feedback_survey',
-      expect.objectContaining({ event_type: 'appeared', pfc_model_id: 'k3' }),
-    );
-  });
-  it('prefers the entry baseUrl over the provider baseUrl when the entry is self-hosted', async () => {
-    const harness = createHarness({
-      config: () => ({ ...DEFAULT_SURVEY_POPUP_PAYLOAD, on_for_models: ['k3'] }),
-    });
-    useModel(harness, { entryBaseUrl: GATEWAY_BASE_URL, providerBaseUrl: MANAGED_BASE_URL });
-    await harness.flush();
-    await harness.appear();
-
-    expect(harness.container.children).toHaveLength(0);
-    expect(harness.track).not.toHaveBeenCalled();
-  });
-});
-
-describe('SurveyController config feed', () => {
-  it('fires the injected refresh once at mount and not on session reset', async () => {
-    const refreshConfig = vi.fn();
-    const harness = createHarness({ refreshConfig });
-    await harness.flush();
-    expect(refreshConfig).toHaveBeenCalledTimes(1);
-
-    harness.controller.reset();
-    expect(refreshConfig).toHaveBeenCalledTimes(1);
-  });
-});
 
 describe('SurveyController interaction', () => {
   it('selects a rating after the digit debounce and walks pending → thanks → closed', async () => {

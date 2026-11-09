@@ -210,27 +210,7 @@ export function formatDuration(totalSeconds: number): string {
   if (secs && parts.length === 0) parts.push(`${String(secs)}s`);
   return parts.length > 0 ? parts.join(' ') : '0s';
 }
-export function isManagedPythinkerCodeBaseUrl(baseUrl?: string): boolean {
-  if (baseUrl === undefined || baseUrl.length === 0) return false;
-  try {
-    const candidate = normalizeBaseUrl(baseUrl);
-    if (candidate === undefined) return false;
-    const custom = process.env['CUSTOM_API_BASE_URL'];
-    if (custom === undefined || custom.length === 0) return false;
-    return normalizeBaseUrl(custom) === candidate;
-  } catch {
-    return false;
-  }
-}
 
-function normalizeBaseUrl(value: string): string | undefined {
-  try {
-    const url = new URL(value);
-    return `${url.origin.toLowerCase()}${url.pathname.replace(/\/+$/, '')}`;
-  } catch {
-    return undefined;
-  }
-}
 export type ManagedQuota = {
   readonly entries?: readonly ManagedQuotaEntry[];
   readonly extraUsage?: any;
