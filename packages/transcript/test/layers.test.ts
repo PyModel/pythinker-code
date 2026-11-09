@@ -1753,6 +1753,27 @@ describe('foldWireRecordFacts (cold facts)', () => {
     expect(stillPlanning.meta.modes).toEqual({ plan: {} });
   });
 
+  it('keeps a model-started dynamic_workflow that an older version never closed out of meta.modes', () => {
+    const base = baseWithMarker();
+    const markersOf = (snapshot: AgentTranscriptSnapshot) =>
+      snapshot.items
+        .filter((item) => item.kind === 'marker')
+        .map((item) => item.kind === 'marker' && item.marker);
+
+    const modelStarted = foldWireRecordFacts(
+      [{ type: 'dynamic_workflow_mode.enter', agentId: 'main', trigger: 'tool', time: 1000 }],
+      base,
+    );
+    expect(modelStarted.meta.modes?.dynamic_workflow).toBeUndefined();
+    expect(markersOf(modelStarted)).toEqual(['compaction', 'dynamic_workflow.enter']);
+
+    const userStarted = foldWireRecordFacts(
+      [{ type: 'dynamic_workflow_mode.enter', agentId: 'main', trigger: 'manual', time: 1000 }],
+      base,
+    );
+    expect(userStarted.meta.modes).toEqual({ dynamic_workflow: {} });
+  });
+
   it('folds tower mode records into meta.modes without markers', () => {
     const base = baseWithMarker();
     const folded = foldWireRecordFacts(

@@ -83,17 +83,22 @@ function createLoginUi(
 }
 
 export async function handleLoginCommand(host: SlashCommandHost): Promise<void> {
-  const selection = await promptPlatformSelection(host);
-  if (selection === undefined || selection.platformId === '') return;
-  const { platformId } = selection;
+  const releaseAuthBlock = host.beginAuthBlock();
+  try {
+    const selection = await promptPlatformSelection(host);
+    if (selection === undefined || selection.platformId === '') return;
+    const { platformId } = selection;
 
-  if (platformId === 'pythinker-code' || platformId === PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE) {
-    const region: PythinkerRegion = platformId === PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE ? 'global' : 'mainland-cn';
-    await handlePythinkerCodeOAuthLogin(host, region);
-    return;
+    if (platformId === 'pythinker-code' || platformId === PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE) {
+      const region: PythinkerRegion = platformId === PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE ? 'global' : 'mainland-cn';
+      await handlePythinkerCodeOAuthLogin(host, region);
+      return;
+    }
+
+    await runLogin(createLoginUi(host, selection));
+  } finally {
+    releaseAuthBlock();
   }
-
-  await runLogin(createLoginUi(host, selection));
 }
 
 async function handlePythinkerCodeOAuthLogin(
@@ -123,6 +128,7 @@ async function handlePythinkerCodeOAuthLogin(
       },
     });
     refreshPythinkerRegion();
+    if (host.state.appState.model.trim().length > 0) host.setAuthRequired(false);
     spinner?.stop({ ok: true, label: 'Logged in.' });
     spinner = undefined;
     try {

@@ -6,9 +6,11 @@ import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IEventBus } from '#/app/event/eventBus';
+import type { DynamicWorkflowModeTransitionEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
+import { Error2, ErrorCodes } from '#/errors';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import { DynamicWorkflowInjection } from './injection/dynamicWorkflowInjection';
@@ -47,6 +49,7 @@ export class AgentDynamicWorkflowService extends Service implements IAgentDynami
     );
     this._register(
       toolExecutor.onBeforeExecuteTool((event) => {
+        if (!this.isActive) return;
         const agentDynamicWorkflowCount = event.toolCalls.filter(
           (toolCall) => toolCall.name === 'AgentDynamicWorkflow',
         ).length;
@@ -67,9 +70,13 @@ export class AgentDynamicWorkflowService extends Service implements IAgentDynami
   }
 
   enter(trigger: DynamicWorkflowModeTrigger): void {
+    if (trigger === 'tool') {
+      throw new Error2(ErrorCodes.VALIDATION_FAILED, 'Only the user can turn on dynamic_workflow mode.');
+    }
     if (this.agentState.get(dynamicWorkflowKey) !== null) return;
     void this.dispatcher.dispatch(new DynamicWorkflowModeEnter({ agentId: this.agentCtx.agentId, trigger }));
-    this.telemetry.track2('dynamic_workflow_mode_entered', { trigger });
+    const properties: DynamicWorkflowModeTransitionEvent = { trigger };
+    this.telemetry.track2('dynamic_workflow_mode_entered', properties);
   }
 
   exit(): void {

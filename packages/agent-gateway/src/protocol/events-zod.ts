@@ -378,7 +378,6 @@ export const pythinkerErrorCodeSchema = z.enum([
   'session.busy',
   'shell.git_bash_not_found',
   'workspace.not_found',
-  'terminal.not_found',
   'file.not_found',
   'file.too_large',
   'fs.path_not_found',
@@ -1049,6 +1048,7 @@ export const mcpServerStatusPayloadSchema = z.object({
   status: z.enum(['pending', 'connected', 'failed', 'disabled', 'needs-auth', 'removed']),
   toolCount: z.number(),
   error: z.string().optional(),
+  nextRetryAt: z.number().optional(),
 }) satisfies z.ZodType<McpServerStatusPayload>;
 
 export const mcpServerStatusEventSchema = z.object({

@@ -788,6 +788,7 @@ describe('plugins selector dialogs', () => {
       },
     });
 
+    picker.focused = true;
     picker.handleInput('\u001B[B');
     const raw = renderRaw(picker);
     expect(strip(raw)).toContain('Enter/Space select');
@@ -833,6 +834,7 @@ describe('plugins selector dialogs', () => {
       },
     });
 
+    picker.focused = true;
     picker.handleInput('\u001B[B');
     const raw = renderRaw(picker);
     expect(strip(raw)).toContain('Enter/Space select');

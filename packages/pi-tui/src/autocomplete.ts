@@ -21,7 +21,7 @@ function escapeRegex(value: string): string {
 function buildFdPathQuery(query: string): string {
 	const normalized = toDisplayPath(query);
 	if (!normalized.includes("/")) {
-		return normalized;
+		return escapeRegex(normalized);
 	}
 
 	const hasTrailingSeparator = normalized.endsWith("/");
@@ -35,9 +35,6 @@ function buildFdPathQuery(query: string): string {
 		.split("/")
 		.filter(Boolean)
 		.map((segment) => escapeRegex(segment));
-	if (segments.length === 0) {
-		return normalized;
-	}
 
 	let pattern = segments.join(separatorPattern);
 	if (hasTrailingSeparator) {
@@ -70,6 +67,13 @@ function stripLeadingWrappers(token: string): string {
 		result = result.slice(1);
 	}
 	return result;
+}
+
+function pathPrefixCandidates(text: string): string[] {
+	const lastDelimiterIndex = findLastDelimiter(text);
+	const token = lastDelimiterIndex === -1 ? text : text.slice(lastDelimiterIndex + 1);
+	const stripped = stripLeadingWrappers(token);
+	return stripped === token ? [token] : [stripped, token];
 }
 
 function findUnclosedQuoteStart(text: string): number | null {
@@ -329,19 +333,22 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 		const currentLine = lines[cursorLine] || "";
 		const textBeforeCursor = currentLine.slice(0, cursorCol);
 
-		const atPrefix = this.extractAtPrefix(textBeforeCursor);
-		if (atPrefix) {
-			const { rawPrefix, isQuotedPrefix } = parsePathPrefix(atPrefix);
-			const suggestions = await this.getFuzzyFileSuggestions(rawPrefix, {
-				isQuotedPrefix,
-				signal: options.signal,
-			});
-			if (suggestions.length === 0) return null;
-
-			return {
-				items: suggestions,
-				prefix: atPrefix,
-			};
+		const atPrefixes = this.extractAtPrefixes(textBeforeCursor);
+		if (atPrefixes.length > 0) {
+			for (const atPrefix of atPrefixes) {
+				const { rawPrefix, isQuotedPrefix } = parsePathPrefix(atPrefix);
+				const suggestions = await this.getFuzzyFileSuggestions(rawPrefix, {
+					isQuotedPrefix,
+					signal: options.signal,
+				});
+				if (suggestions.length > 0) {
+					return {
+						items: suggestions,
+						prefix: atPrefix,
+					};
+				}
+			}
+			return null;
 		}
 
 		const commandText = textBeforeCursor.trimStart();
@@ -407,18 +414,17 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 			};
 		}
 
-		const pathMatch = this.extractPathPrefix(textBeforeCursor, options.force ?? false);
-		if (pathMatch === null) {
-			return null;
+		const pathMatches = this.extractPathPrefixes(textBeforeCursor, options.force ?? false);
+		for (const pathMatch of pathMatches) {
+			const suggestions = this.getFileSuggestions(pathMatch);
+			if (suggestions.length > 0) {
+				return {
+					items: suggestions,
+					prefix: pathMatch,
+				};
+			}
 		}
-
-		const suggestions = this.getFileSuggestions(pathMatch);
-		if (suggestions.length === 0) return null;
-
-		return {
-			items: suggestions,
-			prefix: pathMatch,
-		};
+		return null;
 	}
 
 	applyCompletion(
@@ -509,50 +515,28 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 	}
 
 	// Extract @ prefix for fuzzy file suggestions
-	private extractAtPrefix(text: string): string | null {
+	private extractAtPrefixes(text: string): string[] {
 		const quotedPrefix = extractQuotedPrefix(text);
 		if (quotedPrefix?.startsWith('@"')) {
-			return quotedPrefix;
+			return [quotedPrefix];
 		}
-
-		const lastDelimiterIndex = findLastDelimiter(text);
-		const token = stripLeadingWrappers(lastDelimiterIndex === -1 ? text : text.slice(lastDelimiterIndex + 1));
-
-		if (token.startsWith("@")) {
-			return token;
-		}
-
-		return null;
+		return pathPrefixCandidates(text).filter((prefix) => prefix.startsWith("@"));
 	}
 
-	// Extract a path-like prefix from the text before cursor
-	private extractPathPrefix(text: string, forceExtract: boolean = false): string | null {
+	// Extract path-like prefixes from the text before cursor
+	private extractPathPrefixes(text: string, forceExtract: boolean = false): string[] {
 		const quotedPrefix = extractQuotedPrefix(text);
 		if (quotedPrefix) {
-			return quotedPrefix;
+			return [quotedPrefix];
 		}
 
-		const lastDelimiterIndex = findLastDelimiter(text);
-		const pathPrefix = stripLeadingWrappers(lastDelimiterIndex === -1 ? text : text.slice(lastDelimiterIndex + 1));
-
-		// For forced extraction (Tab key), always return something
-		if (forceExtract) {
-			return pathPrefix;
-		}
-
-		// For natural triggers, return if it looks like a path, ends with /, starts with ~/, .
-		// Only return empty string if the text looks like it's starting a path context
-		if (pathPrefix.includes("/") || pathPrefix.startsWith(".") || pathPrefix.startsWith("~/")) {
-			return pathPrefix;
-		}
-
-		// Return an empty prefix after whitespace or CJK punctuation, but not for empty text.
-		// Empty text should not trigger file suggestions - that's for forced Tab completion
-		if (pathPrefix === "" && text !== "" && tokenStartRegex.test(text)) {
-			return pathPrefix;
-		}
-
-		return null;
+		return pathPrefixCandidates(text).filter((pathPrefix) => {
+			if (forceExtract) return true;
+			if (pathPrefix.includes("/") || pathPrefix.startsWith(".") || pathPrefix.startsWith("~/")) {
+				return true;
+			}
+			return pathPrefix === "" && text !== "" && tokenStartRegex.test(text);
+		});
 	}
 
 	// Expand home directory (~/) to actual home path

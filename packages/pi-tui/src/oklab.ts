@@ -50,7 +50,7 @@ const LMS_TO_LINEAR_SRGB: Matrix = [
  * Per sRGB channel (red, green, blue): the (a, b) half-plane where that channel clips
  * first, and the polynomial approximating the maximum saturation there.
  */
-const SATURATION_FIT: [[number, number], [number, number, number, number, number]][] = [
+const SATURATION_FIT: [[number, number], number[]][] = [
 	[
 		[-1.8817031, -0.80936501],
 		[1.19086277, 1.76576728, 0.59662641, 0.75515197, 0.56771245],
@@ -109,13 +109,13 @@ function lmsSlopes(a: number, b: number): Vector {
 /** Largest saturation (C/L) inside sRGB for hue (a, b): polynomial fit plus one Halley step. */
 function maxSaturation(a: number, b: number): number {
 	const channel = SATURATION_FIT.findIndex(([[x, y]], index) => index === 2 || x * a + y * b > 1);
-	const [k0, k1, k2, k3, k4] = SATURATION_FIT[channel]![1];
-	const weights = LMS_TO_LINEAR_SRGB[channel];
+	const [k0, k1, k2, k3, k4] = SATURATION_FIT[channel]![1] as [number, number, number, number, number];
+	const weights = LMS_TO_LINEAR_SRGB[channel]!;
 	const saturation = k0 + k1 * a + k2 * b + k3 * a * a + k4 * a * b;
 
 	const slopes = lmsSlopes(a, b);
 	const base = slopes.map((k) => 1 + saturation * k);
-	const dot = (values: number[]) => values.reduce((sum, value, index) => sum + weights![index]! * value, 0);
+	const dot = (values: number[]) => values.reduce((sum, value, index) => sum + weights[index]! * value, 0);
 	const f = dot(base.map((value) => value ** 3));
 	const f1 = dot(base.map((value, index) => 3 * slopes[index]! * value ** 2));
 	const f2 = dot(base.map((value, index) => 6 * slopes[index]! ** 2 * value));
@@ -139,7 +139,7 @@ function maxChroma(a: number, b: number, lightness: number, [cuspL, cuspC]: [num
 	const cubes = lms.map((value) => value ** 3);
 	const first = lms.map((value, index) => 3 * slopes[index]! * value ** 2);
 	const second = lms.map((value, index) => 6 * slopes[index]! ** 2 * value);
-	const dot = (row: Vector, values: number[]) => row[0] * values[0]! + row[1] * values[1]! + row[2] * values[2]!;
+	const dot = (row: Vector, values: number[]) => row[0]! * values[0]! + row[1]! * values[1]! + row[2]! * values[2]!;
 	const steps = LMS_TO_LINEAR_SRGB.map((row) => {
 		const f = dot(row, cubes) - 1;
 		const f1 = dot(row, first);

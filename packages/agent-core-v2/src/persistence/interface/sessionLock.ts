@@ -12,6 +12,7 @@ export interface SessionLockHolder {
   readonly hostname: string;
   readonly startedAt: number;
   readonly clientIdentity: string;
+  readonly clientDisplayName?: string;
 }
 
 export interface SessionLockLease {
@@ -34,6 +35,7 @@ export interface ISessionLockService {
   release(sessionId: string): void;
   lease(sessionId: string): SessionLockLease;
   held(sessionId: string): boolean;
+  takeover(sessionId: string): void;
 }
 
 export const ISessionLockService: ServiceIdentifier<ISessionLockService> =
@@ -47,11 +49,12 @@ export function sessionLockEnforced(value: string | undefined): boolean {
 }
 
 export function sessionOccupiedError(sessionId: string, holder?: SessionLockHolder): Error2 {
-  return new Error2(
-    SessionErrors.codes.SESSION_OCCUPIED,
-    'This session is in use by another Pythinker Code process. Stop the session in that process or exit it, then try again.',
-    { details: { sessionId, holder } },
-  );
+  const message = holder?.clientDisplayName
+    ? `This session is in use by another ${holder.clientDisplayName} instance. Stop the session in that instance or exit it, then try again.`
+    : 'This session is in use by another Pythinker Code process. Stop the session in that process or exit it, then try again.';
+  return new Error2(SessionErrors.codes.SESSION_OCCUPIED, message, {
+    details: { sessionId, holder },
+  });
 }
 
 interface HeldState {
@@ -70,6 +73,7 @@ export abstract class SessionLockHolds extends Disposable implements ISessionLoc
 
   protected abstract publish(sessionId: string): string;
   protected abstract unpublish(sessionId: string, token: string): void;
+  protected abstract evict(sessionId: string): void;
 
   hold(sessionId: string): void {
     this.stateFor(sessionId).held = true;
@@ -109,6 +113,11 @@ export abstract class SessionLockHolds extends Disposable implements ISessionLoc
 
   held(sessionId: string): boolean {
     return this.heldSessions.has(sessionId);
+  }
+
+  takeover(sessionId: string): void {
+    if (this.heldSessions.has(sessionId)) return;
+    this.evict(sessionId);
   }
 
   override dispose(): void {

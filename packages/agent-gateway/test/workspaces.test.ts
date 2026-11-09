@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { IAtomicDocumentStore, IWorkspaceInstanceManager } from '@pymodel/agent-core-v2';
 import { encodeWorkDirKey } from '@pymodel/agent-core-v2/_base/utils/workdir-slug';
 
 import { type RunningServer, startServer } from '../src/start';
@@ -22,7 +23,6 @@ interface WorkspaceWire {
   id: string;
   root: string;
   name: string;
-  is_default: boolean;
   created_at: string;
   last_opened_at: string;
   session_count: number;
@@ -157,7 +157,6 @@ describe('server-v2 /api/v1/workspaces', () => {
     expect(body.code).toBe(0);
     expect(body.data.root).toBe(root);
     expect(body.data.name).toBe('proj');
-    expect(body.data.is_default).toBe(false);
     expect(body.data.id).toMatch(/^wd_[a-z0-9._-]+_[0-9a-f]{12}$/);
     expect(typeof body.data.session_count).toBe('number');
     expect(Number.isNaN(Date.parse(body.data.created_at))).toBe(false);
@@ -299,42 +298,69 @@ describe('server-v2 /api/v1/workspaces', () => {
   });
 
   it('adds an additional directory and persists it by default', async () => {
-    const root = home as string;
-    const extra = join(root, 'extra');
-    await mkdir(extra);
-    const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
-    const id = created.body.data.id;
+    const root = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-workspaces-persist-'));
+    try {
+      const extra = join(root, 'extra');
+      await mkdir(extra);
+      const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+      const id = created.body.data.id;
 
-    const { status, body } = await postJson<AddDirWire>(`/api/v1/workspaces/${id}/add-dir`, {
-      path: extra,
-    });
-    expect(status).toBe(200);
-    expect(body.code).toBe(0);
-    expect(body.data.persisted).toBe(true);
-    expect(body.data.additional_dirs).toContain(extra);
-    expect(body.data.project_root).toBe(root);
-    expect(body.data.config_path).toBe(join(root, '.pythinker-code', 'local.toml'));
-    const toml = await readFile(body.data.config_path, 'utf8');
-    expect(toml).toContain('additional_dir');
-    expect(toml).toContain(extra);
+      const { status, body } = await postJson<AddDirWire>(`/api/v1/workspaces/${id}/add-dir`, {
+        path: extra,
+      });
+      expect(status).toBe(200);
+      expect(body.code).toBe(0);
+      expect(body.data.persisted).toBe(true);
+      expect(body.data.additional_dirs).toContain(extra);
+      expect(body.data.project_root).toBe(root);
+      expect(body.data.config_path).toBe(join(root, '.pythinker-code', 'local.toml'));
+      const toml = await readFile(body.data.config_path, 'utf8');
+      expect(toml).toContain('additional_dir');
+      expect(toml).toContain(extra);
+      const manager = (server as RunningServer).core.accessor.get(IWorkspaceInstanceManager);
+      expect(manager.get(id)).toBeUndefined();
+      const lease = await manager.acquire({ workspaceId: id, root });
+      try {
+        await lease.instance.program.dirs.ready;
+        expect(lease.instance.program.dirs.additionalDirs).toContain(extra);
+      } finally {
+        lease.dispose();
+      }
+      expect(manager.get(id)).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it('adds a relative directory without persisting when persist is false', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-workspaces-rel-'));
-    const extra = join(root, 'extra-rel');
-    await mkdir(extra);
-    const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
-    const id = created.body.data.id;
+    try {
+      const extra = join(root, 'extra-rel');
+      await mkdir(extra);
+      const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+      const id = created.body.data.id;
 
-    const { body } = await postJson<AddDirWire>(`/api/v1/workspaces/${id}/add-dir`, {
-      path: 'extra-rel',
-      persist: false,
-    });
-    expect(body.code).toBe(0);
-    expect(body.data.persisted).toBe(false);
-    expect(body.data.additional_dirs).toContain(extra);
-    await expect(readFile(body.data.config_path, 'utf8')).rejects.toThrow();
-    await rm(root, { recursive: true, force: true });
+      const { body } = await postJson<AddDirWire>(`/api/v1/workspaces/${id}/add-dir`, {
+        path: 'extra-rel',
+        persist: false,
+      });
+      expect(body.code).toBe(0);
+      expect(body.data.persisted).toBe(false);
+      expect(body.data.additional_dirs).toContain(extra);
+      await expect(readFile(body.data.config_path, 'utf8')).rejects.toThrow();
+      const manager = (server as RunningServer).core.accessor.get(IWorkspaceInstanceManager);
+      expect(manager.get(id)).toBeUndefined();
+      const lease = await manager.acquire({ workspaceId: id, root });
+      try {
+        await lease.instance.program.dirs.ready;
+        expect(lease.instance.program.dirs.additionalDirs).not.toContain(extra);
+      } finally {
+        lease.dispose();
+      }
+      expect(manager.get(id)).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it('returns 40410 when adding a directory to an unknown workspace', async () => {
@@ -449,6 +475,234 @@ describe('server-v2 /api/v1/workspaces', () => {
 
     const { body } = await postJson<null>(`/api/v1/workspaces/${id}/add-dir`, {});
     expect(body.code).toBe(40001);
+  });
+
+  it('reads and writes trust without materializing the workspace runtime', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-workspaces-trust-no-runtime-'));
+    try {
+      const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+      expect(created.body.code).toBe(0);
+      const id = created.body.data.id;
+      const manager = (server as RunningServer).core.accessor.get(IWorkspaceInstanceManager);
+      const acquire = vi.spyOn(manager, 'acquire').mockRejectedValue(
+        new Error('runtime environment unavailable'),
+      );
+      try {
+        const initial = await getJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/trust`);
+        expect(initial.body.code).toBe(0);
+        expect(initial.body.data.trusted).toBe(false);
+
+        const trusted = await postJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/trust`);
+        expect(trusted.body.code).toBe(0);
+        expect(trusted.body.data.trusted).toBe(true);
+
+        const revoked = await postJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/untrust`);
+        expect(revoked.body.code).toBe(0);
+        expect(revoked.body.data.trusted).toBe(false);
+        expect(acquire).not.toHaveBeenCalled();
+      } finally {
+        acquire.mockRestore();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('returns trust storage errors with their original message and request id', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-workspaces-trust-error-'));
+    try {
+      const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+      const id = created.body.data.id;
+      const docs = (server as RunningServer).core.accessor.get(IAtomicDocumentStore);
+      const failure = new Error('trust storage unavailable');
+      const read = vi.spyOn(docs, 'get').mockRejectedValue(failure);
+      try {
+        const responses = [
+          await getJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/trust`),
+          await postJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/trust`),
+          await postJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/untrust`),
+        ];
+        for (const response of responses) {
+          expect(response.body.code).toBe(50001);
+          expect(response.body.msg).toBe(failure.message);
+          expect(response.body.request_id).not.toBe('');
+        }
+      } finally {
+        read.mockRestore();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('returns trust write and delete failures and allows later mutations to succeed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-workspaces-trust-mutation-error-'));
+    try {
+      const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+      const id = created.body.data.id;
+      const docs = (server as RunningServer).core.accessor.get(IAtomicDocumentStore);
+      await getJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/trust`);
+
+      const writeFailure = new Error('trust marker write failed');
+      const write = vi.spyOn(docs, 'set').mockRejectedValueOnce(writeFailure);
+      const writeError = await postJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/trust`);
+      expect(writeError.body.code).toBe(50001);
+      expect(writeError.body.msg).toBe(writeFailure.message);
+      expect(writeError.body.request_id).not.toBe('');
+      write.mockRestore();
+
+      const trusted = await postJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/trust`);
+      expect(trusted.body.code).toBe(0);
+      expect(trusted.body.data.trusted).toBe(true);
+
+      const deleteFailure = new Error('trust marker delete failed');
+      const deletion = vi.spyOn(docs, 'delete').mockRejectedValueOnce(deleteFailure);
+      const deleteError = await postJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/untrust`);
+      expect(deleteError.body.code).toBe(50001);
+      expect(deleteError.body.msg).toBe(deleteFailure.message);
+      expect(deleteError.body.request_id).not.toBe('');
+      deletion.mockRestore();
+
+      const revoked = await postJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/untrust`);
+      expect(revoked.body.code).toBe(0);
+      expect(revoked.body.data.trusted).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reloads project config when trust initialization recovers to an existing marker', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-workspaces-trust-recovery-'));
+    try {
+      await mkdir(join(root, '.pythinker-code'), { recursive: true });
+      await writeFile(
+        join(root, '.pythinker-code', 'mcp.json'),
+        JSON.stringify({ mcpServers: { projectOnly: { command: 'project-only' } } }),
+        'utf8',
+      );
+      const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+      const id = created.body.data.id;
+      const docs = (server as RunningServer).core.accessor.get(IAtomicDocumentStore);
+      await docs.set('workspace-trust', encodeWorkDirKey(root), { root, trustedAt: 1 });
+      const manager = (server as RunningServer).core.accessor.get(IWorkspaceInstanceManager);
+      const read = docs.get.bind(docs);
+      let shouldFail = true;
+      let failed = false;
+      const get = vi.spyOn(docs, 'get').mockImplementation(async <T>(scope: string, key: string) => {
+        if (shouldFail && scope === 'workspace-trust') {
+          shouldFail = false;
+          failed = true;
+          throw new Error('temporary trust read failure');
+        }
+        return read<T>(scope, key);
+      });
+      let release: (() => void) | undefined;
+      try {
+        const lease = await manager.acquire({ workspaceId: id, root });
+        release = () => lease.dispose();
+        const workspace = lease.instance;
+        await workspace.program.mcpConfig.ready;
+        expect(failed).toBe(true);
+        expect(workspace.program.mcpConfig.servers()).toEqual({});
+        const recovered: boolean[] = [];
+        workspace.program.trust.onDidChange((change) => recovered.push(change.trusted));
+
+        const trusted = await postJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/trust`);
+        expect(trusted.body.code).toBe(0);
+        expect(trusted.body.data.trusted).toBe(true);
+        expect(workspace.program.trust.isTrusted()).toBe(true);
+
+        await vi.waitFor(() => {
+          expect(workspace.program.mcpConfig.servers()).toHaveProperty('projectOnly');
+        });
+        expect(recovered).toEqual([true]);
+      } finally {
+        get.mockRestore();
+        release?.();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reloads project config after a failed initial read under the environment override', async () => {
+    vi.stubEnv('PYTHINKER_CODE_TRUST_WORKSPACE', '1');
+    const root = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-workspaces-trust-env-recovery-'));
+    try {
+      await mkdir(join(root, '.pythinker-code'), { recursive: true });
+      await writeFile(
+        join(root, '.pythinker-code', 'mcp.json'),
+        JSON.stringify({ mcpServers: { projectOnly: { command: 'project-only' } } }),
+        'utf8',
+      );
+      const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+      const id = created.body.data.id;
+      const docs = (server as RunningServer).core.accessor.get(IAtomicDocumentStore);
+      const manager = (server as RunningServer).core.accessor.get(IWorkspaceInstanceManager);
+      const read = docs.get.bind(docs);
+      let shouldFail = true;
+      let failed = false;
+      const get = vi.spyOn(docs, 'get').mockImplementation(async <T>(scope: string, key: string) => {
+        if (shouldFail && scope === 'workspace-trust') {
+          shouldFail = false;
+          failed = true;
+          throw new Error('temporary trust read failure');
+        }
+        return read<T>(scope, key);
+      });
+      let release: (() => void) | undefined;
+      try {
+        const lease = await manager.acquire({ workspaceId: id, root });
+        release = () => lease.dispose();
+        const workspace = lease.instance;
+        await workspace.program.mcpConfig.ready;
+        expect(failed).toBe(true);
+        expect(workspace.program.mcpConfig.servers()).toEqual({});
+
+        const revoked = await postJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/untrust`);
+        expect(revoked.body.code).toBe(0);
+        expect(revoked.body.data.trusted).toBe(true);
+
+        await vi.waitFor(() => {
+          expect(workspace.program.mcpConfig.servers()).toHaveProperty('projectOnly');
+        });
+      } finally {
+        get.mockRestore();
+        release?.();
+      }
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('shares route trust changes with an already materialized workspace', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-workspaces-trust-shared-'));
+    const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
+    expect(created.body.code).toBe(0);
+    const id = created.body.data.id;
+    const manager = (server as RunningServer).core.accessor.get(IWorkspaceInstanceManager);
+    let release: (() => void) | undefined;
+    try {
+      const lease = await manager.acquire({ workspaceId: id, root });
+      release = () => lease.dispose();
+      const workspace = lease.instance;
+      await workspace.program.trust.ready;
+      const events: boolean[] = [];
+      workspace.program.trust.onDidChange((change) => events.push(change.trusted));
+
+      const trusted = await postJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/trust`);
+      expect(trusted.body.code).toBe(0);
+      expect(workspace.program.trust.isTrusted()).toBe(true);
+
+      const revoked = await postJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/untrust`);
+      expect(revoked.body.code).toBe(0);
+      expect(workspace.program.trust.isTrusted()).toBe(false);
+      expect(events).toEqual([true, false]);
+    } finally {
+      release?.();
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it('reports the effective trust state after untrust while PYTHINKER_CODE_TRUST_WORKSPACE is set', async () => {

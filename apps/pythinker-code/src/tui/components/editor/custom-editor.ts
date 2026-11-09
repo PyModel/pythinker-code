@@ -4,6 +4,8 @@
 
 import {
   Editor,
+  FAKE_CURSOR_END,
+  FAKE_CURSOR_START,
   isKeyRelease,
   matchesKey,
   Key,
@@ -120,6 +122,9 @@ interface CustomEditorOptions {
   disablePasteBurst?: boolean;
 }
 
+// pi-tui's fake cursor: the grapheme under the caret in reverse video.
+const BLOCK_CURSOR = /\u001B\[7m(.*?)\u001B\[0m/u;
+
 export class CustomEditor extends Editor {
   public onEscape?: () => void;
   /**
@@ -135,12 +140,8 @@ export class CustomEditor extends Editor {
   public onCtrlS?: () => void;
   /** Return `true` to consume Ctrl+B; return `false`/`undefined` to fall through to the editor default (cursor-left). */
   public onCtrlB?: () => boolean;
-  /** Return `true` to consume Ctrl+T (the todo list had overflow to toggle); return `false`/`undefined` to fall through to the editor default. */
-  public onToggleTodoExpand?: () => boolean;
-  /** Return true to consume Ctrl+N (the Updates panel grabbed or released focus); otherwise use the editor bindings. */
+  /** Return true to consume Ctrl+N (the Updates panel took keyboard focus); otherwise use the editor bindings. */
   public onPageNotify?: () => boolean;
-  /** Route `←`/`→`/`↑`/`↓`/`Esc` to the focused Updates panel; return `true` to consume. */
-  public onNotifyPanelKey?: (key: 'left' | 'right' | 'up' | 'down' | 'escape') => boolean;
   public onUndo?: () => void;
   public onTextPaste?: () => void;
   /**
@@ -159,6 +160,8 @@ export class CustomEditor extends Editor {
   /** Activity spinner drawn inside the top rule while the agent works (pi style). */
   public ruleStatus: ActivitySpinner | undefined;
   public borderHighlighted = false;
+  /** Terminal window focus, tracked separately from this component's keyboard focus. */
+  public terminalFocused = true;
   /**
    * Called when the user triggers "paste image" (Ctrl-V on Unix,
    * Alt-V on Windows — Ctrl-V is terminal-reserved there). Return
@@ -341,20 +344,35 @@ export class CustomEditor extends Editor {
         lines[firstContentIdx] = withPrompt;
       }
     }
+    // While another component holds the keyboard or the terminal window is
+    // inactive, the editor looks inactive: no block cursor (pi-tui draws it
+    // focused or not), and the whole box fades.
+    const inactive = !this.focused || !this.terminalFocused;
     // `this.borderColor` is pi-tui's per-render paint function. The host may
     // overwrite it (e.g. plan-mode / slash-context highlight via
     // `editor.borderColor = chalk.hex(primary)`), so we route corners and
     // side bars through the same hook to stay in sync.
-    const wrapped = wrapWithSideBorders(lines, (s) => this.borderColor(s), {
-      connectedAbove: this.connectedAbove && !this.borderHighlighted,
-      label: isBash ? ` ${currentTheme.boldFg('shellMode', '! shell mode')} ` : undefined,
-      plain: !this.connectedAbove,
-    });
+    const wrapped = wrapWithSideBorders(
+      inactive
+        ? lines.map((line) =>
+            line
+              .replace(BLOCK_CURSOR, '$1')
+              .replaceAll(FAKE_CURSOR_START, '')
+              .replaceAll(FAKE_CURSOR_END, ''),
+          )
+        : lines,
+      (s: string) => this.borderColor(s),
+      {
+        connectedAbove: this.connectedAbove && !this.borderHighlighted,
+        label: isBash ? ` ${currentTheme.boldFg('shellMode', '! shell mode')} ` : undefined,
+        plain: !this.connectedAbove,
+      },
+    );
     const top = wrapped[0];
     if (this.ruleStatus !== undefined && !isBash && !this.connectedAbove && top !== undefined && /^─+$/.test(stripSgr(top))) {
       wrapped[0] = ruleWithStatus(this.ruleStatus, width, (s) => this.borderColor(s));
     }
-    return wrapped;
+    return inactive ? wrapped.map((line) => currentTheme.fade(line)) : wrapped;
   }
 
   private computeArgumentHint(): string | undefined {
@@ -491,41 +509,10 @@ export class CustomEditor extends Editor {
       if (this.onCtrlB?.() === true) return;
     }
 
-    if (matchesKey(normalized, Key.ctrl('t'))) {
-      // Only consume the key when the todo list actually has overflow to
-      // expand/collapse; otherwise fall through to the editor default.
-      if (this.onToggleTodoExpand?.() === true) return;
-    }
-
     if (matchesKey(normalized, Key.ctrl('n'))) {
-      // Only consume the key when the Updates panel grabbed or released
-      // focus; otherwise fall through to the editor default.
+      // Only consume the key when the Updates panel took focus; otherwise
+      // fall through to the editor default.
       if (this.onPageNotify?.() === true) return;
-    }
-
-    // A focused Updates panel owns ←/→ (channel switching), ↑/↓ (paging the
-    // channel's updates) and Esc (release focus); when it is not focused the
-    // handler returns false and every key falls through to the normal editor
-    // behavior below. Active autocomplete outranks the panel: its menu needs
-    // the same keys for selection and dismissal.
-    if (
-      !this.hasAutocompleteActivity() &&
-      (matchesKey(normalized, Key.left) ||
-        matchesKey(normalized, Key.right) ||
-        matchesKey(normalized, Key.up) ||
-        matchesKey(normalized, Key.down) ||
-        matchesKey(normalized, Key.escape))
-    ) {
-      const panelKey = matchesKey(normalized, Key.left)
-        ? ('left' as const)
-        : matchesKey(normalized, Key.right)
-          ? ('right' as const)
-          : matchesKey(normalized, Key.up)
-            ? ('up' as const)
-            : matchesKey(normalized, Key.down)
-              ? ('down' as const)
-              : ('escape' as const);
-      if (this.onNotifyPanelKey?.(panelKey) === true) return;
     }
 
     if (matchesKey(normalized, 'shift+tab')) {

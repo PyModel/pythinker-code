@@ -909,15 +909,15 @@ describe("Editor component", () => {
 		it("stops at fullwidth Chinese punctuation (issue #4972)", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			// CJK，CJK = CJK(0-2) ，(2-3) CJK(3-5)
-			editor.setText("\u4f60\u597d，\u4e16\u754c");
+			// CJK\uff0cCJK = CJK(0-2) \uff0c(2-3) CJK(3-5)
+			editor.setText("\u4f60\u597d\uff0c\u4e16\u754c");
 			// Cursor at end (col 5)
 
 			// Move left over CJK
 			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
-			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 3 }); // after ，
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 3 }); // after \uff0c
 
-			// Move left over ，
+			// Move left over \uff0c
 			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 2 }); // after \u4f60\u597d
 
@@ -929,9 +929,9 @@ describe("Editor component", () => {
 			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 2 }); // after \u4f60\u597d
 
-			// Move right over ，
+			// Move right over \uff0c
 			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
-			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 3 }); // after ，
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 3 }); // after \uff0c
 
 			// Move right over CJK
 			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
@@ -941,8 +941,8 @@ describe("Editor component", () => {
 		it("handles mixed CJK and ASCII word movement", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			// "helloCJK，worldCJK" = hello(0-5) CJK(5-7) ，(7-8) world(8-13) CJK(13-15)
-			editor.setText("hello\u4f60\u597d，world\u4e16\u754c");
+			// "helloCJK\uff0cworldCJK" = hello(0-5) CJK(5-7) \uff0c(7-8) world(8-13) CJK(13-15)
+			editor.setText("hello\u4f60\u597d\uff0cworld\u4e16\u754c");
 			// Cursor at end (col 15)
 
 			// Move left over CJK
@@ -951,9 +951,9 @@ describe("Editor component", () => {
 
 			// Move left over world
 			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
-			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 8 }); // after ，
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 8 }); // after \uff0c
 
-			// Move left over ，
+			// Move left over \uff0c
 			editor.handleInput("\x1b[1;5D"); // Ctrl+Left
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 7 }); // after \u4f60\u597d
 
@@ -973,7 +973,7 @@ describe("Editor component", () => {
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 7 }); // after \u4f60\u597d
 
 			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
-			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 8 }); // after ，
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 8 }); // after \uff0c
 
 			editor.handleInput("\x1b[1;5C"); // Ctrl+Right
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 13 }); // after 'world'
@@ -1070,8 +1070,8 @@ describe("Editor component", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 			const width = 10 + 1; // +1 col reserved for cursor
 
-			// Each CJK char is 2 columns. "CJKテスト" = 6 chars = 12 columns
-			editor.setText("\u65e5\u672c\u8a9eテスト");
+			// Each CJK char is 2 columns. "CJK\u30c6\u30b9\u30c8" = 6 chars = 12 columns
+			editor.setText("\u65e5\u672c\u8a9e\u30c6\u30b9\u30c8");
 			const lines = editor.render(width);
 
 			for (let i = 1; i < lines.length - 1; i++) {
@@ -1082,8 +1082,8 @@ describe("Editor component", () => {
 			// Verify content split correctly
 			const contentLines = lines.slice(1, -1).map((l) => stripTerminalSequences(l).trim());
 			assert.strictEqual(contentLines.length, 2);
-			assert.strictEqual(contentLines[0], "\u65e5\u672c\u8a9eテス"); // 5 chars = 10 columns
-			assert.strictEqual(contentLines[1], "ト"); // 1 char = 2 columns (+ padding)
+			assert.strictEqual(contentLines[0], "\u65e5\u672c\u8a9e\u30c6\u30b9"); // 5 chars = 10 columns
+			assert.strictEqual(contentLines[1], "\u30c8"); // 1 char = 2 columns (+ padding)
 		});
 
 		it("handles mixed ASCII and wide characters in wrapping", () => {
@@ -2415,9 +2415,9 @@ describe("Editor component", () => {
 		it("triggers and debounces symbol completion after CJK punctuation", async (t) => {
 			t.mock.timers.enable({ apis: ["setTimeout"] });
 			for (const before of [
-				"\u67e5\u770b，",
+				"\u67e5\u770b\uff0c",
 				"\u3000",
-				..."，．：；！？（）［］｛｝“”‘’…—。、「」『』《》【】",
+				..."\uff0c\uff0e\uff1a\uff1b\uff01\uff1f\uff08\uff09\uff3b\uff3d\uff5b\uff5d“”‘’…—\u3002\u3001\u300c\u300d\u300e\u300f\u300a\u300b\u3010\u3011",
 				"(",
 				"see (",
 				"`",
@@ -2470,21 +2470,21 @@ describe("Editor component", () => {
 				"user@example.com",
 				"\u5f20\u4e09@example.com",
 				"\u67e5\u770b@src",
-				"あ@src",
-				"カ@src",
-				"한@src",
-				"ㄅ@src",
-				"\u{20bb7}@src",
-				"か\u3099@src",
+				"\u3042@src",
+				"\u30ab@src",
+				"\ud55c@src",
+				"\u3105@src",
+				"\ud842\udfb7@src",
+				"\u304b\u3099@src",
 				"\u79b0\u{e0100}@src",
-				"\\u3005@src",
-				"Ａ@src",
+				"\u3005@src",
+				"\uff21@src",
 				"\u6587\u6863@\u5907\u4efd",
 				"prefix#123",
 				"foo(@src",
 				"\u95ee\u9898#123",
-				"\u67e5\u770b，/path/",
-				"\u67e5\u770b，./\u6587\u6863/",
+				"\u67e5\u770b\uff0c/path/",
+				"\u67e5\u770b\uff0c./\u6587\u6863/",
 				"src/index.ts",
 				"./\u6587\u6863/\u8bf4\u660e.md",
 				"\u6587\u6863/\u8bf4\u660e.md",
@@ -2509,7 +2509,7 @@ describe("Editor component", () => {
 				},
 				applyCompletion,
 			});
-			const text = "\u67e5\u770b，/path/";
+			const text = "\u67e5\u770b\uff0c/path/";
 			for (const char of text) editor.handleInput(char);
 			t.mock.timers.tick(20);
 			await flushAutocomplete();
@@ -2526,7 +2526,7 @@ describe("Editor component", () => {
 			writeFileSync(join(baseDir, "\u6587\u6863", "\u8bf4\u660e.md"), "text");
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 			editor.setAutocompleteProvider(new CombinedAutocompleteProvider([], baseDir));
-			for (const separator of [" ", "\t", "\u3000", "\u00a0", "，", "。"]) {
+			for (const separator of [" ", "\t", "\u3000", "\u00a0", "\uff0c", "\u3002"]) {
 				editor.setText(`\u67e5\u770b${separator}`);
 				const before = editor.getText();
 				editor.handleInput("\u6587");
@@ -2543,7 +2543,7 @@ describe("Editor component", () => {
 
 		it("ends unquoted trigger and debounce contexts at whitespace or CJK punctuation", async (t) => {
 			t.mock.timers.enable({ apis: ["setTimeout"] });
-			for (const separator of [" ", "\u3000", "，", "。"]) {
+			for (const separator of [" ", "\u3000", "\uff0c", "\u3002"]) {
 				for (const trigger of ["@", "#", "$"]) {
 					const editor = new Editor(createTestTUI(), defaultEditorTheme);
 					const requests: string[] = [];
@@ -2577,7 +2577,7 @@ describe("Editor component", () => {
 		it("re-triggers CJK path completion after accepting directories and deleting", async (t) => {
 			t.mock.timers.enable({ apis: ["setTimeout"] });
 			const provider = new CombinedAutocompleteProvider([], process.cwd());
-			for (const directory of ["\u6587\u6863", "\u6211\u7684 \u6587\u6863", "\u8d44\u6599，\u5f52\u6863"]) {
+			for (const directory of ["\u6587\u6863", "\u6211\u7684 \u6587\u6863", "\u8d44\u6599\uff0c\u5f52\u6863"]) {
 				const quoted = directory !== "\u6587\u6863";
 				const initial = quoted ? `@"${directory.slice(0, 2)}` : "@\u6587";
 				const directoryValue = quoted ? `@"${directory}/"` : `@${directory}/`;
@@ -2595,10 +2595,10 @@ describe("Editor component", () => {
 					},
 					applyCompletion: (...args) => provider.applyCompletion(...args),
 				});
-				editor.setText(`\u67e5\u770b：${initial}`);
+				editor.setText(`\u67e5\u770b\uff1a${initial}`);
 				editor.handleInput("\t");
 				await flushAutocomplete();
-				assert.strictEqual(editor.getText(), `\u67e5\u770b：${directoryValue}`);
+				assert.strictEqual(editor.getText(), `\u67e5\u770b\uff1a${directoryValue}`);
 				assert.strictEqual(editor.isShowingAutocomplete(), false);
 
 				editor.handleInput("\u8bf4");
@@ -2619,7 +2619,7 @@ describe("Editor component", () => {
 				}
 
 				editor.handleInput("\t");
-				assert.strictEqual(editor.getText(), `\u67e5\u770b：${fileValue} `);
+				assert.strictEqual(editor.getText(), `\u67e5\u770b\uff1a${fileValue} `);
 				assert.deepStrictEqual(editor.getCursor(), { line: 0, col: editor.getText().length });
 			}
 		});
@@ -4928,7 +4928,7 @@ describe("Editor narrow width rendering", () => {
 	it("renders CJK text without crashing at widths 1-8 (paddingX 4, matches pythinker-code)", () => {
 		for (let width = 1; width <= 8; width++) {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme, { paddingX: 4 });
-			editor.setText("\u4f60\u597d，\u4e16\u754c！");
+			editor.setText("\u4f60\u597d\uff0c\u4e16\u754c\uff01");
 			assert.doesNotThrow(() => editor.render(width), `width ${width}`);
 		}
 	});

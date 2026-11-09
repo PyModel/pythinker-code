@@ -6,9 +6,9 @@ export const MESSAGE_INDENT = '  ';
 // transcript messages. The fullscreen renderer strips them at paint and uses
 // the A marker for previous/next-prompt navigation (Ctrl-Shift-Up/Down); in
 // regular mode they pass through to native scrollback invisibly.
-export const OSC133_ZONE_START = '\x1B]133;A\x07';
-export const OSC133_ZONE_END = '\x1B]133;B\x07';
-export const OSC133_ZONE_FINAL = '\x1B]133;C\x07';
+export const OSC133_ZONE_START = '\u001B]133;A\u0007';
+export const OSC133_ZONE_END = '\u001B]133;B\u0007';
+export const OSC133_ZONE_FINAL = '\u001B]133;C\u0007';
 
 // Outer left/right padding applied to the transcript, panels, and the
 // statusline so the chrome's left edge lines up with the input box's
@@ -22,7 +22,16 @@ export const RESULT_PREVIEW_LINES = 3;
 export const SHELL_OUTPUT_PREVIEW_LINES = 10;
 export const THINKING_PREVIEW_LINES = 2;
 export const COMMAND_PREVIEW_LINES = 10;
-export const NOTIFY_PANEL_PAGE_LINES = 8;
+
+// Fullscreen dock caps: rows a panel body shows before it scrolls, so the
+// dock never crowds the transcript out or pushes the editor off screen.
+export const DOCK_QUEUE_ROWS = 3;
+export const DOCK_UPDATES_ROWS = 6;
+export const DOCK_APPROVAL_ROWS = 6;
+// Below this terminal height, docked Updates folds to its one-line stub while
+// an approval or question waits: a typical approval (13 rows) plus expanded
+// Updates (7) and the activity rows (2) would leave the transcript under 10.
+export const UPDATES_PROMPT_FOLD_SCREEN_ROWS = 32;
 
 // The ellipsis marking a single-row line (card header, outcome row) that was
 // cut to the terminal width or that stands in for hidden output lines.
@@ -30,7 +39,7 @@ export const TRUNCATION_ELLIPSIS = '…';
 // ANSI escape sequences (CSI, OSC) — tool output can carry them — that a
 // width-aware cut must treat as zero-width atomic units: never counted toward
 // the budget, never split in half.
-export const ANSI_ESCAPE_PATTERN = /\x1B(?:\[[0-9;?]*[ -/]*[@-~]|\][^\x07\x1B]*(?:\x07|\x1B\\))/g;
+export const ANSI_ESCAPE_PATTERN = /\u001B(?:\[[0-9;?]*[ -/]*[@-~]|\][^\u0007\u001B]*(?:\u0007|\u001B\\))/g;
 // Code units a single terminal cell may hold before a tail-preserving cut's
 // window can no longer see it: a ZWJ family emoji is about eleven per two
 // cells, and combining sequences run longer.

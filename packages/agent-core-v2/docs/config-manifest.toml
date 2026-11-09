@@ -8,24 +8,19 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (33 sections · 2 overlay(s))
-#   autoSessionTitle         src/session/sessionTitle/configSection.ts
+# Index (29 sections · 2 overlay(s))
 #   background               src/agent/task/configSection.ts
 #   builtinProductSkills     src/features/skill/catalog/configSection.ts
 #   cron                     src/features/cron/configSection.ts
 #   database                 src/persistence/configSection.ts
 #   defaultPermissionMode    src/agent/permissionMode/configSection.ts
 #   defaultPlanMode          src/features/plan/configSection.ts
-#   defaultWorkspace         src/app/defaultWorkspace/configSection.ts
-#   dynamic_workflow         src/features/dynamic_workflow/configSection.ts
 #   experimental             src/app/flag/flag.ts
 #   extraAgentDirs           src/workspace/workspaceAgentProfileLoader/configSection.ts
 #   extraSkillDirs           src/features/skill/catalog/configSection.ts
 #   hooks                    src/features/externalHooks/configSection.ts
 #   identity                 src/app/agentIdentity/configSection.ts
 #   image                    src/agent/media/configSection.ts
-#   lastUsedModel            src/app/kosongConfig/configSection.ts
-#   llm                      src/app/kosongConfig/configSection.ts
 #   loopControl              src/agent/loop/configSection.ts
 #   mcp                      src/app/mcpConfig/configSection.ts
 #   mergeAllAvailableSkills  src/features/skill/catalog/configSection.ts
@@ -37,6 +32,7 @@
 #   secondaryModel           src/session/subagent/configSection.ts
 #   services                 src/app/auth/configSection.ts
 #   subagent                 src/session/subagent/configSection.ts
+#   dynamic_workflow                    src/features/dynamic_workflow/configSection.ts
 #   task                     src/agent/task/configSection.ts
 #   thinking                 src/app/kosongConfig/configSection.ts
 #   tokenCounting            src/agent/tokenCounting/configSection.ts
@@ -44,14 +40,6 @@
 #   watch                    src/app/watch/configSection.ts
 #   (overlay) servicesCredentialEnvOverlay  src/app/auth/configSection.ts
 #   (overlay) pythinkerModelEnvOverlay  src/app/kosongConfig/envOverlay.ts
-
-# ##########################################################################
-# autoSessionTitle (config.toml: auto_session_title)
-#   owner: src/session/sessionTitle/configSection.ts
-#   scope: core
-# ##########################################################################
-
-# auto_session_title: boolean
 
 # ##########################################################################
 # background
@@ -146,27 +134,6 @@ manual_tick = false
 default_plan_mode = false
 
 # ##########################################################################
-# defaultWorkspace (config.toml: default_workspace)
-#   owner: src/app/defaultWorkspace/configSection.ts
-#   scope: core
-# ##########################################################################
-
-[default_workspace]
-# path: string
-
-# ##########################################################################
-# dynamic_workflow
-#   owner: src/features/dynamic_workflow/configSection.ts
-#   scope: core
-#   hooks: stripEnv
-#   env:
-#     timeout_ms <- PYTHINKER_CODE_DYNAMIC_WORKFLOW_TIMEOUT_MS (custom parse)
-# ##########################################################################
-
-[dynamic_workflow]
-timeout_ms = 7200000
-
-# ##########################################################################
 # experimental
 #   owner: src/app/flag/flag.ts
 #   scope: core
@@ -235,23 +202,6 @@ extra_skill_dirs = []
 # read_byte_budget: integer
 
 # ##########################################################################
-# lastUsedModel (config.toml: last_used_model)
-#   owner: src/app/kosongConfig/configSection.ts
-#   scope: core
-# ##########################################################################
-
-# last_used_model: string
-
-# ##########################################################################
-# llm
-#   owner: src/app/kosongConfig/configSection.ts
-#   scope: core
-# ##########################################################################
-
-[llm]
-# request_idle_timeout_ms: integer
-
-# ##########################################################################
 # loopControl (config.toml: loop_control)
 #   owner: src/agent/loop/configSection.ts
 #   scope: core
@@ -280,12 +230,16 @@ extra_skill_dirs = []
 #   env:
 #     startup_timeout_ms <- PYTHINKER_MCP_STARTUP_TIMEOUT_MS (custom parse)
 #     tool_timeout_ms <- PYTHINKER_MCP_TOOL_TIMEOUT_MS (custom parse)
+#     reconnect_initial_delay_ms <- PYTHINKER_MCP_RECONNECT_INITIAL_DELAY_MS (custom parse)
+#     reconnect_max_delay_ms <- PYTHINKER_MCP_RECONNECT_MAX_DELAY_MS (custom parse)
 # ##########################################################################
 
 [mcp]
 # startup_timeout_ms: integer
 # tool_timeout_ms: integer
 # default_deferred: boolean
+# reconnect_initial_delay_ms: integer
+# reconnect_max_delay_ms: integer
 
 # ##########################################################################
 # mergeAllAvailableSkills (config.toml: merge_all_available_skills)
@@ -393,6 +347,7 @@ merge_all_available_skills = true
   # default_model: string
   # type: string
   # api_key: string
+  # api_key_env: string
   # oauth: object
     # storage: "file" | "keyring"
     # key: string
@@ -474,6 +429,18 @@ merge_all_available_skills = true
 # ##########################################################################
 
 [subagent]
+timeout_ms = 7200000
+
+# ##########################################################################
+# dynamic_workflow
+#   owner: src/features/dynamic_workflow/configSection.ts
+#   scope: core
+#   hooks: stripEnv
+#   env:
+#     timeout_ms <- PYTHINKER_CODE_DYNAMIC_WORKFLOW_TIMEOUT_MS (custom parse)
+# ##########################################################################
+
+[dynamic_workflow]
 timeout_ms = 7200000
 
 # ##########################################################################

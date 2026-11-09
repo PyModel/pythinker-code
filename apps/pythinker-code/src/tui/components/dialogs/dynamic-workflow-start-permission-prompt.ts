@@ -15,13 +15,13 @@ const OPTIONS: readonly StartPermissionOption<DynamicWorkflowStartPermissionChoi
     value: 'auto',
     label: 'Switch to Never Ask and start',
     description:
-      'Best for dynamic_workflow tasks. Tools are approved automatically, and questions are skipped.',
+      'Best for dynamic_workflow tasks. Tools are approved automatically and questions are skipped; only plans in Plan mode wait for your review.',
   },
   {
     value: 'yolo',
     label: 'Switch to Ask When Needed and start',
     description:
-      'Tools and plan changes are approved automatically. Pythinker Code may still ask you questions.',
+      'Tools are approved automatically. Pythinker Code may still ask you questions.',
   },
   {
     value: 'manual',
@@ -32,8 +32,7 @@ const OPTIONS: readonly StartPermissionOption<DynamicWorkflowStartPermissionChoi
 ];
 
 const NOTICE_LINES = [
-  'Always Ask mode asks you before Pythinker Code runs commands, edits files, or takes other risky actions.',
-  'Always Ask mode can block dynamic_workflow work while agents are running.',
+  'Always Ask mode asks you before Pythinker Code runs commands, edits files, or takes other risky actions, and can block dynamic_workflow work while agents are running.',
   'You can go back without losing your command.',
 ] as const;
 

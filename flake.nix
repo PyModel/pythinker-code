@@ -75,6 +75,7 @@
         ./packages/pi-tui
         ./packages/product
         ./packages/remote-control
+        ./packages/session-import
         ./packages/telemetry
         ./packages/transcript
         ./packages/tree-sitter-bash
@@ -103,6 +104,7 @@
         "@pymodel/pi-tui"
         "@pymodel/pythinker-code-product"
         "@pymodel/remote-control"
+        "@pymodel/session-import"
         "@pymodel/pythinker-telemetry"
         "@pymodel/transcript"
         "@pymodel/tree-sitter-bash"
@@ -165,7 +167,7 @@
               inherit (finalAttrs) pname version src pnpmWorkspaces;
               inherit pnpm;
               fetcherVersion = 3;
-              hash = "sha256-lJIEVH71YR17kjYIJgN7OZddLpHjyW7XpXxgDdXVM3A=";
+              hash = "sha256-fvtkW8HSacFek+jT0t7v3WcYsSTfI22+4kDEyEYHFlY=";
             };
 
             nativeBuildInputs = [

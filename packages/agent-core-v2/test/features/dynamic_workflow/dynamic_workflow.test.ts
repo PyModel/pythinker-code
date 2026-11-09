@@ -136,8 +136,8 @@ function mockDynamicWorkflowHost({
   };
 }
 
-function mockDynamicWorkflowMode() {
-  return { _serviceBrand: undefined, isActive: false, enter: vi.fn(), exit: vi.fn() };
+function mockDynamicWorkflowMode(isActive = true) {
+  return { _serviceBrand: undefined, isActive, enter: vi.fn(), exit: vi.fn() };
 }
 
 function stubConfig(section?: {
@@ -471,16 +471,46 @@ describe('AgentDynamicWorkflowService', () => {
     expect(messageText(context.get()[1])).toBe('later prompt');
   });
 
-  it('renders no reminder at all for tool-triggered dynamicWorkflows', async () => {
+  it('refuses the tool trigger so only the user can turn dynamic_workflow mode on', async () => {
     const dynamic_workflow = ix.get(IAgentDynamicWorkflowService);
     const context = ix.get(IAgentContextMemoryService);
 
-    dynamic_workflow.enter('tool');
-    await runInjectionBoundary(ix.get(IAgentLoopService));
-    dynamic_workflow.exit();
+    expect(() => {
+      dynamic_workflow.enter('tool');
+    }).toThrow('Only the user can turn on dynamic_workflow mode.');
     await runInjectionBoundary(ix.get(IAgentLoopService));
 
+    const records: WireRecord[] = [];
+    for await (const record of ix.get(IAppendLogStore).read<WireRecord>(
+      testWireScope('wire', 'dynamic-workflow-test'),
+      AGENT_WIRE_RECORD_KEY,
+    )) {
+      records.push(record);
+    }
+    expect(records).toEqual([]);
+    expect(dynamic_workflow.isActive).toBe(false);
+    expect(telemetryTrack2).not.toHaveBeenCalled();
     expect(context.get()).toHaveLength(0);
+  });
+
+  it('ignores tool-triggered entries that older versions recorded, on replay', async () => {
+    const dynamic_workflow = ix.get(IAgentDynamicWorkflowService);
+    const context = ix.get(IAgentContextMemoryService);
+    await restoreTestEventDispatcher(
+      ix.get(IEventDispatcher),
+      ix.get(IAppendLogStore),
+      testWireScope('wire', 'dynamic-workflow-test'),
+      [{ type: 'dynamic_workflow_mode.enter', trigger: 'tool' }],
+    );
+
+    await runInjectionBoundary(ix.get(IAgentLoopService));
+
+    expect(dynamic_workflow.isActive).toBe(false);
+    expect(context.get()).toHaveLength(0);
+
+    dynamic_workflow.enter('manual');
+
+    expect(ix.get(IAgentStateService).get(dynamicWorkflowKey)).toBe('manual');
   });
 
   it('does not duplicate the enter guidance on resume while it is still live in history', async () => {
@@ -587,7 +617,7 @@ describe('AgentDynamicWorkflowService', () => {
   });
 
   it('blocks a batch with multiple AgentDynamicWorkflow calls before any other adjudication', async () => {
-    ix.get(IAgentDynamicWorkflowService);
+    ix.get(IAgentDynamicWorkflowService).enter('manual');
     const decision = await fire(
       hookContext([toolCall('AgentDynamicWorkflow', 'call_dynamic_workflow_1'), toolCall('AgentDynamicWorkflow', 'call_dynamic_workflow_2')]),
     );
@@ -603,7 +633,7 @@ describe('AgentDynamicWorkflowService', () => {
   });
 
   it('blocks an AgentDynamicWorkflow call mixed with other tools in one batch', async () => {
-    ix.get(IAgentDynamicWorkflowService);
+    ix.get(IAgentDynamicWorkflowService).enter('manual');
     const decision = await fire(
       hookContext([toolCall('AgentDynamicWorkflow', 'call_dynamic_workflow'), toolCall('Bash', 'call_bash')]),
     );
@@ -618,8 +648,19 @@ describe('AgentDynamicWorkflowService', () => {
     expect(formatDenyMessage).toHaveBeenCalledTimes(1);
   });
 
-  it('abstains on a single AgentDynamicWorkflow call', async () => {
+  it('lets the other tools in a mixed batch run while dynamic_workflow mode is off', async () => {
     ix.get(IAgentDynamicWorkflowService);
+    const decision = await fire(
+      hookContext([toolCall('AgentDynamicWorkflow', 'call_dynamic_workflow'), toolCall('Bash', 'call_bash')]),
+    );
+
+    expect(decision).toBeUndefined();
+    expect(permissionGateRan).toBe(true);
+    expect(formatDenyMessage).not.toHaveBeenCalled();
+  });
+
+  it('abstains on a single AgentDynamicWorkflow call', async () => {
+    ix.get(IAgentDynamicWorkflowService).enter('manual');
     const decision = await fire(hookContext([toolCall('AgentDynamicWorkflow', 'call_dynamic_workflow')]));
 
     expect(decision).toBeUndefined();
@@ -763,7 +804,7 @@ describe('AgentDynamicWorkflowTool', () => {
 
     const result = await executeTool(tool, context(input));
 
-    expect(dynamicWorkflowMode.enter).toHaveBeenCalledWith('tool');
+    expect(dynamicWorkflowMode.enter).not.toHaveBeenCalled();
     expect(host.dynamicWorkflowService.run).toHaveBeenCalledTimes(1);
     expect(host.dynamicWorkflowService.run).toHaveBeenCalledWith(expect.objectContaining({ tasks: [
       {
@@ -830,6 +871,53 @@ describe('AgentDynamicWorkflowTool', () => {
     if (execution.isError === true) throw new Error('expected a successful execution');
     expect(execution.approvalRule).toBe('AgentDynamicWorkflow');
     expect(execution.matchesRule).toBeUndefined();
+  });
+
+  it('rejects the call without starting subagents while dynamic_workflow mode is off', async () => {
+    const host = mockDynamicWorkflowHost();
+    const dynamicWorkflowMode = mockDynamicWorkflowMode(false);
+    const tool = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), dynamicWorkflowMode, stubConfig(), stubFlag(true), realSubagents(stubDynamicWorkflowCatalog(), stubConfig(), stubCallerProfile()), stubCallerProfile());
+
+    const result = await executeTool(
+      tool,
+      context({
+        description: 'Review files',
+        prompt_template: 'Review {{item}}',
+        items: ['src/a.ts', 'src/b.ts'],
+      }),
+    );
+
+    expect(result).toEqual({
+      isError: true,
+      output: expect.stringContaining('DynamicWorkflow mode is off, so AgentDynamicWorkflow did not run'),
+    });
+    expect(result.output).toContain(
+      'If the user asked for a dynamic_workflow, tell them dynamic_workflow mode is off and that they can turn it on with /dynamic_workflow, or run /dynamic_workflow <task>',
+    );
+    expect(result.output).toContain(
+      'Otherwise, continue without AgentDynamicWorkflow and do not mention dynamic_workflow mode.',
+    );
+    expect(dynamicWorkflowMode.enter).not.toHaveBeenCalled();
+    expect(host.dynamicWorkflowService.run).not.toHaveBeenCalled();
+  });
+
+  it('rejects the call when dynamic_workflow mode turns off before it executes', async () => {
+    const host = mockDynamicWorkflowHost();
+    const dynamicWorkflowMode = mockDynamicWorkflowMode();
+    const tool = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), dynamicWorkflowMode, stubConfig(), stubFlag(true), realSubagents(stubDynamicWorkflowCatalog(), stubConfig(), stubCallerProfile()), stubCallerProfile());
+    const execution = tool.resolveExecution({
+      description: 'Review files',
+      prompt_template: 'Review {{item}}',
+      items: ['src/a.ts', 'src/b.ts'],
+    });
+    if (execution.isError === true) throw new Error('expected a runnable execution');
+
+    dynamicWorkflowMode.isActive = false;
+    const result = await execution.execute(context({}));
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('DynamicWorkflow mode is off, so AgentDynamicWorkflow did not run');
+    expect(host.dynamicWorkflowService.run).not.toHaveBeenCalled();
   });
 
   it('description documents the {{item}} placeholder', () => {

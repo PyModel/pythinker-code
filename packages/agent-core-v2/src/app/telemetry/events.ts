@@ -1,4 +1,5 @@
 import type { TowerExitReason } from '#/features/tower/tower';
+import type { SessionCloseReason } from '#/workspace/sessionLifecycle/sessionLifecycle';
 
 import type { TelemetryPrimitive } from './telemetry';
 
@@ -203,14 +204,9 @@ export interface PlanResolvedEvent {
     | 'dismissed'
     | 'rejected_and_exited'
     | 'revise'
-    | 'rejected'
-    | 'auto_approved';
+    | 'rejected';
   chosen_option?: string;
   has_feedback?: boolean;
-}
-
-export interface PlanEnterResolvedEvent {
-  outcome: 'auto_approved';
 }
 
 export interface TowerModeEnterEvent {
@@ -600,7 +596,7 @@ export interface AgentCreateFailedEvent {
 }
 
 export interface SessionEndedEvent {
-  reason: 'exit' | 'archive';
+  reason: SessionCloseReason;
 }
 
 export interface WebFetchFallbackEvent {
@@ -860,13 +856,6 @@ export const telemetryEventDefinitions = {
       outcome: 'How the plan was resolved',
       chosen_option: 'Label of the option the user chose',
       has_feedback: 'Whether the user attached revision feedback',
-    },
-  }),
-  plan_enter_resolved: defineAgentTelemetryEvent<PlanEnterResolvedEvent>({
-    owner: 'pythinker-code',
-    comment: 'A request to enter plan mode is resolved.',
-    properties: {
-      outcome: 'How the request was resolved',
     },
   }),
   tower_mode_enter: defineAgentTelemetryEvent<TowerModeEnterEvent>({
@@ -1474,7 +1463,7 @@ export const telemetryEventDefinitions = {
   }),
   workspace_trust_read_failed: defineTelemetryEvent<WorkspaceTrustReadFailedEvent>({
     owner: 'pythinker-code',
-    comment: 'Reading the workspace trust record fails and the workspace silently falls back to untrusted.',
+    comment: 'Reading the workspace trust record fails and the error is propagated to the caller.',
     properties: { error_type: 'Classified error category' },
   }),
 } as const;

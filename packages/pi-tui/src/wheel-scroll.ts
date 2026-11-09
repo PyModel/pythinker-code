@@ -19,9 +19,9 @@ function terminalAcceleratesWheel(): boolean {
 	const env = process.env;
 	return (
 		process.platform === "darwin" &&
-		env["SSH_CONNECTION"] === undefined &&
-		env["SSH_CLIENT"] === undefined &&
-		env["SSH_TTY"] === undefined
+		env['SSH_CONNECTION'] === undefined &&
+		env['SSH_CLIENT'] === undefined &&
+		env['SSH_TTY'] === undefined
 	);
 }
 

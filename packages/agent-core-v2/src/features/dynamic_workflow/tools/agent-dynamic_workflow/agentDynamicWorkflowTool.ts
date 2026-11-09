@@ -1,6 +1,7 @@
 import {
   ToolAccesses,
   type ExecutableToolContext,
+  type ExecutableToolErrorResult,
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
@@ -38,6 +39,12 @@ import AGENT_DYNAMIC_WORKFLOW_DESCRIPTION from './agent-dynamic_workflow.md?raw'
 import AGENT_DYNAMIC_WORKFLOW_FORK_DESCRIPTION from './agent-dynamic-workflow-fork.md?raw';
 
 const DEFAULT_SUBAGENT_TYPE = 'coder';
+
+const DYNAMIC_WORKFLOW_MODE_OFF_RESULT: ExecutableToolErrorResult = {
+  output:
+    'DynamicWorkflow mode is off, so AgentDynamicWorkflow did not run and no subagents were started. Only the user can turn dynamic_workflow mode on; do not call AgentDynamicWorkflow again until they do. If the user asked for a dynamic_workflow, tell them dynamic_workflow mode is off and that they can turn it on with /dynamic_workflow, or run /dynamic_workflow <task> to start the task as a dynamic_workflow. Otherwise, continue without AgentDynamicWorkflow and do not mention dynamic_workflow mode.',
+  isError: true,
+};
 
 const AGENT_DYNAMIC_WORKFLOW_PARAMETERS = toInputJsonSchema(AgentDynamicWorkflowToolInputSchema);
 const AGENT_DYNAMIC_WORKFLOW_PARAMETERS_NO_MODEL = stripSubagentModelParameter(AGENT_DYNAMIC_WORKFLOW_PARAMETERS);
@@ -106,6 +113,7 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
   }
 
   resolveExecution(args: AgentDynamicWorkflowToolInput): ToolExecution {
+    if (!this.dynamicWorkflowMode.isActive) return DYNAMIC_WORKFLOW_MODE_OFF_RESULT;
     const agentCount = (args.items?.length ?? 0) + Object.keys(args.resume_agent_ids ?? {}).length;
     return {
       accesses: ToolAccesses.all(),
@@ -124,8 +132,8 @@ export class AgentDynamicWorkflowTool implements IAgentDynamicWorkflowTool {
     args: AgentDynamicWorkflowToolInput,
     context: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
+    if (!this.dynamicWorkflowMode.isActive) return DYNAMIC_WORKFLOW_MODE_OFF_RESULT;
     try {
-      this.dynamicWorkflowMode.enter('tool');
       const result = await this.runDynamicWorkflow(args, context.signal, context.toolCallId);
       return {
         output: result,

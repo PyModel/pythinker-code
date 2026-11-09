@@ -250,14 +250,6 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     ],
     [
       "GET",
-      "/api/v1/sessions/{session_id}/terminals",
-    ],
-    [
-      "GET",
-      "/api/v1/sessions/{session_id}/terminals/{terminal_id}",
-    ],
-    [
-      "GET",
       "/api/v1/sessions/{session_id}/transcript",
     ],
     [
@@ -331,6 +323,10 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     [
       "POST",
       "/api/v1/capabilities/{tail}",
+    ],
+    [
+      "POST",
+      "/api/v1/client_configs",
     ],
     [
       "POST",
@@ -426,6 +422,10 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     ],
     [
       "POST",
+      "/api/v1/sessions/{session_id}:takeover",
+    ],
+    [
+      "POST",
       "/api/v1/sessions/{session_id}/{tail}",
     ],
     [
@@ -475,14 +475,6 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     [
       "POST",
       "/api/v1/sessions/{session_id}/tasks/{tail}",
-    ],
-    [
-      "POST",
-      "/api/v1/sessions/{session_id}/terminals",
-    ],
-    [
-      "POST",
-      "/api/v1/sessions/{session_id}/terminals/{tail}",
     ],
     [
       "POST",

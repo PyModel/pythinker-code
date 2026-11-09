@@ -503,7 +503,7 @@ export function foldWireRecordFacts(
         break;
       }
       case 'dynamic_workflow_mode.enter': {
-        dynamicWorkflowActive = true;
+        if (record['trigger'] !== 'tool') dynamicWorkflowActive = true;
         pushMarker('dynamic_workflow.enter', record);
         break;
       }

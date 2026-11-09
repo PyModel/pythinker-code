@@ -986,6 +986,75 @@ Inline \(A_{sf}\)`,
 			);
 		});
 
+		// Regression tests for https://github.com/earendil-works/pi/issues/11159
+		describe("unclosed display math before tables (#11159)", () => {
+			const table = ["| A | B |", "|---|---|", "| 1 | 2 |"];
+			const renderedTable = ["┌───┬───┐", "│ A │ B │", "├───┼───┤", "│ 1 │ 2 │", "└───┴───┘"];
+			const render = (source: string) =>
+				new Markdown(source, 0, 0, defaultMarkdownTheme).render(80).map((line) => stripAnsi(line).trimEnd());
+
+			it("renders a table after an orphan $$ opener", () => {
+				const source = ["Intro", "", "$$", "", ...table, "", "After"].join("\n");
+				assert.deepStrictEqual(render(source), ["Intro", "", "$$", "", ...renderedTable, "", "After"]);
+			});
+
+			it("renders a table after an orphan $$ opener with math-like content", () => {
+				const source = ["$$", "x = 1", "", ...table].join("\n");
+				assert.deepStrictEqual(render(source), ["$$", "x = 1", "", ...renderedTable]);
+			});
+
+			it("does not pair an unclosed $$ with a later $$ across a table", () => {
+				const source = ["Intro", "", "$$", "x = 1", "", ...table, "", "$$", "y^2", "$$"].join("\n");
+				assert.deepStrictEqual(render(source), ["Intro", "", "$$", "x = 1", "", ...renderedTable, "", "y²"]);
+			});
+
+			it("renders a single-column table with a pipe-free aligned delimiter after an orphan $$", () => {
+				const source = ["$$", "", "| A |", ":---:", "| 1 |"].join("\n");
+				assert.deepStrictEqual(render(source), ["$$", "", "┌───┐", "│ A │", "├───┤", "│ 1 │", "└───┘"]);
+			});
+
+			it("renders a table after an orphan \\[ opener", () => {
+				const source = ["\\\\[", "x^2", "", ...table].join("\n");
+				assert.deepStrictEqual(render(source), ["", "\\[", "x^2", "", ...renderedTable]);
+			});
+
+			it("does not pair an unclosed \\[ with a later \\[ across a table", () => {
+				const source = ["\\\\[", "x = 1", "", ...table, "", "\\\\[", "y^2", "\\\\]"].join("\n");
+				assert.deepStrictEqual(render(source), [
+					"",
+					"\\[",
+					"x = 1",
+					"",
+					...renderedTable,
+					"",
+					"\\",
+					"",
+					"\\[",
+					"y^2",
+					"\\\\]",
+				]);
+			});
+
+			it("renders a table with a pipe-free header after an orphan $$", () => {
+				const source = ["$$", "x^2", "", "Value", "| --- |", "1"].join("\n");
+				assert.deepStrictEqual(render(source), [
+					"$$",
+					"x^2",
+					"",
+					"┌───────┐",
+					"│ Value │",
+					"├───────┤",
+					"│ 1     │",
+					"└───────┘",
+				]);
+			});
+
+			it("still renders closed multi-line display math followed by a table", () => {
+				const source = ["$$", "a", "+ b", "$$", "", ...table].join("\n");
+				assert.deepStrictEqual(render(source), ["a + b", "", ...renderedTable]);
+			});
+		});
+
 		it("switches from raw to rendered math when a streamed delimiter closes", () => {
 			const markdown = new Markdown(String.raw`Map $\mathbb{C}^3`, 0, 0, defaultMarkdownTheme);
 			assert.deepStrictEqual(
@@ -1605,6 +1674,28 @@ bar`,
 		});
 	});
 
+	// #10154
+	describe("CJK emphasis", () => {
+		const tagTheme: MarkdownTheme = {
+			...defaultMarkdownTheme,
+			bold: (text) => `<b>${text}</b>`,
+			italic: (text) => `<i>${text}</i>`,
+		};
+		const render = (text: string) => new Markdown(text, 0, 0, tagTheme).render(80).map((line) => line.trimEnd());
+
+		it("renders emphasis delimited next to CJK punctuation", () => {
+			assert.deepStrictEqual(render("**\u8fd9\u662f\u6d4b\u8bd5\u3002**\u540e\u9762"), ["<b>\u8fd9\u662f\u6d4b\u8bd5\u3002</b>\u540e\u9762"]);
+			assert.deepStrictEqual(render("**\u4e00\u53e5\u8bdd\u8bf4\u6e05\uff1a**\u4e00\u53f0\u673a\u5668"), ["<b>\u4e00\u53e5\u8bdd\u8bf4\u6e05\uff1a</b>\u4e00\u53f0\u673a\u5668"]);
+			assert.deepStrictEqual(render("**\u8981\u70b9\u5230\u6b64\u4e3a\u6b62\u3002**20 \u5c0f\u65f6"), ["<b>\u8981\u70b9\u5230\u6b64\u4e3a\u6b62\u3002</b>20 \u5c0f\u65f6"]);
+			assert.deepStrictEqual(render("\u5b57**\u300c\u5f15\u7528\u300d**\u5b57"), ["\u5b57<b>\u300c\u5f15\u7528\u300d</b>\u5b57"]);
+			assert.deepStrictEqual(render("*\u659c\u4f53\u3002*\u540e\u9762"), ["<i>\u659c\u4f53\u3002</i>\u540e\u9762"]);
+		});
+
+		it("keeps CommonMark flanking rules for non-CJK text", () => {
+			assert.deepStrictEqual(render("**end.**Then next"), ["**end.**Then next"]);
+		});
+	});
+
 	describe("Links", () => {
 		afterEach(() => {
 			resetCapabilitiesCache();
@@ -1714,7 +1805,7 @@ bar`,
 		it("should not absorb CJK punctuation after bare URLs into the link", () => {
 			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
 			const markdown = new Markdown(
-				"PR \u5df2\u5f00：https://example.com/app/pull/232（\u672c\u5730 main \u5df2\u9000\u56de origin/main \u4fdd\u6301\u5e72\u51c0）。",
+				"PR \u5df2\u5f00\uff1ahttps://example.com/app/pull/232\uff08\u672c\u5730 main \u5df2\u9000\u56de origin/main \u4fdd\u6301\u5e72\u51c0\uff09\u3002",
 				0,
 				0,
 				defaultMarkdownTheme,
@@ -1730,20 +1821,20 @@ bar`,
 			);
 			// …and the CJK text must not be part of any hyperlink target.
 			assert.ok(!joined.includes("%EF%BC%88"), "OSC 8 target should not contain encoded CJK");
-			assert.ok(!/\x1b\]8;;[^\x1b]*（/.test(joined), "No hyperlink target should contain CJK characters");
+			assert.ok(!/\x1b\]8;;[^\x1b]*\uff08/.test(joined), "No hyperlink target should contain CJK characters");
 			// The full source text still renders visibly.
 			const rawPlain = lines.map((line) =>
 				line.replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "").replace(/\x1b\[[0-9;]*m/g, ""),
 			);
 			assert.ok(
-				rawPlain.join("").includes("https://example.com/app/pull/232（\u672c\u5730 main \u5df2\u9000\u56de"),
+				rawPlain.join("").includes("https://example.com/app/pull/232\uff08\u672c\u5730 main \u5df2\u9000\u56de"),
 				"URL and following CJK text should both render",
 			);
 		});
 
 		it("should strip a trailing full-width parenthesis after a bare URL", () => {
 			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
-			const markdown = new Markdown("\u770b\u8fd9\u4e2a（https://example.com/page）\u5c31\u77e5\u9053", 0, 0, defaultMarkdownTheme);
+			const markdown = new Markdown("\u770b\u8fd9\u4e2a\uff08https://example.com/page\uff09\u5c31\u77e5\u9053", 0, 0, defaultMarkdownTheme);
 
 			const lines = markdown.render(80);
 			const joined = lines.join("");
@@ -1770,7 +1861,7 @@ bar`,
 		it("should keep balanced full-width parentheses inside the URL path", () => {
 			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
 			const markdown = new Markdown(
-				"\u89c1 https://example.com/wiki/\u4e2d\u534e\u4eba\u6c11\u5171\u548c\u56fd（1949\u5e74） \u7684\u8bf4\u660e",
+				"\u89c1 https://example.com/wiki/\u4e2d\u534e\u4eba\u6c11\u5171\u548c\u56fd\uff081949\u5e74\uff09 \u7684\u8bf4\u660e",
 				0,
 				0,
 				defaultMarkdownTheme,
@@ -1780,7 +1871,7 @@ bar`,
 			const joined = lines.join("");
 
 			assert.ok(
-				joined.includes("\x1b]8;;https://example.com/wiki/\u4e2d\u534e\u4eba\u6c11\u5171\u548c\u56fd（1949\u5e74）\x1b\\"),
+				joined.includes("\x1b]8;;https://example.com/wiki/\u4e2d\u534e\u4eba\u6c11\u5171\u548c\u56fd\uff081949\u5e74\uff09\x1b\\"),
 				"Balanced full-width parens remain part of the hyperlink target",
 			);
 		});
@@ -1788,7 +1879,7 @@ bar`,
 		it("should keep CJK punctuation inside balanced full-width parentheses", () => {
 			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
 			const markdown = new Markdown(
-				"\u89c1 https://example.com/wiki/\u4e2d\u534e\u4eba\u6c11\u5171\u548c\u56fd（\u5317\u4eac，1949\u5e74） \u7684\u8bf4\u660e",
+				"\u89c1 https://example.com/wiki/\u4e2d\u534e\u4eba\u6c11\u5171\u548c\u56fd\uff08\u5317\u4eac\uff0c1949\u5e74\uff09 \u7684\u8bf4\u660e",
 				0,
 				0,
 				defaultMarkdownTheme,
@@ -1798,7 +1889,7 @@ bar`,
 			const joined = lines.join("");
 
 			assert.ok(
-				joined.includes("\x1b]8;;https://example.com/wiki/\u4e2d\u534e\u4eba\u6c11\u5171\u548c\u56fd（\u5317\u4eac，1949\u5e74）\x1b\\"),
+				joined.includes("\x1b]8;;https://example.com/wiki/\u4e2d\u534e\u4eba\u6c11\u5171\u548c\u56fd\uff08\u5317\u4eac\uff0c1949\u5e74\uff09\x1b\\"),
 				"Punctuation inside balanced full-width parens remains part of the hyperlink target",
 			);
 		});

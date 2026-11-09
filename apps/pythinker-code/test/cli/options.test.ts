@@ -594,6 +594,7 @@ describe('CLI options parsing', () => {
         'vis',
         'install-app',
         'migrate',
+        'import-sessions',
         'upgrade',
       ]);
     });

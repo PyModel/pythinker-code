@@ -612,10 +612,7 @@ function replaceCharacters(value: string, replacements: Readonly<Record<string, 
 }
 
 function normalizeScriptValue(value: string): string {
-	return value
-		.split(/([=+-])/)
-		.map((part) => part.trim())
-		.join("");
+	return value.trim().replace(/\s*([=+-])\s*/g, "$1");
 }
 
 function formatUnicodeScript(value: string, kind: "sub" | "sup"): string | undefined {

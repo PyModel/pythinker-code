@@ -175,6 +175,8 @@ export interface TuiAltScreenOptions {
 	wheelScrollLines?: WheelScrollLines;
 	/** Capture mouse events for viewport scrolling and application-owned text selection. */
 	mouse?: boolean;
+	/** Ignore mouse-button gestures for this long after terminal focus is reported as regained. */
+	refocusMouseGuardMs?: number;
 	/** Style a non-current transcript search match. */
 	searchMatchStyle?: (text: string) => string;
 	/** Style the current transcript search match. */
@@ -247,8 +249,10 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		x: number;
 		y: number;
 	};
+	private refocusMouseGuardUntil?: number;
 	private readonly wheelScroll: WheelScrollAccelerator;
 	private readonly mouseEnabled: boolean;
+	private readonly refocusMouseGuardMs: number;
 	private readonly searchMatchStyle: (text: string) => string;
 	private readonly searchCurrentMatchStyle: (text: string) => string;
 	private readonly searchNavigationButtonStyle: (text: string, hovered: boolean) => string;
@@ -276,6 +280,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		this.flashes = new AltScreenFlashContainer(() => this.requestRender());
 		this.wheelScroll = new WheelScrollAccelerator(options.wheelScrollLines ?? 1);
 		this.mouseEnabled = options.mouse ?? true;
+		this.refocusMouseGuardMs = Math.max(0, options.refocusMouseGuardMs ?? 0);
 		this.searchMatchStyle = options.searchMatchStyle ?? ((text) => `\x1b[4m${text}\x1b[24m`);
 		this.searchCurrentMatchStyle = options.searchCurrentMatchStyle ?? ((text) => `\x1b[1;7m${text}\x1b[22;27m`);
 		this.searchNavigationButtonStyle = options.searchNavigationButtonStyle ?? ((text) => text);
@@ -451,6 +456,17 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 			setCapabilities(this.savedCapabilities);
 			this.savedCapabilities = undefined;
 		}
+	}
+
+	protected override getExitRestorePrefix(): string {
+		const prefix = super.getExitRestorePrefix();
+		if (!this.altScreenActive) return prefix;
+		return `${END_SYNCHRONIZED_OUTPUT}${this.mouseEnabled ? DISABLE_MOUSE : ""}${ENABLE_AUTOWRAP}${prefix}`;
+	}
+
+	protected override getExitRestoreSuffix(): string {
+		// Kitty keyboard flags are per screen, so the terminal pops them before the alternate screen is left.
+		return `${super.getExitRestoreSuffix()}${this.altScreenActive ? `${EXIT_ALT_SCREEN}\x1b[?25h` : ""}`;
 	}
 
 	private deleteKittyImages(): string {
@@ -734,7 +750,10 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 			// them too, and the main-screen renderer lets them through.
 			return undefined;
 		}
-		if (data === FOCUS_IN) return undefined;
+		if (data === FOCUS_IN) {
+			if (this.refocusMouseGuardMs > 0) this.refocusMouseGuardUntil = Date.now() + this.refocusMouseGuardMs;
+			return undefined;
+		}
 
 		const wheelEvent = this.parseWheelEvent(data);
 		if (wheelEvent) {
@@ -754,6 +773,9 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		}
 		const mouseEvent = this.parseSgrMouseEvent(data);
 		if (mouseEvent) {
+			if (this.refocusMouseGuardUntil !== undefined && Date.now() < this.refocusMouseGuardUntil) {
+				return { consume: true };
+			}
 			this.handleMouseEvent(mouseEvent);
 			return { consume: true };
 		}
@@ -1795,7 +1817,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		const imageAnchorsNeedRedraw = screen.some(
 			(line, row) => changedRows[row] && (isImageLine(line) || isImageLine(this.previousScreen[row] ?? "")),
 		);
-		const isWezTerm = Boolean(process.env["WEZTERM_PANE"]) || process.env["TERM_PROGRAM"]?.toLowerCase() === "wezterm";
+		const isWezTerm = Boolean(process.env['WEZTERM_PANE']) || process.env['TERM_PROGRAM']?.toLowerCase() === "wezterm";
 		const imageCellsNeedRedraw =
 			!imageAnchorsNeedRedraw &&
 			isWezTerm &&

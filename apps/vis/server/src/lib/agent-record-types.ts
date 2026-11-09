@@ -44,6 +44,8 @@ import type {
   InterruptionReminderRecorded,
   LlmRequest,
   LlmToolsSnapshot,
+  McpServerFailed,
+  McpServerFailureResolved,
   McpToolsDiscovered,
   PlanModeCancel,
   PlanModeEnter,
@@ -192,6 +194,8 @@ export type AgentRecord =
   | WireRecordOf<'interruptionReminder.recorded', InterruptionReminderRecorded>
   | WireRecordOf<'llm.request', LlmRequest>
   | WireRecordOf<'llm.tools_snapshot', LlmToolsSnapshot>
+  | WireRecordOf<'mcp.server_failed', McpServerFailed>
+  | WireRecordOf<'mcp.server_failure_resolved', McpServerFailureResolved>
   | WireRecordOf<'mcp.tools_discovered', McpToolsDiscovered>
   | WireRecordOf<'permission.record_approval_result', PermissionRecordApprovalResult>
   | WireRecordOf<'permission.set_mode', PermissionSetMode>

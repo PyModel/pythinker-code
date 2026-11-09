@@ -150,7 +150,7 @@ describe("CombinedAutocompleteProvider", () => {
 		test("recognizes @ after CJK punctuation without consuming the preceding text", async () => {
 			setupFolder(baseDir, { files: { "README.md": "readme" } });
 			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath());
-			for (const before of ["\u67e5\u770b，", "\u3000", ..."，．：；！？（）［］｛｝“”‘’…—。、「」『』《》【】"]) {
+			for (const before of ["\u67e5\u770b\uff0c", "\u3000", ..."\uff0c\uff0e\uff1a\uff1b\uff01\uff1f\uff08\uff09\uff3b\uff3d\uff5b\uff5d“”‘’…—\u3002\u3001\u300c\u300d\u300e\u300f\u300a\u300b\u3010\u3011"]) {
 				for (const force of [false, true]) {
 					const line = `${before}@REA`;
 					const result = await getSuggestions(provider, [line], 0, line.length, force);
@@ -187,7 +187,7 @@ describe("CombinedAutocompleteProvider", () => {
 				files: { "\u6587\u6863/\u8bf4\u660e.md": "text", "\u6587\u6863@\u5907\u4efd/\u8bf4\u660e.md": "backup" },
 			});
 			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath());
-			for (const before of ["", "\u67e5\u770b，"]) {
+			for (const before of ["", "\u67e5\u770b\uff0c"]) {
 				for (const directory of ["\u6587\u6863", "\u6587\u6863@\u5907\u4efd"]) {
 					const prefix = `@${directory}/\u8bf4`;
 					const line = before + prefix;
@@ -204,12 +204,12 @@ describe("CombinedAutocompleteProvider", () => {
 
 		test("completes quoted CJK attachments after prose without losing path segments or quotes", async () => {
 			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath());
-			for (const separator of [" ", "\u3000", "，", "。"]) {
+			for (const separator of [" ", "\u3000", "\uff0c", "\u3002"]) {
 				const directory = `\u6211\u7684${separator}\u6587\u6863`;
 				setupFolder(baseDir, {
 					files: { [`${directory}/\u8bf4\u660e.md`]: "text", "\u6587\u6863/\u8bf4\u660e.md": "not the quoted path" },
 				});
-				const line = `\u67e5\u770b：@"${directory}/\u8bf4"\u540e\u6587`;
+				const line = `\u67e5\u770b\uff1a@"${directory}/\u8bf4"\u540e\u6587`;
 				const cursorCol = line.indexOf('"\u540e\u6587');
 				const result = await getSuggestions(provider, [line], 0, cursorCol);
 				assert.ok(result);
@@ -219,15 +219,15 @@ describe("CombinedAutocompleteProvider", () => {
 					[`@"${directory}/\u8bf4\u660e.md"`],
 				);
 				const applied = provider.applyCompletion([line], 0, cursorCol, result.items[0]!, result.prefix);
-				assert.strictEqual(applied.lines[0], `\u67e5\u770b：@"${directory}/\u8bf4\u660e.md" \u540e\u6587`);
-				assert.strictEqual(applied.cursorCol, `\u67e5\u770b：@"${directory}/\u8bf4\u660e.md" `.length);
+				assert.strictEqual(applied.lines[0], `\u67e5\u770b\uff1a@"${directory}/\u8bf4\u660e.md" \u540e\u6587`);
+				assert.strictEqual(applied.cursorCol, `\u67e5\u770b\uff1a@"${directory}/\u8bf4\u660e.md" `.length);
 			}
 		});
 
 		test("does not interpret email addresses or @ after ASCII or CJK letters as attachment prefixes", async () => {
 			setupFolder(baseDir, { files: { "README.md": "readme", "example.com": "text" } });
 			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath());
-			for (const before of ["user", "\u67e5\u770b", "あ", "カ", "한", "ㄅ", "\u{20bb7}", "か\u3099", "\u79b0\u{e0100}", "\\u3005", "Ａ"]) {
+			for (const before of ["user", "\u67e5\u770b", "\u3042", "\u30ab", "\ud55c", "\u3105", "\ud842\udfb7", "\u304b\u3099", "\u79b0\u{e0100}", "\u3005", "\uff21"]) {
 				for (const name of ["REA", "example.com"]) {
 					const line = `${before}@${name}`;
 					assert.strictEqual(await getSuggestions(provider, [line], 0, line.length), null, line);
@@ -248,6 +248,31 @@ describe("CombinedAutocompleteProvider", () => {
 
 			const values = result?.items.map((item) => item.value);
 			assert.ok(values?.includes("@file.txt"));
+		});
+
+		// #10972
+		test("matches regex metacharacters in queries literally", async () => {
+			setupFolder(baseDir, {
+				files: {
+					"pages/[id].tsx": "x",
+					"pages/index.tsx": "x",
+					"pages/(group).ts": "x",
+				},
+			});
+
+			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath());
+			for (const [line, expected] of [
+				["@pages/[", "@pages/[id].tsx"],
+				["@pages/(", "@pages/(group).ts"],
+				["@[id", "@pages/[id].tsx"],
+			] as const) {
+				const result = await getSuggestions(provider, [line], 0, line.length);
+				assert.deepStrictEqual(
+					result?.items.map((item) => item.value),
+					[expected],
+					line,
+				);
+			}
 		});
 
 		test("filters are case insensitive", async () => {
@@ -471,7 +496,7 @@ describe("CombinedAutocompleteProvider", () => {
 
 		test("quotes paths containing whitespace or CJK punctuation for @ suggestions", async () => {
 			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath());
-			for (const separator of [" ", "\u3000", "，", "。"]) {
+			for (const separator of [" ", "\u3000", "\uff0c", "\u3002"]) {
 				const directory = `my${separator}folder`;
 				setupFolder(baseDir, { files: { [`${directory}/test.txt`]: "content" } });
 				const line = "@my";
@@ -656,9 +681,9 @@ describe("CombinedAutocompleteProvider", () => {
 			if (process.platform !== "win32") {
 				completions.push({ prefix: `${baseDir}/\u6587\u6863/\u8bf4`, value: `${baseDir}/\u6587\u6863/\u8bf4\u660e.md` });
 			}
-			for (const separator of " \t\u3000\u00a0，：；。！？（「《") {
+			for (const separator of " \t\u3000\u00a0\uff0c\uff1a\uff1b\u3002\uff01\uff1f\uff08\u300c\u300a") {
 				for (const { prefix, value } of completions) {
-					const before = `\u67e5\u770b\u{20bb7}${separator}`;
+					const before = `\u67e5\u770b\ud842\udfb7${separator}`;
 					const line = `${before}${prefix} \u540e\u6587`;
 					const cursorCol = before.length + prefix.length;
 					const result = await getSuggestions(provider, [line], 0, cursorCol, true);
@@ -678,7 +703,7 @@ describe("CombinedAutocompleteProvider", () => {
 		test("treats unquoted separators as boundaries even when a matching literal path exists", async () => {
 			setupFolder(baseDir, { files: { "\u5f52\u6863/\u8bf4\u660e.md": "other" } });
 			const provider = new CombinedAutocompleteProvider([], baseDir);
-			for (const separator of [" ", "\u3000", "，", "。"]) {
+			for (const separator of [" ", "\u3000", "\uff0c", "\u3002"]) {
 				const directory = `\u8d44\u6599${separator}\u5f52\u6863`;
 				setupFolder(baseDir, { files: { [`${directory}/\u8bf4\u660e.md`]: "archive" } });
 				for (const marker of ["", "@"]) {
@@ -691,7 +716,7 @@ describe("CombinedAutocompleteProvider", () => {
 						["\u5f52\u6863/\u8bf4\u660e.md"],
 					);
 				}
-				const quoted = `\u67e5\u770b，"${directory}/\u8bf4"\u540e\u6587`;
+				const quoted = `\u67e5\u770b\uff0c"${directory}/\u8bf4"\u540e\u6587`;
 				const cursorCol = quoted.indexOf('"\u540e\u6587');
 				const result = await getSuggestions(provider, [quoted], 0, cursorCol, true);
 				assert.ok(result);
@@ -701,8 +726,8 @@ describe("CombinedAutocompleteProvider", () => {
 					[`"${directory}/\u8bf4\u660e.md"`],
 				);
 				const applied = provider.applyCompletion([quoted], 0, cursorCol, result.items[0]!, result.prefix);
-				assert.strictEqual(applied.lines[0], `\u67e5\u770b，"${directory}/\u8bf4\u660e.md"\u540e\u6587`);
-				const missing = `\u67e5\u770b，"\u4e0d\u5b58\u5728${separator}\u5f52\u6863/\u8bf4`;
+				assert.strictEqual(applied.lines[0], `\u67e5\u770b\uff0c"${directory}/\u8bf4\u660e.md"\u540e\u6587`);
+				const missing = `\u67e5\u770b\uff0c"\u4e0d\u5b58\u5728${separator}\u5f52\u6863/\u8bf4`;
 				assert.strictEqual(await getSuggestions(provider, [missing], 0, missing.length, true), null);
 			}
 		});
@@ -710,7 +735,7 @@ describe("CombinedAutocompleteProvider", () => {
 		test("handles an empty prefix after whitespace or CJK punctuation consistently", async () => {
 			setupFolder(baseDir, { files: { "\u8bf4\u660e.md": "text" } });
 			const provider = new CombinedAutocompleteProvider([], baseDir);
-			for (const separator of [" ", "\t", "\u3000", "，", "。"]) {
+			for (const separator of [" ", "\t", "\u3000", "\uff0c", "\u3002"]) {
 				for (const force of [false, true]) {
 					const line = `\u67e5\u770b${separator}`;
 					const result = await getSuggestions(provider, [line], 0, line.length, force);
@@ -723,6 +748,18 @@ describe("CombinedAutocompleteProvider", () => {
 				}
 			}
 			assert.strictEqual(await getSuggestions(provider, [""], 0, 0), null);
+		});
+
+		test("preserves unmatched leading wrappers in literal filenames", async () => {
+			setupFolder(baseDir, { files: { "(draft.md": "x" } });
+			const provider = new CombinedAutocompleteProvider([], baseDir);
+			const line = "see (dra";
+			const result = await getSuggestions(provider, [line], 0, line.length, true);
+			assert.ok(result);
+			assert.strictEqual(result.prefix, "(dra");
+			assert.deepStrictEqual(result.items.map((item) => item.value), ["(draft.md"]);
+			const applied = provider.applyCompletion([line], 0, line.length, result.items[0]!, result.prefix);
+			assert.strictEqual(applied.lines[0], "see (draft.md");
 		});
 
 		test("completes paths after opening wrappers like ( [ { < and backticks", async () => {
@@ -839,7 +876,7 @@ describe("CombinedAutocompleteProvider", () => {
 
 		test("quotes paths containing whitespace or CJK punctuation for direct completion", async () => {
 			const provider = new CombinedAutocompleteProvider([], baseDir);
-			for (const separator of [" ", "\u3000", "，", "。"]) {
+			for (const separator of [" ", "\u3000", "\uff0c", "\u3002"]) {
 				const directory = `my${separator}folder`;
 				setupFolder(baseDir, { files: { [`${directory}/test.txt`]: "content" } });
 				const line = "my";
@@ -858,7 +895,7 @@ describe("CombinedAutocompleteProvider", () => {
 		});
 
 		test("keeps quoted directories before files", async () => {
-			setupFolder(baseDir, { dirs: ["z folder", "z，folder"], files: { "a.txt": "text" } });
+			setupFolder(baseDir, { dirs: ["z folder", "z\uff0cfolder"], files: { "a.txt": "text" } });
 			const provider = new CombinedAutocompleteProvider([], baseDir);
 			const result = await getSuggestions(provider, [""], 0, 0, true);
 			assert.ok(result);

@@ -22,6 +22,7 @@ import {
   IAgentLifecycleService,
   IAgentLoopService,
   IAgentPermissionModeService,
+  IAgentPlanService,
   IAgentProfileService,
   IAgentTaskService,
   IAuthSummaryService,
@@ -427,6 +428,17 @@ async function resolveNativeSession(
     return session;
   };
 
+  // Plan mode waits for the user to review the plan, and nobody can review it
+  // in print mode: a resumed session still in Plan mode keeps running in Plan
+  // mode, and its plan stays unapproved until the user reviews it.
+  const notePlanMode = async (agent: IAgentScopeHandle, sessionId: string): Promise<void> => {
+    if ((await agent.accessor.get(IAgentPlanService).status()) === null) return;
+    stderr.write(
+      `Session "${sessionId}" is in Plan mode, and its plan cannot be approved in print mode; ` +
+        `review it with \`pythinker -r ${sessionId}\`.\n`,
+    );
+  };
+
   const forceAuto = (agent: IAgentScopeHandle): PermissionMode => {
     const permissionMode = agent.accessor.get(IAgentPermissionModeService);
     const previous = permissionMode.mode;
@@ -449,6 +461,7 @@ async function resolveNativeSession(
     const session = await resumeById(opts.session);
     const agentContext = await ensureMainAgent(session);
     const agent = session.accessor.get(IAgentLifecycleService).handleOf(agentContext.agentId)!;
+    await notePlanMode(agent, opts.session);
     const profile = agent.accessor.get(IAgentProfileService);
     await applyModelOverride(profile, opts.model);
     const currentModel = profile.getModel();
@@ -469,6 +482,7 @@ async function resolveNativeSession(
       const session = await resumeById(previous.id);
       const agentContext = await ensureMainAgent(session);
       const agent = session.accessor.get(IAgentLifecycleService).handleOf(agentContext.agentId)!;
+      await notePlanMode(agent, previous.id);
       const profile = agent.accessor.get(IAgentProfileService);
       await applyModelOverride(profile, opts.model);
       const currentModel = profile.getModel();
@@ -495,6 +509,13 @@ async function resolveNativeSession(
   });
   const agentContext = await ensureMainAgent(session);
   const agent = session.accessor.get(IAgentLifecycleService).handleOf(agentContext.agentId)!;
+  // `default_plan_mode` opens new sessions in Plan mode, but nobody can review
+  // a plan in print mode, so the setting is skipped for this run.
+  const plan = agent.accessor.get(IAgentPlanService);
+  if ((await plan.status()) !== null) {
+    plan.cancel();
+    stderr.write('default_plan_mode is not applied in print mode, because Plan mode waits for your review.\n');
+  }
   agent.accessor.get(IAgentPermissionModeService).setMode('auto');
   return {
     session,
@@ -520,20 +541,24 @@ export async function listTrustGatedMcpServers(
   workDir: string,
   homeDir: string,
 ): Promise<readonly TrustGatedMcpServer[]> {
-  const workspace = await app.accessor
+  const lease = await app.accessor
     .get(IWorkspaceInstanceManager)
-    .getOrCreate({ root: workDir });
-  if (await workspace.program.trust.get()) return [];
-  const fs = app.accessor.get(IHostFileSystem);
-  const [paths, loaded] = await Promise.all([
-    resolveMcpJsonPaths({ fs, cwd: workDir, homeDir }),
-    loadMcpServersDetailed({ fs, cwd: workDir, homeDir, includeProject: true }),
-  ]);
-  const projectPaths = new Set([paths.projectRoot, paths.project]);
-  return Object.entries(loaded.servers)
-    .filter(([name]) => projectPaths.has(loaded.origins[name] ?? ''))
-    .map(([name, config]) => ({ name, target: describeMcpTarget(config) }))
-    .toSorted((a, b) => a.name.localeCompare(b.name));
+    .acquire({ root: workDir });
+  try {
+    if (await lease.instance.program.trust.get()) return [];
+    const fs = app.accessor.get(IHostFileSystem);
+    const [paths, loaded] = await Promise.all([
+      resolveMcpJsonPaths({ fs, cwd: workDir, homeDir }),
+      loadMcpServersDetailed({ fs, cwd: workDir, homeDir, includeProject: true }),
+    ]);
+    const projectPaths = new Set([paths.projectRoot, paths.project]);
+    return Object.entries(loaded.servers)
+      .filter(([name]) => projectPaths.has(loaded.origins[name] ?? ''))
+      .map(([name, config]) => ({ name, target: describeMcpTarget(config) }))
+      .toSorted((a, b) => a.name.localeCompare(b.name));
+  } finally {
+    lease.dispose();
+  }
 }
 
 export function formatTrustGatedMcpWarning(servers: readonly TrustGatedMcpServer[]): string {

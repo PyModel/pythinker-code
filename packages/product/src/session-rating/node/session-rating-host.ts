@@ -109,6 +109,8 @@ export interface SessionRatingHostOptions {
 interface MountedSession {
   readonly mount: SessionRatingMount;
   readonly disposables: IDisposable[];
+  readonly ready: () => Promise<void>;
+  recover: boolean;
 }
 
 export class SessionRatingHost implements IDisposable {
@@ -157,6 +159,8 @@ export class SessionRatingHost implements IDisposable {
     });
     const created = manager.onDidCreateSession?.((event) => {
       this.mountSession(event.sessionId, event.handle);
+      const session = this.sessions.get(event.sessionId);
+      if (session !== undefined) session.recover = event.source === 'reclaimed';
     });
     const closing = manager.onWillCloseSession?.((event) => {
       this.unmountSession(event.sessionId);
@@ -165,6 +169,10 @@ export class SessionRatingHost implements IDisposable {
     if (created !== undefined) this.subscriptions.push(created);
     if (closing !== undefined) this.subscriptions.push(closing);
     for (const handle of manager.list()) this.mountSession(handle.id, handle);
+  }
+
+  async whenReady(sessionId: string): Promise<void> {
+    await this.sessions.get(sessionId)?.ready();
   }
 
   evaluate(sessionId: string): RatingOffer | undefined {
@@ -194,7 +202,8 @@ export class SessionRatingHost implements IDisposable {
     let mainAgentEvents: IDisposable | undefined;
     let userTurnsObserved = 0;
     let resumedAgents: Readonly<Record<string, ResumedAgentSeed>> | undefined;
-    void handle.accessor
+    let historyReady: Promise<void> = Promise.resolve();
+    const metadataReady = handle.accessor
       .get(ISessionMetadata)
       .read()
       .then((meta) => {
@@ -220,7 +229,8 @@ export class SessionRatingHost implements IDisposable {
       mainAgent = agent;
       const counter = mountSurveyTurnCounter(agent.accessor.get(IEventDispatcher));
       surveyTurns = counter;
-      void counter.whenAttached.catch((error: unknown) => {
+      historyReady = counter.whenAttached;
+      void historyReady.catch((error: unknown) => {
         this.options.log?.('session rating history unavailable', { error: String(error) });
       });
       const bus = agent.accessor.get(IEventBus);
@@ -276,7 +286,13 @@ export class SessionRatingHost implements IDisposable {
       }),
       { dispose: () => mainAgentEvents?.dispose() },
     ];
-    this.sessions.set(sessionId, { mount, disposables });
+    const ready = async () => {
+      await Promise.all([metadataReady, historyReady]).catch(() => undefined);
+      if (this.sessions.get(sessionId)?.recover !== true) return;
+      const recovery = surveyTurns?.recovery();
+      if (recovery !== undefined) mount.recover(recovery);
+    };
+    this.sessions.set(sessionId, { mount, disposables, ready, recover: false });
   }
 
   private unmountSession(sessionId: string): void {

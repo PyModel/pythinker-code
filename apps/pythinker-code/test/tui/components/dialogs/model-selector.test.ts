@@ -542,6 +542,37 @@ describe('ModelSelectorComponent', () => {
   });
 });
 
+describe('ModelSelectorComponent effort descriptions', () => {
+  it('updates descriptions for the highlighted effort and hides them for other providers', () => {
+    const picker = new ModelSelectorComponent({
+      models: {
+        pythinker: effortModel('Kimi K3', ['low', 'high', 'max'], 'high'),
+        custom: { ...effortModel('Custom K3', ['low', 'high', 'max'], 'high'), provider: 'custom' },
+      },
+      currentValue: 'pythinker',
+      currentThinkingEffort: 'high',
+      effortDescriptions: {
+        low: 'Light reasoning.',
+        high: 'Deeper reasoning.',
+        max: 'Maximum reasoning.',
+      },
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+    });
+
+    expect(text(picker)).toContain('Deeper reasoning.');
+    picker.handleInput(RIGHT);
+    expect(text(picker)).toContain('Maximum reasoning.');
+    picker.handleInput(LEFT);
+    picker.handleInput(LEFT);
+    expect(text(picker)).toContain('Light reasoning.');
+    picker.handleInput(LEFT);
+    expect(text(picker)).not.toContain('Light reasoning.');
+    picker.handleInput(DOWN);
+    expect(text(picker)).not.toContain('Deeper reasoning.');
+  });
+});
+
 describe('ModelSelectorComponent overrides', () => {
   it('uses overridden support_efforts for selectable efforts', () => {
     const picker = new ModelSelectorComponent({

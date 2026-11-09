@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -36,17 +37,33 @@ type ClaimOutcome =
 function pidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
-    return true;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
+    if ((error as NodeJS.ErrnoException).code !== 'EPERM') return false;
+  }
+  if (process.platform === 'win32') return true;
+  try {
+    const stat = execFileSync('ps', ['-p', String(pid), '-o', 'stat='], {
+      encoding: 'utf8',
+      timeout: 1000,
+    });
+    return !stat.trim().startsWith('Z');
+  } catch {
+    return true;
   }
 }
+
+const CLIENT_DISPLAY_NAMES: Record<string, string> = {
+  pythinker_code_cli: 'Pythinker Code CLI',
+  pythinker_code_desktop: 'Pythinker Code Desktop',
+  pythinker_code_vscode: 'Pythinker Code for VS Code',
+};
 
 export class SessionLockService extends SessionLockHolds {
   override readonly enforced: boolean;
   private readonly lockDir: string;
   private readonly hostname: string;
   private readonly clientIdentity: string;
+  private readonly clientDisplayName: string | undefined;
   private lockDirReady = false;
   private exitListener: (() => void) | undefined;
 
@@ -59,6 +76,10 @@ export class SessionLockService extends SessionLockHolds {
     this.lockDir = join(bootstrap.homeDir, 'locks', 'sessions');
     this.hostname = os.hostname();
     this.clientIdentity = bootstrap.clientIdentity.platform || bootstrap.clientIdentity.productName;
+    this.clientDisplayName =
+      this.clientIdentity === 'pythinker_code_cli' && bootstrap.clientIdentity.userAgentSuffix === 'web'
+        ? 'Pythinker Code Web'
+        : CLIENT_DISPLAY_NAMES[this.clientIdentity];
   }
 
   protected publish(sessionId: string): string {
@@ -87,6 +108,18 @@ export class SessionLockService extends SessionLockHolds {
       return;
     } finally {
       if (!this.holding) this.unwatchExit();
+    }
+  }
+
+  protected evict(sessionId: string): void {
+    const lockPath = this.lockPath(sessionId);
+    const holder = this.readHolder(lockPath);
+    if (holder === undefined) return;
+    this.log.warn('taking over session lock', { sessionId, holder });
+    try {
+      fs.unlinkSync(lockPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
   }
 
@@ -167,6 +200,8 @@ export class SessionLockService extends SessionLockHolds {
         typeof parsed.clientIdentity === 'string'
           ? parsed.clientIdentity
           : UNREADABLE_HOLDER.clientIdentity,
+      clientDisplayName:
+        typeof parsed.clientDisplayName === 'string' ? parsed.clientDisplayName : undefined,
     };
   }
 
@@ -185,6 +220,7 @@ export class SessionLockService extends SessionLockHolds {
       hostname: this.hostname,
       startedAt: Date.now(),
       clientIdentity: this.clientIdentity,
+      clientDisplayName: this.clientDisplayName,
     } satisfies SessionLockHolder);
   }
 

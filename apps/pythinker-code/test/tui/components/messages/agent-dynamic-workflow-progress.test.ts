@@ -11,6 +11,7 @@ import {
   agentDynamicWorkflowPartialItemsCountFromArguments,
   agentDynamicWorkflowPartialItemsFromArguments,
   calculateAgentDynamicWorkflowGridLayout,
+  isAgentDynamicWorkflowRejection,
 } from '#/tui/components/messages/agent-dynamic-workflow-progress';
 import { AgentDynamicWorkflowProgressEstimator } from '#/tui/components/messages/agent-dynamic-workflow-progress-estimator';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
@@ -153,6 +154,28 @@ describe('calculateAgentDynamicWorkflowGridLayout', () => {
     expect(agentDynamicWorkflowGridHeightForTerminalRows(10)).toBe(4);
     expect(agentDynamicWorkflowGridHeightForTerminalRows(20, 5)).toBe(9);
     expect(agentDynamicWorkflowGridHeightForTerminalRows(4)).toBe(0);
+  });
+});
+
+describe('isAgentDynamicWorkflowRejection', () => {
+  it('matches failures that ended the call before any subagent started', () => {
+    expect(isAgentDynamicWorkflowRejection(
+      'DynamicWorkflow mode is off, so AgentDynamicWorkflow did not run and no subagents were started.',
+    )).toBe(true);
+    expect(isAgentDynamicWorkflowRejection(
+      'AgentDynamicWorkflow requires at least 2 items unless resume_agent_ids is provided.',
+    )).toBe(true);
+  });
+
+  it('does not match per-subagent results or cancellations', () => {
+    expect(isAgentDynamicWorkflowRejection([
+      '<agent_dynamic_workflow_result>',
+      '<summary>failed: 1</summary>',
+      '<subagent index="1" outcome="failed">Agent timed out.</subagent>',
+      '</agent_dynamic_workflow_result>',
+    ].join('\n'))).toBe(false);
+    expect(isAgentDynamicWorkflowRejection('Aborted by the user')).toBe(false);
+    expect(isAgentDynamicWorkflowRejection('The user manually interrupted this subagent batch.')).toBe(false);
   });
 });
 

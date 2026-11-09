@@ -26,6 +26,7 @@ import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentUserToolService, type UserToolRegistration } from '#/agent/userTool/userTool';
+import { IAgentDynamicWorkflowService } from '#/features/dynamic_workflow/agent/dynamic_workflow';
 import {
   AgentDynamicWorkflowToolInputSchema,
   type AgentDynamicWorkflowToolInput,
@@ -45,7 +46,11 @@ import { DEFAULT_SUBAGENT_TIMEOUT_MS, SECONDARY_MODEL_SECTION, SUBAGENT_SECTION 
 import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
 import { Error2, ErrorCodes } from '#/errors';
 import type { AgentTaskSettlement } from '#/agent/task/types';
-import { SubagentTask } from '#/agent/tools/agent/subagent-task';
+import {
+  NO_PARTIAL_OUTPUT,
+  PARTIAL_OUTPUT_NOTICE,
+  SubagentTask,
+} from '#/agent/tools/agent/subagent-task';
 import { runAgentTurn } from '#/session/subagent/runAgentTurn';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
@@ -62,6 +67,7 @@ import {
   type RunAgentOptions,
 } from '#/session/subagent/subagent';
 import { IEventBus } from '#/app/event/eventBus';
+import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import type { Event2 } from '#/app/event/event2';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
@@ -216,6 +222,7 @@ interface AgentLifecycleStubOptions {
     request: AgentRunRequest,
     options: RunAgentOptions,
   ) => Promise<AgentRunCompletion>;
+  readonly partialOutput?: (agentId: string) => string;
   readonly createError?: Error;
   readonly handleServices?: ReadonlyMap<string, ReadonlyMap<unknown, unknown>>;
 }
@@ -420,6 +427,7 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
         agentId: agent.agentId,
         turn: {} as AgentRunHandle['turn'],
         completion,
+        partialOutput: () => options.partialOutput?.(agent.agentId) ?? '',
       };
     }),
     get: vi.fn((agentId: string) => contextsByAgentId.get(agentId)),
@@ -475,6 +483,11 @@ function agentDynamicWorkflowTool(ctx: TestAgentContext): ExecutableTool<AgentDy
   const tool = ctx.get(IAgentToolRegistryService).resolve('AgentDynamicWorkflow');
   expect(tool).toBeDefined();
   return tool! as ExecutableTool<AgentDynamicWorkflowToolInput>;
+}
+
+function agentDynamicWorkflowToolInDynamicWorkflowMode(ctx: TestAgentContext): ExecutableTool<AgentDynamicWorkflowToolInput> {
+  ctx.get(IAgentDynamicWorkflowService).enter('manual');
+  return agentDynamicWorkflowTool(ctx);
 }
 
 function executeAgentTool(
@@ -2249,6 +2262,7 @@ describe('Agent tool execution contract', () => {
         agentId: 'agent-child',
         turn: {} as AgentRunHandle['turn'],
         completion: Promise.resolve({ summary: 'child result' }),
+        partialOutput: () => '',
       },
       {
         profileName: 'explore',
@@ -3055,8 +3069,67 @@ describe('Agent tool execution contract', () => {
     expect(result.output).toContain('status: failed');
     expect(result.output).toContain('stop_reason: cancelled');
     expect(result.output).toContain('The subagent was stopped before it finished by user.');
+    expect(result.output).toContain(NO_PARTIAL_OUTPUT);
     expect(result.output).not.toContain('resume_hint:');
     expect(result.output).toContain('next_step: The user stopped this subagent.');
+  });
+
+  it('hands back the text a foreground subagent wrote before the user stopped it', async () => {
+    const lifecycle = createAgentLifecycleStub({
+      createAgentIds: ['agent-child'],
+      runCompletion: (_agentId, _request, options) =>
+        new Promise((_resolve, reject) => {
+          options.signal.addEventListener(
+            'abort',
+            () => {
+              reject(options.signal.reason);
+            },
+            { once: true },
+          );
+        }),
+      partialOutput: () => 'Found the loop at src/parser.ts:42; not verified yet.',
+    });
+    const context = createAgentToolContext(lifecycle);
+    const controller = new AbortController();
+
+    const resultPromise = executeAgentTool(
+      context,
+      { prompt: 'Investigate', description: 'Find cause' },
+      controller.signal,
+    );
+    await vi.waitFor(() => {
+      expect(context.get(IAgentTaskService).list(false)).toHaveLength(1);
+    });
+    controller.abort(userCancellationReason());
+    const result = await resultPromise;
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('status: failed');
+    expect(result.output).toContain('stop_reason: cancelled');
+    expect(result.output).toContain(
+      `${PARTIAL_OUTPUT_NOTICE}\n\nFound the loop at src/parser.ts:42; not verified yet.`,
+    );
+    expect(result.output).not.toContain(NO_PARTIAL_OUTPUT);
+    expect(result.output).toContain('next_step: The user stopped this subagent.');
+  });
+
+  it('keeps a completed foreground subagent result free of partial-output notices', async () => {
+    const lifecycle = createAgentLifecycleStub({
+      createAgentIds: ['agent-child'],
+      partialOutput: () => 'Working notes that should not be repeated.',
+    });
+    const context = createAgentToolContext(lifecycle);
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+    });
+
+    expect(result.isError ?? false).toBe(false);
+    expect(result.output).toContain('status: completed');
+    expect(result.output).toContain('child result');
+    expect(result.output).not.toContain('[partial output]');
+    expect(result.output).not.toContain('Working notes that should not be repeated.');
   });
 
   it('reports the reason when a foreground subagent is stopped for another cause', async () => {
@@ -3326,7 +3399,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
     };
     ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
 
-    const result = await executeTool(agentDynamicWorkflowTool(ctx), {
+    const result = await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
       turnId: 0,
       toolCallId: 'call_dynamic_workflow',
       args: {
@@ -3413,7 +3486,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
       },
     );
 
-    await executeTool(agentDynamicWorkflowTool(ctx), {
+    await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
       turnId: 0,
       toolCallId: 'call_dynamic_workflow',
       args: {
@@ -3473,7 +3546,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
       },
     );
 
-    await executeTool(agentDynamicWorkflowTool(ctx), {
+    await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
       turnId: 0,
       toolCallId: 'call_dynamic_workflow',
       args: {
@@ -3530,7 +3603,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
     };
     ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
 
-    const result = await executeTool(agentDynamicWorkflowTool(ctx), {
+    const result = await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
       turnId: 0,
       toolCallId: 'call_dynamic_workflow',
       args: {
@@ -3656,7 +3729,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
     };
     ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
 
-    const result = await executeTool(agentDynamicWorkflowTool(ctx), {
+    const result = await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
       turnId: 0,
       toolCallId: 'call_dynamic_workflow',
       args: {
@@ -3703,7 +3776,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
     };
     ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
 
-    const result = await executeTool(agentDynamicWorkflowTool(ctx), {
+    const result = await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
       turnId: 0,
       toolCallId: 'call_dynamic_workflow',
       args: {
@@ -3753,7 +3826,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
     };
     ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
 
-    const result = await executeTool(agentDynamicWorkflowTool(ctx), {
+    const result = await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
       turnId: 0,
       toolCallId: 'call_dynamic_workflow',
       args: {
@@ -3809,7 +3882,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
     };
     ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
 
-    const result = await executeTool(agentDynamicWorkflowTool(ctx), {
+    const result = await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
       turnId: 0,
       toolCallId: 'call_dynamic_workflow',
       args: {
@@ -3835,7 +3908,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
   it('declares broad accesses and does not expose permission rule argument matching', async () => {
     ctx = createTestAgent();
 
-    const execution = await agentDynamicWorkflowTool(ctx).resolveExecution({
+    const execution = await agentDynamicWorkflowToolInDynamicWorkflowMode(ctx).resolveExecution({
       description: 'Review files',
       prompt_template: 'Review {{item}}',
       items: ['src/a.ts', 'src/b.ts'],
@@ -3856,7 +3929,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
   it('counts resumed and item-based subagents in the display name', async () => {
     ctx = createTestAgent();
 
-    const execution = await agentDynamicWorkflowTool(ctx).resolveExecution({
+    const execution = await agentDynamicWorkflowToolInDynamicWorkflowMode(ctx).resolveExecution({
       description: 'Finish review',
       prompt_template: 'Review {{item}}',
       items: ['src/new.ts'],
@@ -3871,6 +3944,90 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
       agent_name: 'dynamic_workflow (3 subagents)',
       prompt: 'Finish review',
     });
+  });
+
+  it('rejects calls while dynamic_workflow mode is off without turning it on', async () => {
+    const runDynamicWorkflow = vi.fn(async (): Promise<readonly SessionDynamicWorkflowRunResult[]> => []);
+    const dynamicWorkflowService: ISessionDynamicWorkflowService = {
+      _serviceBrand: undefined,
+      getDynamicWorkflowItem: async () => undefined,
+      run: runDynamicWorkflow as ISessionDynamicWorkflowService['run'],
+      cancel: () => {},
+    };
+    ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
+
+    const result = await executeTool(agentDynamicWorkflowTool(ctx), {
+      turnId: 0,
+      toolCallId: 'call_dynamic_workflow',
+      args: {
+        description: 'Review files',
+        prompt_template: 'Review {{item}}',
+        items: ['src/a.ts', 'src/b.ts'],
+      },
+      signal,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('DynamicWorkflow mode is off, so AgentDynamicWorkflow did not run');
+    expect(runDynamicWorkflow).not.toHaveBeenCalled();
+    expect(ctx.get(IAgentDynamicWorkflowService).isActive).toBe(false);
+  });
+
+  it('answers a model-started AgentDynamicWorkflow call with an error while dynamic_workflow mode is off', async () => {
+    const runDynamicWorkflow = vi.fn(async (): Promise<readonly SessionDynamicWorkflowRunResult[]> => []);
+    const dynamicWorkflowService: ISessionDynamicWorkflowService = {
+      _serviceBrand: undefined,
+      getDynamicWorkflowItem: async () => undefined,
+      run: runDynamicWorkflow as ISessionDynamicWorkflowService['run'],
+      cancel: () => {},
+    };
+    ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
+    const dynamicWorkflowModeUpdates: boolean[] = [];
+    const subscription = ctx.get(IEventBus).subscribe(AgentStatusUpdated, (event) => {
+      if (event.dynamicWorkflowMode !== undefined) dynamicWorkflowModeUpdates.push(event.dynamicWorkflowMode);
+    });
+
+    ctx.mockNextResponse({ type: 'text', text: 'I will start a dynamic_workflow.' }, agentDynamicWorkflowCall());
+    ctx.mockNextResponse({ type: 'text', text: 'I will review the files myself.' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Review the files' }] });
+    await ctx.untilTurnEnd();
+    subscription.dispose();
+
+    expect(runDynamicWorkflow).not.toHaveBeenCalled();
+    expect(dynamicWorkflowModeUpdates).toEqual([]);
+    expect(ctx.get(IAgentDynamicWorkflowService).isActive).toBe(false);
+    expect(JSON.stringify(ctx.get(IAgentContextMemoryService).get())).toContain(
+      'DynamicWorkflow mode is off, so AgentDynamicWorkflow did not run',
+    );
+  });
+
+  it('runs a model-started AgentDynamicWorkflow call in a one-task dynamic_workflow and turns dynamic_workflow mode off after the turn', async () => {
+    const runDynamicWorkflow = vi.fn(
+      async (args: SessionDynamicWorkflowRunArgs): Promise<readonly SessionDynamicWorkflowRunResult[]> =>
+        args.tasks.map((task, index) => ({
+          task,
+          agentId: `agent-explore-${String(index + 1)}`,
+          status: 'completed' as const,
+          result: 'ok',
+        })),
+    );
+    const dynamicWorkflowService: ISessionDynamicWorkflowService = {
+      _serviceBrand: undefined,
+      getDynamicWorkflowItem: async () => undefined,
+      run: runDynamicWorkflow as ISessionDynamicWorkflowService['run'],
+      cancel: () => {},
+    };
+    ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
+    const dynamic_workflow = ctx.get(IAgentDynamicWorkflowService);
+    dynamic_workflow.enter('task');
+
+    ctx.mockNextResponse({ type: 'text', text: 'I will start a dynamic_workflow.' }, agentDynamicWorkflowCall());
+    ctx.mockNextResponse({ type: 'text', text: 'The dynamic_workflow finished.' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Review the files' }] });
+    await ctx.untilTurnEnd();
+
+    expect(runDynamicWorkflow).toHaveBeenCalledTimes(1);
+    expect(dynamic_workflow.isActive).toBe(false);
   });
 });
 
@@ -4331,7 +4488,7 @@ describe('Agent tools', () => {
       `);
       expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
         system: <system-prompt>
-        tools: Agent, AgentDynamicWorkflow, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, Lookup, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, Write
+        tools: Agent, AgentDynamicWorkflow, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, Lookup, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, Write
         messages:
           user: text "Look up moon"
           user: text <auto-mode-enter-reminder>
@@ -4400,7 +4557,7 @@ describe('Agent tools', () => {
         [emit] turn.ended                     { "time": "<time>", "agentId": "main", "turnId": 1, "reason": "completed" }
       `);
       expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-        tools: Agent, AgentDynamicWorkflow, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, Write
+        tools: Agent, AgentDynamicWorkflow, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, Write
         messages:
           <last>
           assistant: text "The lookup result is moon-result."
@@ -4499,6 +4656,20 @@ function agentCall(): ToolCall {
       prompt: 'Investigate deeply',
       description: 'Investigate deeply',
       subagent_type: 'coder',
+    }),
+  };
+}
+
+function agentDynamicWorkflowCall(): ToolCall {
+  return {
+    type: 'function',
+    id: 'call_dynamic_workflow',
+    name: 'AgentDynamicWorkflow',
+    arguments: JSON.stringify({
+      description: 'Review files',
+      prompt_template: 'Review {{item}}',
+      items: ['src/a.ts', 'src/b.ts'],
+      subagent_type: 'explore',
     }),
   };
 }

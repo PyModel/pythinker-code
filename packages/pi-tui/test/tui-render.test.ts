@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import type { Terminal as XtermTerminalType } from "@xterm/headless";
 import { Image } from "../src/components/image.ts";
+import { Input } from "../src/components/input.ts";
 import { Text } from "../src/components/text.ts";
 import { Input } from "../src/components/input.ts";
 import type { Terminal } from "../src/terminal.ts";
