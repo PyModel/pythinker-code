@@ -1,1 +1,0 @@
-Plan mode is no longer active. The read-only and plan-file-only restrictions from plan mode no longer apply. If the user approved a plan, carry it out using the normal tool and permission rules; otherwise follow the user's latest message.
