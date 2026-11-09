@@ -1,0 +1,19 @@
+{
+  "changelog": ["@changesets/changelog-github", { "repo": "PyModel/pythinker-code" }],
+  "commit": false,
+  "fixed": [],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": [
+    "@pymodel/vis",
+    "@pymodel/vis-server",
+    "@pymodel/vis-web",
+    "@pymodel/pythinker-inspect"
+  ],
+  "snapshot": {
+    "useCalculatedVersion": true,
+    "prereleaseTemplate": "{tag}-{commit}"
+  }
+}
