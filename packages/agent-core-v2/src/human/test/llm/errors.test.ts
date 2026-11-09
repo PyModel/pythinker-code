@@ -6,15 +6,15 @@ import {
 } from 'openai';
 import { describe, expect, it, vi } from 'vitest';
 
-import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import { createAssistantMessage, createUserMessage, type Message } from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
-import { classifyPythinkerQuotaError } from '#/llm-pythinker/errors';
-import { pythinkerConnection, pythinkerOpenAITrait } from '#/llm-pythinker/trait';
-import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';
-import { convertOpenAIError } from '#/llm/requester/bases/openai/format';
-import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
-import type { LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';
+import { UNKNOWN_CAPABILITY } from '#/llm-requester/capability';
+import { createAssistantMessage, createUserMessage, type Message } from '#/message';
+import type { LlmModel } from '#/llm-requester/model';
+import { classifyPythinkerQuotaError } from '#/llm/builtin/provider/pythinker/errors';
+import { createPythinkerOpenAIRequester, pythinkerEndpoint } from '#/llm-requester/factories';
+import { createGoogleGenAIRequester } from '#/llm-requester/factories';
+import { convertOpenAIError } from '#/llm/builtin/protocol/openai/decode';
+import { createOpenAIRequester } from '#/llm-requester/factories';
+import type { LlmRequester, LlmRequestEvent } from '#/llm-requester/requester';
 
 const model: LlmModel = {
   provider: 'test',
@@ -291,9 +291,8 @@ describe('requester error conversion', () => {
   });
 
   it('converts a pythinker quota response to quota_exhausted', async () => {
-    const requester = createOpenAIRequester({
-      connection: pythinkerConnection,
-      trait: pythinkerOpenAITrait,
+    const requester = createPythinkerOpenAIRequester({
+      endpoint: pythinkerEndpoint,
       classifyError: classifyPythinkerQuotaError,
       clientFactory: failingOpenAIClient(
         new RawOpenAISDKAPIError(

@@ -20,8 +20,7 @@ describe('title excerpts over the real context memory', () => {
     const context = ctx.get(IAgentContextMemoryService);
     context.append({
       role: 'user',
-      content: [{ type: 'text', text: 'zh' }],
-      toolCalls: [],
+      content: [{ type: 'text', text: '\u5e2e\u6211\u90e8\u7f72\u8fd9\u4e2a\u670d\u52a1' }],
       origin: { kind: 'user' },
     });
     context.appendLoopEvent({ type: 'step.begin', uuid: 's1' });
@@ -70,8 +69,7 @@ describe('title excerpts over the real context memory', () => {
     const context = ctx.get(IAgentContextMemoryService);
     context.append({
       role: 'user',
-      content: [{ type: 'text', text: 'zh' }],
-      toolCalls: [],
+      content: [{ type: 'text', text: '\u521a\u53d1\u7684\u95ee\u9898' }],
       origin: { kind: 'user' },
     });
 
@@ -90,7 +88,6 @@ describe('title excerpts over the real context memory', () => {
         { type: 'text', text: 'User activated the skill "security". Follow the loaded skill instructions.' },
         { type: 'text', text: 'zh' },
       ],
-      toolCalls: [],
       origin: {
         kind: 'user',
         skillActivations: [

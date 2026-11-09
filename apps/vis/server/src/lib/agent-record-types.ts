@@ -15,6 +15,8 @@ export type {
   PromptOrigin,
   CronTask,
 } from '@pymodel/agent-core-v2';
+export type { ContentPart as CoreContentPart } from '@pymodel/agent-core-v2/human/llm/message';
+export { mediaUrlOf } from '@pymodel/agent-core-v2/human/llm/protocol/kit/media';
 export { WIRE_PROTOCOL_VERSION } from '@pymodel/agent-core-v2/wire/migration/migration';
 export type {
   AgentTaskInfo as BackgroundTaskInfo,

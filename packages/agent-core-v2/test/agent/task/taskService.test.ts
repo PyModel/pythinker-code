@@ -1025,7 +1025,6 @@ describe('AgentTaskService', () => {
     return {
       role: 'user',
       content: [{ type: 'text', text }],
-      toolCalls: [],
       origin: { kind: 'compaction_summary' },
     };
   }

@@ -150,5 +150,5 @@ export type {
   McpServerTestResult,
   McpServerTestTarget,
 } from '@pymodel/agent-core-v2/app/mcpManagement/mcpManagement';
-export type { ContentPart } from '@pymodel/agent-core-v2/human/llm/message';
+export type { ContentPart } from '@pymodel/agent-core-v2/human/message';
 export type { PermissionMode } from '@pymodel/agent-core-v2/agent/permissionPolicy/types';

@@ -9,6 +9,7 @@ import {
   IAgentRuntimeBindingService,
   IAgentToolPolicyService,
   IAgentSkillService,
+  IAgentDynamicWorkflowService,
   IEventBus,
   IEventService,
   IFileService,
@@ -119,6 +120,7 @@ async function resolvePromptFromSession(session: ISessionScopeHandle, agentId?: 
     toolPolicy: agent.accessor.get(IAgentToolPolicyService),
     permissionMode: agent.accessor.get(IAgentPermissionModeService),
     binding: agent.accessor.get(IAgentRuntimeBindingService),
+    dynamic_workflow: agent.accessor.get(IAgentDynamicWorkflowService),
   };
 }
 
@@ -285,6 +287,10 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
           if (req.body.thinking !== undefined && !thinkingConsumed)
             resolved.profile.setThinking(req.body.thinking);
           if (req.body.permission_mode !== undefined) resolved.permissionMode.setMode(req.body.permission_mode);
+          if (req.body.dynamic_workflow_mode !== undefined && resolved.dynamic_workflow.isActive !== req.body.dynamic_workflow_mode) {
+            if (req.body.dynamic_workflow_mode) resolved.dynamic_workflow.enter('manual');
+            else resolved.dynamic_workflow.exit();
+          }
           if (req.body.disabled_tools !== undefined) {
             try {
               await resolved.toolPolicy.setSessionDisabledTools(req.body.disabled_tools);
@@ -490,7 +496,7 @@ function projectPromptList(loop: IAgentLoopService) {
           userMessageId: item.meta?.userMessageId ?? '',
           createdAt: item.meta?.createdAt ?? '',
           state: 'pending',
-          message: { ...item.message, toolCalls: [], origin: item.meta?.origin as PromptOrigin | undefined },
+          message: { ...item.message, origin: item.meta?.origin as PromptOrigin | undefined },
         }),
       ),
   };

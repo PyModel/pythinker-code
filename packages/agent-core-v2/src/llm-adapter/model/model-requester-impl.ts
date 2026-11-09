@@ -3,13 +3,18 @@ import * as nodePath from 'node:path';
 import { performance, type EventLoopUtilization } from 'node:perf_hooks';
 
 import { AsyncEventQueue } from '#/_base/asyncEventQueue';
-import type { LlmErrorMessage } from '#human/llm/errors';
-import { emptyResponseError } from '#human/llm/empty-response';
-import { NO_FINISH, type FinishInfo } from '#human/llm/finish-reason';
-import type { ProviderMediaContribution, VideoUploadInput } from '#human/llm/media/upload';
-import { createMessageAccumulator, type VideoURLPart } from '#human/llm/message';
-import type { LlmModel } from '#human/llm/model';
-import type { ProtocolName } from '#human/llm/protocol/base';
+import type { LlmErrorMessage } from '#human/llm-requester/errors';
+import { emptyResponseError } from '#human/llm-requester/empty-response';
+import { NO_FINISH, type FinishInfo } from '#human/llm-requester/finish-reason';
+import type { ProviderMediaContribution, ImageUploadInput, VideoUploadInput } from '#human/media/upload';
+import {
+  createMessageAccumulator,
+  type ImageURLPart,
+  type ToolDescription as Tool,
+  type VideoURLPart,
+} from '#human/llm/message';
+import type { LlmModel } from '#human/llm-requester/model';
+import type { ProtocolName } from '#human/llm-requester/requester';
 import { applyCredential } from '#human/credentials/credentials';
 import {
   type ExtraParams,
@@ -17,23 +22,21 @@ import {
   type LlmRequestContent,
   type LlmRequestEvent,
   type LlmRequester,
-  mergeRequestHeaders,
-} from '#human/llm/requester/requester';
-import type { TokenUsage } from '#human/llm/usage';
+} from '#human/llm-requester/requester';
+import type { TokenUsage } from '#human/llm-requester/usage';
 
 import {
   ChatProviderError,
   errorFromLlmMessage,
+  ImageUploadUnsupportedError,
   isAbortError,
   llmMessageFromError,
   traceIdFromHeadersRecord,
   VideoUploadUnsupportedError,
 } from '../contract/errors';
-import { fromLlmAssistantMessage, toLlmMessage, type Tool } from '../contract/message';
-import { mergeUsagePatch } from '#human/llm/usage';
+import { mergeUsagePatch } from '#human/llm-requester/usage';
 
 import type { Model } from './catalog';
-import { opencodeSessionHeaders } from './opencode-session';
 import type {
   ModelRequestEvent,
   ModelRequestInput,
@@ -114,6 +117,22 @@ export class ModelRequesterImpl implements ModelRequester {
     return uploader(video, { model, signal: options?.signal });
   }
 
+  async uploadImage(
+    input: ImageUploadInput,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<ImageURLPart> {
+    const resolved = this.resolve();
+    const uploader = resolved.media?.uploadImage;
+    if (uploader === undefined) {
+      throw new ImageUploadUnsupportedError(
+        `Model "${this.model.id}" (protocol=${this.model.protocol}) does not support image upload`,
+      );
+    }
+    const credential = await this.model.credentialProvider?.resolve();
+    const model = applyCredential(resolved.model, credential);
+    return uploader(input, { model, signal: options?.signal });
+  }
+
   private async runRequest(
     input: ModelRequestInput,
     signal: AbortSignal | undefined,
@@ -154,30 +173,16 @@ export class ModelRequesterImpl implements ModelRequester {
       maxCompletionTokens: params?.maxCompletionTokens,
       maxContextTokens: params?.maxContextTokens,
       extraParams: samplingExtraParams(resolved.protocol, params?.sampling),
+      stream: params?.stream,
     };
     const content: LlmRequestContent = {
-      messages: input.messages.map(toLlmMessage),
+      messages: input.messages,
       usedContextTokens: params?.usedContextTokens,
     };
 
     const credential = await this.model.credentialProvider?.resolve();
-    const credentialed = applyCredential(resolved.model, credential);
-    const sessionHeaders = opencodeSessionHeaders(
-      credentialed.baseUrl,
-      params?.cacheKey,
-      credentialed.defaultHeaders,
-    );
     await requester.generate(
-      {
-        ...config,
-        model:
-          sessionHeaders === undefined
-            ? credentialed
-            : {
-                ...credentialed,
-                defaultHeaders: mergeRequestHeaders(credentialed.defaultHeaders, sessionHeaders),
-              },
-      },
+      { ...config, model: applyCredential(resolved.model, credential) },
       content,
       {
         signal: signal ?? new AbortController().signal,
@@ -267,7 +272,7 @@ export class ModelRequesterImpl implements ModelRequester {
     }
     queue.push({
       type: 'finish',
-      message: fromLlmAssistantMessage(accumulator.finish()),
+      message: accumulator.finish(),
       providerFinishReason: finish?.finishReason ?? undefined,
       rawFinishReason: finish?.rawFinishReason ?? undefined,
       id: messageId,

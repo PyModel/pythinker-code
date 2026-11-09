@@ -91,7 +91,12 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
         ]);
         for (const domain of Object.keys(camelPatch)) {
           if (!allowedDomains.has(domain)) continue;
-          await config.set(domain, camelPatch[domain]);
+          const patch = camelPatch[domain];
+          if (domain === 'secondaryModel' && patch === null) {
+            await config.replace(domain, null);
+          } else {
+            await config.set(domain, patch);
+          }
         }
         const response = toConfigResponse(config.getAll());
         const changedFields = Object.keys(req.body as Record<string, unknown>);

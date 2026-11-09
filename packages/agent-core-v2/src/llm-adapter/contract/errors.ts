@@ -12,14 +12,14 @@ import {
   sanitizeStatusErrorMessage,
   type LlmErrorMessage,
   type LlmRemoteErrorMessage,
-} from '#human/llm/errors';
-import type { FinishReason } from '#human/llm/finish-reason';
+} from '#human/llm-requester/errors';
+import type { FinishReason } from '#human/llm-requester/finish-reason';
 
 export {
   isAbortError,
   parseRetryAfterMs,
   sanitizeStatusErrorMessage,
-} from '#human/llm/errors';
+} from '#human/llm-requester/errors';
 
 export const CONFIG_INVALID_ERROR_CODE = 'config.invalid';
 
@@ -68,6 +68,13 @@ export class VideoUploadUnsupportedError extends ChatProviderError {
   constructor(message: string) {
     super(message);
     this.name = 'VideoUploadUnsupportedError';
+  }
+}
+
+export class ImageUploadUnsupportedError extends ChatProviderError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ImageUploadUnsupportedError';
   }
 }
 
@@ -234,7 +241,7 @@ export function isRetryableGenerateError(error: unknown): boolean {
     }
     return [408, 409, 429, 500, 502, 503, 504, 529].includes(error.statusCode);
   }
-  return false;
+  return error instanceof ChatProviderError && !isImageFormatError(error);
 }
 
 const NETWORK_RE = /network|connection|connect|disconnect|terminated/i;

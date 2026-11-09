@@ -9,8 +9,8 @@ import { ILogService } from '#/_base/log/log';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { userCancellationReason } from '#/_base/utils/abort';
 import { createHooks } from '#/hooks';
-import type { ToolCall } from '#human/llm/message';
-import type { TokenUsage } from '#human/llm/usage';
+import type { ToolCall } from '#human/message';
+import type { TokenUsage } from '#human/llm-requester/usage';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -701,10 +701,12 @@ describe('Agent tool description', () => {
 
     const tool = ctx.toolsData().find((entry) => entry.name === 'Agent');
     expect(tool).toBeDefined();
-    expect(tool!.description).toContain('Context forking');
+    expect(tool!.description).toContain('inheriting your current agent type, model, and tool set.');
     const properties = (tool!.parameters as { properties?: Record<string, unknown> } | undefined)
       ?.properties;
-    expect(properties).toHaveProperty('fork');
+    expect(properties?.['fork']).toMatchObject({
+      description: 'Start with a snapshot of your completed conversation history, inheriting your current agent type, model, and tool set.',
+    });
   });
 
   it('does not offer the default agent type to the builtin default caller', () => {
@@ -989,7 +991,7 @@ describe('Agent tool description', () => {
     expect(agentDescription()).not.toContain('Available models');
   });
 
-  it('renders the pool in config order with the default first and the caller alias on the primary line', () => {
+  it('renders the pool in config order with the default first and no primary choice', () => {
     ctx = createTestAgent({
       initialConfig: {
         secondaryModel: {
@@ -1008,12 +1010,9 @@ describe('Agent tool description', () => {
     expect(description).toContain('Available models');
     const defaultIndex = description.indexOf('- provider/fast [default]: fast and cheap');
     const smartIndex = description.indexOf('- provider/smart: hard tasks');
-    const primaryIndex = description.indexOf(
-      '- primary (= mock-model): your current model and thinking level\n',
-    );
     expect(defaultIndex).toBeGreaterThanOrEqual(0);
     expect(smartIndex).toBeGreaterThan(defaultIndex);
-    expect(primaryIndex).toBeGreaterThan(smartIndex);
+    expect(description).not.toContain('- primary');
   });
 
   it('renders the caller-in-pool alias as a plain entry and renders empty descriptions bare', () => {
@@ -1035,8 +1034,8 @@ describe('Agent tool description', () => {
 
     expect(description).toContain('- provider/fast [default]: fast and cheap');
     expect(description).toContain('- mock-model: the main model, great at hard things');
-    expect(description).toContain('- provider/smart\n');
-    expect(description).toContain('- primary (= mock-model): your current model and thinking level\n');
+    expect(description).toMatch(/^- provider\/smart$/m);
+    expect(description).not.toContain('- primary');
   });
 
   it('marks the default alias with [default]', () => {
@@ -1061,7 +1060,6 @@ describe('Agent tool description', () => {
     const fastIndex = description.indexOf('- provider/fast: fast and cheap');
     expect(defaultIndex).toBeGreaterThanOrEqual(0);
     expect(fastIndex).toBeGreaterThan(defaultIndex);
-    expect(description).toContain('- primary (= mock-model): your current model and thinking level\n');
   });
 
   function agentParameters(): Record<string, unknown> {
@@ -1079,12 +1077,12 @@ describe('Agent tool description', () => {
     expect(properties).toHaveProperty('prompt');
   });
 
-  it('advertises the model parameter when a pool is configured', () => {
+  it('advertises the model parameter when the pool offers more than one model', () => {
     ctx = createTestAgent({
       initialConfig: {
         secondaryModel: {
           defaultModel: 'provider/fast',
-          models: { 'provider/fast': 'fast and cheap' },
+          models: { 'provider/fast': 'fast and cheap', 'provider/smart': 'hard tasks' },
         },
         models: POOL_MODEL_ENTRIES,
       },
@@ -1111,26 +1109,16 @@ describe('Agent tool description', () => {
     expect(agentDescription()).not.toContain('Available models');
   });
 
-  it('treats a pool-less default_model as an implicit single-entry pool', () => {
+  it.each([
+    { name: 'a pool-less default_model', secondaryModel: { defaultModel: 'provider/fast' } },
+    {
+      name: 'a single-entry pool table',
+      secondaryModel: { defaultModel: 'provider/fast', models: { 'provider/fast': 'fast' } },
+    },
+  ])('hides the model parameter and the pool description for $name', ({ secondaryModel }) => {
     ctx = createTestAgent({
       initialConfig: {
-        secondaryModel: { defaultModel: 'provider/fast' },
-        models: POOL_MODEL_ENTRIES,
-      },
-    });
-
-    const properties = agentParameters()['properties'] as Record<string, unknown>;
-    expect(properties).toHaveProperty('model');
-
-    const description = agentDescription();
-    expect(description).toContain('- provider/fast [default]\n');
-    expect(description).toContain('- primary (= mock-model): your current model and thinking level\n');
-  });
-
-  it('hides the model parameter and the pool description when force is set', () => {
-    ctx = createTestAgent({
-      initialConfig: {
-        secondaryModel: { defaultModel: 'provider/fast', force: true },
+        secondaryModel,
         models: POOL_MODEL_ENTRIES,
       },
     });
@@ -1746,17 +1734,26 @@ describe('Agent tool execution contract', () => {
     expect(lifecycle.run).not.toHaveBeenCalled();
   });
 
-  it('accepts fork with the primary model choice', async () => {
+  it('accepts fork with its own model alias but rejects the removed primary choice', async () => {
     const lifecycle = createAgentLifecycleStub({
       createAgentIds: ['agent-child'],
       runCompletion: async () => ({ summary: 'child result' }),
     });
     const context = createAgentToolContext(lifecycle, forkFlags());
 
-    const result = await executeAgentTool(context, {
+    const rejected = await executeAgentTool(context, {
       prompt: 'Continue the analysis',
       description: 'Fork context',
       model: 'primary',
+      fork: true,
+    });
+    expect(rejected).toMatchObject({ isError: true, output: FORK_WITH_MODEL_UNAVAILABLE });
+    expect(lifecycle.fork).not.toHaveBeenCalled();
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Continue the analysis',
+      description: 'Fork context',
+      model: 'mock-model',
       fork: true,
     });
 
@@ -1953,37 +1950,32 @@ describe('Agent tool execution contract', () => {
     );
   });
 
-  it('spawns on the caller model when the tool call opts into "primary"', async () => {
+  it('rejects the removed "primary" choice instead of escaping the pool', async () => {
     const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
     const context = createAgentToolContext(lifecycle, {
       initialConfig: {
         secondaryModel: {
           defaultModel: 'provider/fast',
-          models: { 'provider/fast': 'fast and cheap' },
+          models: { 'provider/fast': 'fast and cheap', 'provider/smart': 'hard tasks' },
         },
       },
     });
 
-    await executeAgentTool(context, {
+    const result = await executeAgentTool(context, {
       prompt: 'Investigate',
       description: 'Find cause',
       model: 'primary',
     });
 
-    expect(lifecycle.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        binding: expect.objectContaining({
-          model: 'mock-model',
-          thinking: 'off',
-        }),
-      }),
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain(
+      'Invalid model "primary". Available models: provider/fast, provider/smart.',
     );
+    expect(lifecycle.create).not.toHaveBeenCalled();
   });
 
-  it('binds the caller-in-pool alias without thinking, unlike "primary"', async () => {
-    const lifecycle = createAgentLifecycleStub({
-      createAgentIds: ['agent-child', 'agent-child-2'],
-    });
+  it('binds the caller-in-pool alias like any pool entry, without inheriting thinking', async () => {
+    const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
     const context = createAgentToolContext(lifecycle, {
       initialConfig: {
         secondaryModel: {
@@ -1998,22 +1990,10 @@ describe('Agent tool execution contract', () => {
       description: 'Find cause',
       model: 'mock-model',
     });
-    await executeAgentTool(context, {
-      prompt: 'Investigate',
-      description: 'Find cause',
-      model: 'primary',
-    });
 
-    expect(lifecycle.create).toHaveBeenNthCalledWith(
-      1,
+    expect(lifecycle.create).toHaveBeenCalledWith(
       expect.objectContaining({
         binding: expect.objectContaining({ model: 'mock-model', thinking: undefined }),
-      }),
-    );
-    expect(lifecycle.create).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        binding: expect.objectContaining({ model: 'mock-model', thinking: 'off' }),
       }),
     );
   });
@@ -2064,7 +2044,7 @@ describe('Agent tool execution contract', () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain(
-      'Invalid model "provider/typo". Available models: provider/fast, provider/smart, primary.',
+      'Invalid model "provider/typo". Available models: provider/fast, provider/smart.',
     );
     expect(lifecycle.create).not.toHaveBeenCalled();
   });
@@ -2084,34 +2064,6 @@ describe('Agent tool execution contract', () => {
           model: 'mock-model',
           thinking: 'off',
         }),
-      }),
-    );
-  });
-
-  it('binds the forced default_model and rejects any explicit choice, "primary" included', async () => {
-    const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
-    const context = createAgentToolContext(lifecycle, {
-      initialConfig: {
-        secondaryModel: { defaultModel: 'provider/fast', force: true },
-      },
-    });
-
-    const rejected = await executeAgentTool(context, {
-      prompt: 'Investigate',
-      description: 'Find cause',
-      model: 'primary',
-    });
-    expect(rejected.isError).toBe(true);
-    expect(rejected.output).toContain('[secondary_model].force is set');
-    expect(lifecycle.create).not.toHaveBeenCalled();
-
-    await executeAgentTool(context, {
-      prompt: 'Investigate',
-      description: 'Find cause',
-    });
-    expect(lifecycle.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        binding: expect.objectContaining({ model: 'provider/fast', thinking: undefined }),
       }),
     );
   });
@@ -2182,7 +2134,6 @@ describe('Agent tool execution contract', () => {
     const result = await executeAgentTool(context, {
       prompt: 'Investigate',
       description: 'Find cause',
-      model: 'primary',
     });
 
     expect(result.isError).toBe(true);
@@ -3074,7 +3025,8 @@ describe('Agent tool execution contract', () => {
     expect(result.output).toContain('next_step: The user stopped this subagent.');
   });
 
-  it('hands back the text a foreground subagent wrote before the user stopped it', async () => {
+  it('hands back foreground subagent text after user cancellation and non-abort failure', async () => {
+    const partialOutput = 'Found the loop at src/parser.ts:42; not verified yet.';
     const lifecycle = createAgentLifecycleStub({
       createAgentIds: ['agent-child'],
       runCompletion: (_agentId, _request, options) =>
@@ -3087,7 +3039,7 @@ describe('Agent tool execution contract', () => {
             { once: true },
           );
         }),
-      partialOutput: () => 'Found the loop at src/parser.ts:42; not verified yet.',
+      partialOutput: () => partialOutput,
     });
     const context = createAgentToolContext(lifecycle);
     const controller = new AbortController();
@@ -3106,11 +3058,35 @@ describe('Agent tool execution contract', () => {
     expect(result.isError).toBe(true);
     expect(result.output).toContain('status: failed');
     expect(result.output).toContain('stop_reason: cancelled');
-    expect(result.output).toContain(
-      `${PARTIAL_OUTPUT_NOTICE}\n\nFound the loop at src/parser.ts:42; not verified yet.`,
-    );
+    expect(result.output).toContain(`${PARTIAL_OUTPUT_NOTICE}\n\n${partialOutput}`);
     expect(result.output).not.toContain(NO_PARTIAL_OUTPUT);
     expect(result.output).toContain('next_step: The user stopped this subagent.');
+
+    const failedLifecycle = createAgentLifecycleStub({
+      createAgentIds: ['agent-child'],
+      runCompletion: (_agentId, _request, options) => {
+        expect(options.signal.aborted).toBe(false);
+        return Promise.reject(new Error('provider down'));
+      },
+      partialOutput: () => partialOutput,
+    });
+    const failure = await executeAgentTool(createAgentToolContext(failedLifecycle), {
+      prompt: 'Investigate',
+      description: 'Find cause',
+    });
+
+    expect(failure.isError).toBe(true);
+    expect(failure.output).toContain('status: failed');
+    expect(failure.output).toContain('stop_reason: error');
+    expect(failure.output).toContain(
+      'subagent error: The subagent was stopped before it finished. Reason: provider down',
+    );
+    expect(failure.output).toContain(`${PARTIAL_OUTPUT_NOTICE}\n\n${partialOutput}`);
+    expect(
+      failedLifecycle.publishedEvents.filter((event) => event.type === 'subagent.failed'),
+    ).toEqual([
+      expect.objectContaining({ subagentId: 'agent-child', error: 'provider down' }),
+    ]);
   });
 
   it('keeps a completed foreground subagent result free of partial-output notices', async () => {
@@ -3311,6 +3287,18 @@ describe('AgentDynamicWorkflow tool description', () => {
     expect(agentDynamicWorkflowDescription()).toContain('{{item}}');
   });
 
+  it('describes fork as inheriting the current type, model, and tools', () => {
+    ctx = createTestAgent(forkFlags());
+
+    expect(agentDynamicWorkflowDescription()).toContain(
+      'inheriting your current agent type, model, and tool set.',
+    );
+    const properties = agentDynamicWorkflowParameters()['properties'] as Record<string, unknown>;
+    expect(properties['fork']).toMatchObject({
+      description: 'Start every item-spawned subagent with a snapshot of your completed conversation history, inheriting your current agent type, model, and tool set.',
+    });
+  });
+
   it('omits the models section when no [secondary_model.models] pool is configured', () => {
     ctx = createTestAgent();
 
@@ -3331,8 +3319,9 @@ describe('AgentDynamicWorkflow tool description', () => {
     const description = agentDynamicWorkflowDescription();
 
     expect(description).toContain(
-      'Available models (pass via model): provider/fast [default], provider/smart, primary (your current model and thinking level).',
+      'Available models (pass via model): provider/fast [default], provider/smart.',
     );
+    expect(description).not.toContain('primary');
   });
 
   function agentDynamicWorkflowParameters(): Record<string, unknown> {
@@ -3350,12 +3339,22 @@ describe('AgentDynamicWorkflow tool description', () => {
     expect(properties).toHaveProperty('prompt_template');
   });
 
-  it('advertises the model parameter when a pool is configured', () => {
+  it('advertises the model parameter only when the pool offers more than one model', async () => {
+    ctx = createTestAgent({
+      initialConfig: {
+        secondaryModel: { defaultModel: 'provider/fast' },
+        models: POOL_MODEL_ENTRIES,
+      },
+    });
+    expect(agentDynamicWorkflowParameters()['properties']).not.toHaveProperty('model');
+    expect(agentDynamicWorkflowDescription()).not.toContain('Available models');
+    await ctx.dispose();
+
     ctx = createTestAgent({
       initialConfig: {
         secondaryModel: {
           defaultModel: 'provider/fast',
-          models: { 'provider/fast': 'fast and cheap' },
+          models: { 'provider/fast': 'fast and cheap', 'provider/smart': 'hard tasks' },
         },
         models: POOL_MODEL_ENTRIES,
       },
@@ -3514,7 +3513,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
     );
   });
 
-  it('threads the caller model into spawn task plans when the tool call opts into "primary"', async () => {
+  it('rejects the removed "primary" choice before starting any subagent', async () => {
     const runDynamicWorkflow = vi.fn(
       async (
         args: SessionDynamicWorkflowRunArgs,
@@ -3546,7 +3545,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
       },
     );
 
-    await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
+    const result = await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
       turnId: 0,
       toolCallId: 'call_dynamic_workflow',
       args: {
@@ -3559,20 +3558,9 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
       signal,
     });
 
-    expect(runDynamicWorkflow).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tasks: [
-          expect.objectContaining({
-            kind: 'spawn',
-            plan: { profileName: 'explore', model: 'mock-model', modelSource: 'primary_override', thinking: 'off', fork: false },
-          }),
-          expect.objectContaining({
-            kind: 'spawn',
-            plan: { profileName: 'explore', model: 'mock-model', modelSource: 'primary_override', thinking: 'off', fork: false },
-          }),
-        ],
-      }),
-    );
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('Invalid model "primary". Available models: provider/fast.');
+    expect(runDynamicWorkflow).not.toHaveBeenCalled();
   });
 
   it('resumes mapped agents before spawning item subagents', async () => {

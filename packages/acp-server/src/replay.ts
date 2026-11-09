@@ -20,7 +20,8 @@
  */
 
 import type { SessionNotification } from '@agentclientprotocol/sdk';
-import type { ContentPart, ContextMessage, ToolCall } from '@pymodel/agent-core-v2';
+import type { ContextMessage } from '@pymodel/agent-core-v2';
+import type { ContentPart, ToolCall } from '@pymodel/agent-core-v2/human/llm/message';
 
 import {
   assistantDeltaToSessionUpdate,
@@ -124,7 +125,7 @@ function syntheticToolCall(
 }
 
 function toolMessageToUpdate(
-  message: ContextMessage,
+  message: Extract<ContextMessage, { role: 'tool' }>,
   sessionId: string,
   toolCallTurnIds: ReadonlyMap<string, number>,
 ): SessionNotification | null {

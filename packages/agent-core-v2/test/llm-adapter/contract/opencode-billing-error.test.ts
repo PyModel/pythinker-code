@@ -1,7 +1,8 @@
 import { APIError as OpenAIAPIError } from 'openai';
 import { describe, expect, it } from 'vitest';
 
-import { convertOpenAIError } from '#human/llm/requester/bases/openai/format';
+import { convertOpenAIError } from '#human/llm/builtin/protocol/openai/decode';
+import { toV2RemoteError } from '#human/llm-requester/run';
 import {
   APIProviderQuotaExhaustedError,
   APIProviderRateLimitError,
@@ -12,7 +13,7 @@ import {
 } from '#/llm-adapter/contract/errors';
 
 function classify(source: unknown): ChatProviderError {
-  const error = errorFromLlmMessage(convertOpenAIError(source));
+  const error = errorFromLlmMessage(toV2RemoteError(convertOpenAIError(source)));
   if (!(error instanceof ChatProviderError)) throw new Error('expected a ChatProviderError');
   return error;
 }

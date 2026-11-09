@@ -46,7 +46,7 @@ import type {
   BeforeExecuteDecision,
   ResolvedToolExecutionHookContext,
 } from '#/agent/toolExecutor/toolHooks';
-import type { ToolCall } from '#human/llm/message';
+import type { ToolCall } from '#human/message';
 import type { ExecutableToolContext } from '#/tool/toolContract';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
@@ -96,7 +96,6 @@ function dynamicWorkflowReminder(
   return {
     role: 'user',
     content: [{ type: 'text', text: wrapSystemReminder(content) }],
-    toolCalls: [],
     origin: { kind: 'injection', variant: 'dynamic_workflow_mode', disclosure },
   };
 }
@@ -334,7 +333,6 @@ describe('AgentDynamicWorkflowService', () => {
           context.append({
             role: 'user',
             content: [{ type: 'text', text: wrapSystemReminder(result.content) }],
-            toolCalls: [],
             origin: { kind: 'injection', variant: 'dynamic_workflow_mode', disclosure: result.disclosure },
           });
         }
@@ -458,7 +456,6 @@ describe('AgentDynamicWorkflowService', () => {
     context.append({
       role: 'user',
       content: [{ type: 'text', text: 'later prompt' }],
-      toolCalls: [],
       origin: { kind: 'user' },
     });
     dynamic_workflow.exit();
@@ -761,7 +758,7 @@ describe('AgentDynamicWorkflowTool', () => {
       ]),
     });
     const dynamicWorkflowMode = mockDynamicWorkflowMode();
-    const tool = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), dynamicWorkflowMode, stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap' } }), stubFlag(true), realSubagents(stubDynamicWorkflowCatalog(), stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap' } }), stubCallerProfile()), stubCallerProfile());
+    const tool = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), dynamicWorkflowMode, stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap', 'provider/smart': 'hard tasks' } }), stubFlag(true), realSubagents(stubDynamicWorkflowCatalog(), stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap', 'provider/smart': 'hard tasks' } }), stubCallerProfile()), stubCallerProfile());
     const input = {
       description: 'Review files',
       prompt_template: 'Review {{item}}',
@@ -1328,9 +1325,9 @@ describe('AgentDynamicWorkflowTool', () => {
     );
   });
 
-  it('lets the tool call opt back into the primary model', async () => {
+  it('runs on the main model only when the pool lists it explicitly', async () => {
     const host = mockDynamicWorkflowHost();
-    const tool = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockDynamicWorkflowMode(), stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap' } }), stubFlag(true), realSubagents(stubDynamicWorkflowCatalog(), stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap' } }), stubCallerProfile({ modelAlias: 'main-model', thinkingLevel: 'high' })), stubCallerProfile({ modelAlias: 'main-model', thinkingLevel: 'high' }));
+    const tool = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockDynamicWorkflowMode(), stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap', 'main-model': 'hard tasks' } }), stubFlag(true), realSubagents(stubDynamicWorkflowCatalog(), stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap', 'main-model': 'hard tasks' } }), stubCallerProfile({ modelAlias: 'main-model', thinkingLevel: 'high' })), stubCallerProfile({ modelAlias: 'main-model', thinkingLevel: 'high' }));
 
     await executeTool(
       tool,
@@ -1338,7 +1335,7 @@ describe('AgentDynamicWorkflowTool', () => {
         description: 'Review files',
         prompt_template: 'Review {{item}}',
         items: ['src/a.ts', 'src/b.ts'],
-        model: 'primary',
+        model: 'main-model',
       }),
     );
 
@@ -1346,10 +1343,10 @@ describe('AgentDynamicWorkflowTool', () => {
       expect.objectContaining({
         tasks: [
           expect.objectContaining({
-            plan: { profileName: 'coder', model: 'main-model', modelSource: 'primary_override', thinking: 'high', fork: false },
+            plan: { profileName: 'coder', model: 'main-model', modelSource: 'secondary_pool', thinking: undefined, fork: false },
           }),
           expect.objectContaining({
-            plan: { profileName: 'coder', model: 'main-model', modelSource: 'primary_override', thinking: 'high', fork: false },
+            plan: { profileName: 'coder', model: 'main-model', modelSource: 'secondary_pool', thinking: undefined, fork: false },
           }),
         ],
       }),
@@ -1361,7 +1358,7 @@ describe('AgentDynamicWorkflowTool', () => {
     const configured = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockDynamicWorkflowMode(), stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap', 'main-model': 'the main model' } }), stubFlag(true), realSubagents(stubDynamicWorkflowCatalog(), stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap', 'main-model': 'the main model' } }), stubCallerProfile({ modelAlias: 'main-model' })), stubCallerProfile({ modelAlias: 'main-model' }));
 
     expect(configured.description).toContain(
-      'Available models (pass via model): provider/fast [default], main-model, primary (your current model and thinking level).',
+      'Available models (pass via model): provider/fast [default], main-model.',
     );
 
     const unconfigured = new AgentDynamicWorkflowTool(host.dynamicWorkflowService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockDynamicWorkflowMode(), stubConfig(), stubFlag(true), realSubagents(stubDynamicWorkflowCatalog(), stubConfig(), stubCallerProfile({ modelAlias: 'main-model' })), stubCallerProfile({ modelAlias: 'main-model' }));

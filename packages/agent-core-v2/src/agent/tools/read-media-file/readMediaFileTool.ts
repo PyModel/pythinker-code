@@ -1,7 +1,7 @@
-import type { ModelCapability } from '#human/llm/capability';
+import type { ModelCapability } from '#human/llm-requester/capability';
 import type { ContentPart } from '#human/llm/message';
 import { VideoUploadUnsupportedError } from '#/llm-adapter/contract/errors';
-import { inlineVideoPart, isVideoUploadAuthError } from '#/agent/media/videoUpload';
+import { inlineVideoPart, isMediaUploadAuthError } from '#/agent/media/videoUpload';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { isDaemonFileUrl } from '#/agent/media/mediaRef';
@@ -37,7 +37,7 @@ import {
   buildOversizedImageConversionGuidance,
   isModelAcceptedImageMime,
 } from '#/agent/media/image-format-policy';
-import { providerImagePolicy } from '#human/llm/media/image-formats';
+import { providerImagePolicy } from '#human/llm/protocol/kit/media';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject, matchesPathRuleSubject } from '#/tool/rule-match';
 import { renderPrompt } from '#/_base/utils/render-prompt';
@@ -176,7 +176,7 @@ function buildFullResolutionLimitError(
 
 function shouldSurfaceVideoUploadError(error: unknown, inlineVideoSupported: boolean): boolean {
   if (error instanceof VideoUploadUnsupportedError) return !inlineVideoSupported;
-  return isVideoUploadAuthError(error);
+  return isMediaUploadAuthError(error);
 }
 
 export class ReadMediaFileTool implements AgentTool<ReadMediaFileInput> {

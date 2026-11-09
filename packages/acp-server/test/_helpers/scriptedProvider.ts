@@ -21,17 +21,15 @@
 import {
   IProtocolAdapterRegistry,
   type IProtocolAdapterRegistry as IProtocolAdapterRegistryType,
-  type Message,
   type Model,
   ProtocolAdapterRegistry,
   type ProtocolAdapterConfig,
-  type StreamedMessagePart,
   type TokenUsage,
   type Tool,
 } from '@pymodel/agent-core-v2';
-import type { FinishReason } from '@pymodel/agent-core-v2/human/llm/finish-reason';
-import { fromLlmMessage } from '@pymodel/agent-core-v2/llm-adapter/contract/message';
-import type { LlmRequester } from '@pymodel/agent-core-v2/human/llm/requester/requester';
+import type { Message, StreamedMessagePart } from '@pymodel/agent-core-v2/human/llm/message';
+import type { FinishReason } from '@pymodel/agent-core-v2/human/llm-requester/finish-reason';
+import type { LlmRequester } from '@pymodel/agent-core-v2/human/llm-requester/requester';
 
 interface ScriptedResponse {
   readonly parts: readonly StreamedMessagePart[];
@@ -147,7 +145,7 @@ export function createScriptedProvider(): ScriptedProvider {
         const stream = await provider.generate(
           config.systemPrompt ?? '',
           [...(config.tools ?? [])],
-          content.messages.map(fromLlmMessage),
+          content.messages,
           { signal: control.signal },
         );
         for await (const part of stream) {

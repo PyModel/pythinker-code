@@ -141,22 +141,22 @@ export {
   type ToolCall,
   type ToolCallPart,
   type VideoURLPart,
-} from '#human/llm/message';
-export type { ToolDescription as Tool } from '#human/llm/message';
-export { addUsage, emptyUsage, grandTotal, inputTotal, type TokenUsage } from '#human/llm/usage';
-export type { FinishReason } from '#human/llm/finish-reason';
+} from '#human/message';
+export type { ToolDescription as Tool } from '#human/message';
+export { addUsage, emptyUsage, grandTotal, inputTotal, type TokenUsage } from '#human/llm-requester/usage';
+export type { FinishReason } from '#human/llm-requester/finish-reason';
 export type {
   JsonObjectResponseFormat,
   JsonSchemaObject,
   JsonSchemaResponseFormat,
   ResponseFormat,
-} from '#human/llm/response-format';
-export type { ThinkingEffort, ThinkingRequestOptions } from '#human/llm/thinking';
-export type { VideoUploadInput } from '#human/llm/media/upload';
-export type { ToolCallIdPolicy } from '#human/llm/requester/requester';
+} from '#human/llm-requester/response-format';
+export type { ThinkingEffort, ThinkingRequestOptions } from '#human/llm-requester/thinking';
+export type { VideoUploadInput } from '#human/media/upload';
+export type { ToolCallIdPolicy } from '#human/llm-requester/requester';
 export type { SamplingOptions } from '#/llm-adapter/model/model-requester';
 export * from '#/llm-adapter/contract/request-trace';
-export type { PythinkerThinkingConfig } from '#human/llm-pythinker/trait';
+export type { PythinkerThinkingConfig } from '#human/llm/builtin/provider/pythinker/protocol';
 
 export * from '#/app/sessionIndex/sessionIndex';
 export * from '#/app/sessionIndex/sessionIndexService';
@@ -605,7 +605,7 @@ export {
   resolveMaxImageEdgePx,
   resolveReadImageByteBudget,
 } from '#/agent/media/image-compress';
-export { providerImagePolicy, type ProviderImagePolicy } from '#human/llm/media/image-formats';
+export { providerImagePolicy, type ProviderImagePolicy } from '#human/llm/protocol/kit/media';
 export {
   buildImageConversionGuidance,
   buildUnsupportedImageNotice,

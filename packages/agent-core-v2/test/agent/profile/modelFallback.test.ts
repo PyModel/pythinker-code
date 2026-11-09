@@ -1,4 +1,4 @@
-import { emptyUsage } from '#human/llm/usage';
+import { emptyUsage } from '#human/llm-requester/usage';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { IEventBus } from '#/app/event/eventBus';

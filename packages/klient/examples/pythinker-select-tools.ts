@@ -61,9 +61,8 @@ import { bootstrap, logSeed, resolveLoggingConfig } from '@pymodel/agent-core-v2
 import { IConfigService } from '@pymodel/agent-core-v2/app/config/config';
 import { renderLoadableToolsAnnouncement } from '@pymodel/agent-core-v2/agent/toolSelect/dynamicTools';
 import { UNKNOWN_CAPABILITY } from '@pymodel/agent-core-v2/llm-adapter/contract/capability';
-import type { Message } from '@pymodel/agent-core-v2/llm-adapter/contract/message';
-import type { ToolDescription as Tool } from '@pymodel/agent-core-v2/human/llm/message';
-import { staticCredentials } from '@pymodel/agent-core-v2/human/credentials/credentials';
+import type { Message, ToolDescription as Tool } from '@pymodel/agent-core-v2/human/llm/message';
+import { createStaticCredentialProvider } from '@pymodel/agent-core-v2/human/credentials/credentials';
 import type { Model } from '@pymodel/agent-core-v2/llm-adapter/model/catalog';
 import { IModelCatalog } from '@pymodel/agent-core-v2/llm-adapter/model/catalog';
 import type {
@@ -179,15 +178,13 @@ const SYSTEM_PROMPT =
 const userMessage = (text: string): Message => ({
   role: 'user',
   content: [{ type: 'text', text }],
-  toolCalls: [],
 });
 
 /** The schema-injection message the engine appends after a successful load. */
 const toolDeclarationMessage = (tools: readonly Tool[]): Message => ({
   role: 'system',
   content: [],
-  toolCalls: [],
-  tools,
+  tools: [...tools],
 });
 
 const announcementMessage = (names: readonly string[]): Message => ({
@@ -195,7 +192,6 @@ const announcementMessage = (names: readonly string[]): Message => ({
   content: [
     { type: 'text', text: renderLoadableToolsAnnouncement(names, []) },
   ],
-  toolCalls: [],
 });
 
 // ---------------------------------------------------------------------------
@@ -477,8 +473,7 @@ async function step2UseLoadedTool(
         role: 'tool',
         toolCallId: step1.callId,
         content: [{ type: 'text', text: `Loaded: ${loadName}` }],
-        toolCalls: [],
-      },
+            },
       // The schema-injection message — the exact wire shape whose acceptance
       // this probe measures. Dropped entirely in the isolation retry below.
       ...(withDeclaration ? [toolDeclarationMessage([loadedTool])] : []),
