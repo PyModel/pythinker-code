@@ -28,7 +28,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.15",
+    "@hono/node-server": "^2.1.6",
     "@pymodel/agent-core-v2": "workspace:^",
     "hono": "^4.13.7",
     "yauzl": "^3.3.0"
