@@ -1,5 +1,53 @@
 # @pymodel/pythinker-code
 
+## 3.0.0
+
+### Major Changes
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Remove the `pythinker web` terminal API (`/api/v1/sessions/{id}/terminals`); interactive PTY terminals are no longer available through the server.
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Merge the `pythinker web` WebSocket session subscriptions into `subscribe_v2` and remove the old `subscribe`/`unsubscribe` frames and the `/sessions/{id}/snapshot` route; clients built for the old frames must move to `subscribe_v2`.
+
+### Minor Changes
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Unload idle `pythinker web` sessions from memory after 30 minutes and resume them on next access; set `PYTHINKER_CODE_SESSION_IDLE_RECLAIM_MS` to change the delay.
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Import Claude Code and Codex sessions into Pythinker Code. Run `/import-sessions` to pick one.
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Let only you leave Plan mode: the agent submits every plan for your review instead of exiting Plan mode on its own.
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Add `/provider refresh` to reload the model list of configured providers.
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Offer to take over a session that a closed Pythinker Code process left locked.
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Limit subagents to the models listed in `[secondary_model]`; the `force` key is no longer needed and is ignored with a warning, because a lone `default_model` already pins every subagent.
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Track several source folders per workspace in `pythinker web`, and search across all of them.
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Push pending approvals and questions to `pythinker web` clients as interaction frames when they subscribe.
+
+### Patch Changes
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Recover session log writes after the disk was full instead of losing later events.
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Show a Compacting spinner with tips while context compaction runs.
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Keep the provider prompt cache across automatic context compaction.
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Show symlinked directories in the `pythinker web` file tree.
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Reconnect MCP servers automatically after a transient connection failure.
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Allow expanding the thinking block while it is still streaming.
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Return a stopped subagent's partial output to the parent agent.
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Report working and waiting state to terminals that support program status (OSC 7501).
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Show the todo list as a card in the transcript instead of a fixed panel.
+
+- [#402](https://github.com/PyModel/pythinker-code/pull/402) [`5fc3468`](https://github.com/PyModel/pythinker-code/commit/5fc34680bdfcbe4bce734b60c82a892aaa2a4dff) Thanks [@elkaix](https://github.com/elkaix)! - Scope verification to the files a change touched and stop re-running checks that already passed.
+
 ## 2.9.0
 
 ### Minor Changes
