@@ -81,7 +81,6 @@ export interface AppState {
   /** LaTeX math rendering in Markdown; defaults to true when absent from older fixtures. */
   renderLatex?: boolean;
   /** Mirrors the TUI config toggle; defaults to true when absent from older fixtures. */
-  cacheExpiryHint?: boolean;
   disableFeedbackSurvey?: boolean;
   notifications: NotificationsConfig;
   upgrade: UpgradePreferences;

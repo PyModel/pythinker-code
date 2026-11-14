@@ -56,7 +56,6 @@ export function currentTuiConfig(host: Pick<SlashCommandHost, 'state'>): TuiConf
     editorCommand: host.state.appState.editorCommand,
     disablePasteBurst: host.state.appState.disablePasteBurst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
     renderLatex: host.state.appState.renderLatex ?? DEFAULT_TUI_CONFIG.renderLatex ?? true,
-    cacheExpiryHint: host.state.appState.cacheExpiryHint ?? DEFAULT_TUI_CONFIG.cacheExpiryHint,
     notifications: host.state.appState.notifications,
     upgrade: host.state.appState.upgrade,
     statusLine: host.state.appState.statusLine ?? DEFAULT_TUI_CONFIG.statusLine,
@@ -186,7 +185,7 @@ export async function handleSecondaryModelCommand(host: SlashCommandHost, args: 
   if (Object.keys(models).length === 0) {
     host.showNotice(
       'No models configured',
-      'Run /login to sign in to Pythinker, or /provider to add another provider from a model catalog.',
+      'Run /login to sign in to a provider, or /provider to add one from a model catalog.',
     );
     return;
   }
@@ -362,7 +361,7 @@ export function showModelPicker(host: SlashCommandHost, selectedValue: string = 
   if (entries.length === 0) {
     host.showNotice(
       'No models configured',
-      'Run /login to sign in to Pythinker, or /provider to add another provider from a model catalog.',
+      'Run /login to sign in to a provider, or /provider to add one from a model catalog.',
     );
     return;
   }

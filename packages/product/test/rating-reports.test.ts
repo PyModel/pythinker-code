@@ -15,7 +15,6 @@ function fixture() {
   const ledger = new SessionRatingLedger({ telemetryDisabled: () => disabled, now: () => now });
   const environment: RatingEnvironment = {
     sessionId: 'session-a', currentModel: 'example-model',
-    model: { modelId: undefined, baseUrl: undefined },
     cumulativeTokens: 100, contextTokens: 50, permissionMode: 'manual', thinkingEffort: 'high',
     busy: false, telemetryDisabled: false, ratingDisabled: false, historyUserTurnCount: 4,
   };

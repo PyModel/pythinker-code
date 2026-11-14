@@ -18,10 +18,6 @@
     "#/*": "./src/*.ts"
   },
   "exports": {
-    "./client-configs/node": {
-      "types": "./src/client-configs/node/index.ts",
-      "default": "./src/client-configs/node/index.ts"
-    },
     "./session-rating": {
       "types": "./src/session-rating/common/index.ts",
       "default": "./src/session-rating/common/index.ts"

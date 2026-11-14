@@ -75,7 +75,6 @@ export async function applyReloadedTuiConfig(
     tuiMode: config.tuiMode,
     disablePasteBurst: config.disablePasteBurst,
     renderLatex: config.renderLatex,
-    cacheExpiryHint: config.cacheExpiryHint,
     notifications: config.notifications,
     upgrade: config.upgrade,
     statusLine: config.statusLine,

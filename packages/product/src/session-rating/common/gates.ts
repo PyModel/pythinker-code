@@ -7,7 +7,6 @@ export type SurveyGateSkipReason =
   | 'turn-in-progress'
   | 'feature-disabled'
   | 'telemetry-disabled'
-  | 'model-gated'
   | 'warmup'
   | 'pacing'
   | 'threshold-invalid'
@@ -19,7 +18,6 @@ export interface SharedArmGateInput {
   readonly turnInProgress: boolean;
   readonly feedbackSurveyDisabled: boolean;
   readonly telemetryDisabled: boolean;
-  readonly kfcModelId: string | undefined;
 }
 
 export interface SessionArmGateInput extends SharedArmGateInput {
@@ -58,26 +56,16 @@ export type SurveyGateVerdict =
       readonly longContextRollConsumed?: boolean;
     };
 
-function modelGatePasses(onForModels: readonly string[], kfcModelId: string | undefined): boolean {
-  if (onForModels.length === 0) return false;
-  if (onForModels.includes('*')) return true;
-  return kfcModelId !== undefined && onForModels.includes(kfcModelId);
-}
-
-function sharedSkipReason(
-  input: SharedArmGateInput,
-  config: SurveyPopupConfig,
-): SurveyGateSkipReason | undefined {
+function sharedSkipReason(input: SharedArmGateInput): SurveyGateSkipReason | undefined {
   if (input.turnInProgress) return 'turn-in-progress';
   if (input.feedbackSurveyDisabled) return 'feature-disabled';
   if (input.telemetryDisabled) return 'telemetry-disabled';
-  if (!modelGatePasses(config.on_for_models, input.kfcModelId)) return 'model-gated';
   return undefined;
 }
 
 function evaluateSessionArm(input: SurveyGateInput): SurveyGateVerdict {
   const { session, config } = input;
-  const shared = sharedSkipReason(session, config);
+  const shared = sharedSkipReason(session);
   if (shared !== undefined) return { show: false, reason: shared };
   if (session.msSinceLastShown === undefined) {
     if (
@@ -106,7 +94,7 @@ export function evaluateLongContextArm(input: SurveyGateInput): SurveyGateVerdic
   const { longContext, config } = input;
   if (longContext.mountSurveyShown) return { show: false, reason: 'mount-survey-shown' };
   if (longContext.mountRollConsumed) return { show: false, reason: 'mount-roll-consumed' };
-  const shared = sharedSkipReason(longContext, config);
+  const shared = sharedSkipReason(longContext);
   if (shared !== undefined) return { show: false, reason: shared };
   if (!(config.long_context_survey_threshold > 0)) {
     return { show: false, reason: 'threshold-invalid' };

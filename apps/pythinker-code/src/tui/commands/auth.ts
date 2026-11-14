@@ -1,19 +1,10 @@
-import {
-  OAuthAccessDeniedError,
-  OPENAI_CODEX_PROVIDER_ID,
-  type PythinkerRegion,
-} from '@pymodel/pythinker-code-oauth';
-import { log, runLogin, type LoginUi } from '@pymodel/pythinker-code-sdk';
+import { OPENAI_CODEX_PROVIDER_ID } from '@pymodel/pythinker-code-oauth';
+import { runLogin, type LoginUi } from '@pymodel/pythinker-code-sdk';
 
 import type { ChoiceOption } from '../components/dialogs/choice-picker';
 import { PRODUCT_NAME } from '../constant/pythinker-tui';
 
-import { formatErrorMessage } from '../utils/event-payload';
-import {
-  PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE,
-  refreshPythinkerRegion,
-} from '#/utils/region';
-import type { LoginProgressSpinnerHandle } from '../types';
+import { refreshPythinkerRegion } from '#/utils/region';
 import {
   promptApiKey,
   promptLogoutProviderSelection,
@@ -85,87 +76,7 @@ function createLoginUi(
 export async function handleLoginCommand(host: SlashCommandHost): Promise<void> {
   const selection = await promptPlatformSelection(host);
   if (selection === undefined || selection.platformId === '') return;
-  const { platformId } = selection;
-
-  if (platformId === 'pythinker-code' || platformId === PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE) {
-    const region: PythinkerRegion = platformId === PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE ? 'global' : 'mainland-cn';
-    await handlePythinkerCodeOAuthLogin(host, region);
-    return;
-  }
-
   await runLogin(createLoginUi(host, selection));
-}
-
-async function handlePythinkerCodeOAuthLogin(
-  host: SlashCommandHost,
-  region: PythinkerRegion,
-): Promise<void> {
-  const status = await host.harness.auth.status(DEVICE_OAUTH_PROVIDER_NAME);
-  const alreadyLoggedIn = status.providers.some(
-    (provider) => provider.providerName === DEVICE_OAUTH_PROVIDER_NAME && provider.hasToken,
-  );
-
-  let spinner: LoginProgressSpinnerHandle | undefined;
-  const controller = new AbortController();
-  const cancelLogin = (): void => {
-    controller.abort();
-  };
-  host.cancelInFlight = cancelLogin;
-  try {
-    // The facade maps region → profile hosts (env overrides keep priority);
-    // 'mainland-cn' is passed explicitly too so switching back overrides a
-    // persisted global login.
-    await host.harness.auth.login(DEVICE_OAUTH_PROVIDER_NAME, {
-      signal: controller.signal,
-      region,
-      onDeviceCode: (data: any) => {
-        spinner = host.showLoginAuthorizationPrompt(data);
-      },
-    });
-    refreshPythinkerRegion();
-    spinner?.stop({ ok: true, label: 'Logged in.' });
-    spinner = undefined;
-    try {
-      await host.authFlow.refreshConfigAfterLogin();
-    } catch (refreshError) {
-      const message = formatErrorMessage(refreshError);
-      host.showError(`Authentication successful, but failed to refresh config: ${message}`);
-      return;
-    }
-    host.track('login', {
-      provider: DEVICE_OAUTH_PROVIDER_NAME,
-      method: 'oauth',
-      already_logged_in: alreadyLoggedIn,
-    });
-    if (alreadyLoggedIn) {
-      host.showStatus('Already logged in. Model configuration refreshed.', 'success');
-    }
-  } catch (error) {
-    const cancelled = controller.signal.aborted;
-    const denied = error instanceof OAuthAccessDeniedError;
-    spinner?.stop({
-      ok: false,
-      label: cancelled || denied ? 'Login cancelled.' : 'Login failed.',
-    });
-    spinner = undefined;
-    if (cancelled) return;
-    const message = formatErrorMessage(error);
-    if (denied) {
-      host.showError(`Login cancelled: ${message}`);
-      return;
-    }
-    log.warn('login failed', {
-      providerName: DEVICE_OAUTH_PROVIDER_NAME,
-      alreadyLoggedIn,
-      sessionId: host.session?.id,
-      error,
-    });
-    host.showError(`Login failed: ${message}`);
-  } finally {
-    if (host.cancelInFlight === cancelLogin) {
-      host.cancelInFlight = undefined;
-    }
-  }
 }
 
 

@@ -35,7 +35,6 @@ function productDependencies(program: ts.Program): string[] {
 
 describe('product entry points', () => {
   it.each([
-    ['client-configs/node', 'client-configs/node/index.ts'],
     ['session-rating', 'session-rating/common/index.ts'],
     ['session-rating/node', 'session-rating/node/index.ts'],
   ])('resolves the %s public entry', (subpath, source) => {

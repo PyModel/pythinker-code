@@ -14,13 +14,10 @@ import {
   DEFAULT_SURVEY_POPUP_PAYLOAD,
   type SurveyPopupPayload,
 } from '#/session-rating/common/survey-popup-config';
-import {
-  SurveyPopupConfigFeed,
-} from '#/session-rating/node/survey-popup-config-feed';
+
 
 const USER_ORIGIN: PromptOrigin = { kind: 'user' };
 const SYSTEM_ORIGIN: PromptOrigin = { kind: 'system_trigger', name: 'background-task' };
-const MANAGED_BASE_URL = 'https://api.example.com/v1/v1';
 const GATEWAY_BASE_URL = 'https://gateway.example.com/coding/v1';
 const DIGIT_RESPONSES: Record<string, RatingResponse | undefined> = {
   '1': 'bad',
@@ -85,9 +82,6 @@ interface HarnessOptions {
   readonly feedbackSurveyDisabled?: () => boolean;
   readonly readGlobalLastShown?: () => number | undefined;
   readonly writeGlobalLastShown?: (wallTime: number) => void;
-  readonly configFresh?: () => boolean;
-  readonly configRegion?: () => string;
-  readonly refreshConfig?: () => unknown;
   readonly manualEvaluation?: boolean;
 }
 
@@ -138,7 +132,6 @@ function createHarness(options: HarnessOptions = {}): Harness {
   const env: MutableEnvironment = {
     sessionId: '',
     currentModel: 'k2',
-    model: { modelId: undefined, baseUrl: undefined },
     cumulativeTokens: 1234,
     contextTokens: 640,
     permissionMode: 'manual',
@@ -149,13 +142,10 @@ function createHarness(options: HarnessOptions = {}): Harness {
     historyUserTurnCount: 0,
     resumedAgents: undefined,
   };
-  const config = new SurveyPopupConfigFeed({
-    peek: options.config ?? (() => DEFAULT_SURVEY_POPUP_PAYLOAD),
-    isFresh: options.configFresh ?? (() => true),
-    region: options.configRegion ?? (() => 'mainland-cn'),
-    refresh: options.refreshConfig,
-    now: () => clock.mono,
-  });
+  const config = {
+    readyForEvaluation: () => true,
+    payload: options.config ?? (() => DEFAULT_SURVEY_POPUP_PAYLOAD),
+  };
   const create = (): SessionRatingMount =>
     mountSessionRating({
       environment: () => ({
@@ -273,17 +263,6 @@ function createHarness(options: HarnessOptions = {}): Harness {
   return harness;
 }
 
-function useModel(
-  harness: Harness,
-  options: { model?: string; entryBaseUrl?: string; providerBaseUrl?: string } = {},
-): void {
-  harness.env.currentModel = 'main';
-  harness.env.model = {
-    modelId: options.model ?? 'k3',
-    baseUrl: options.entryBaseUrl ?? options.providerBaseUrl ?? MANAGED_BASE_URL,
-  };
-}
-
 const HARNESS_ENVIRONMENT = {
   current_model: 'k2',
   user_turn_count: 5,
@@ -299,7 +278,6 @@ const HARNESS_ENVIRONMENT = {
 
 const DEFAULT_SNAPSHOT = {
   config_probability: 0.005,
-  config_on_for_models: '*',
   config_min_time_before_feedback_ms: 600_000,
   config_min_user_turns_before_feedback: 5,
   config_min_time_between_feedback_ms: 3_600_000,
@@ -1055,404 +1033,7 @@ describe('session rating long-context arm', () => {
   });
 });
 
-describe('session rating kfc model gate', () => {
-  const savedBaseUrl = process.env['CUSTOM_API_BASE_URL'];
 
-  beforeEach(() => {
-    process.env['CUSTOM_API_BASE_URL'] = MANAGED_BASE_URL;
-  });
-
-  afterEach(() => {
-    if (savedBaseUrl === undefined) {
-      delete process.env['CUSTOM_API_BASE_URL'];
-    } else {
-      process.env['CUSTOM_API_BASE_URL'] = savedBaseUrl;
-    }
-  });
-
-
-  function trackedKfcModelId(harness: Harness): unknown {
-    const call = harness.track.mock.calls[0];
-    return call === undefined ? undefined : (call[1] as Record<string, unknown>)['pfc_model_id'];
-  }
-
-  it('opens on "*" for a kfc user and reports the real model id alongside the alias', async () => {
-    const harness = createHarness();
-    useModel(harness);
-    await harness.flush();
-    await harness.appear();
-
-    expect(harness.visible()).toBe(true);
-    expect(harness.track).toHaveBeenCalledWith(
-      'feedback_survey',
-      expect.objectContaining({
-        event_type: 'appeared',
-        current_model: 'main',
-        pfc_model_id: 'k3',
-      }),
-    );
-  });
-
-  it('opens for a kfc user when the real id is listed', async () => {
-    const harness = createHarness({
-      config: () => ({ ...DEFAULT_SURVEY_POPUP_PAYLOAD, on_for_models: ['k2', 'k3'] }),
-    });
-    useModel(harness);
-    await harness.flush();
-    await harness.appear();
-
-    expect(harness.visible()).toBe(true);
-    expect(harness.track).toHaveBeenCalledWith(
-      'feedback_survey',
-      expect.objectContaining({ event_type: 'appeared', pfc_model_id: 'k3' }),
-    );
-  });
-
-  it('stays closed for a kfc user whose real id is not listed', async () => {
-    const harness = createHarness({
-      config: () => ({ ...DEFAULT_SURVEY_POPUP_PAYLOAD, on_for_models: ['k3-256k'] }),
-    });
-    useModel(harness);
-    await harness.flush();
-    await harness.appear();
-
-    expect(harness.visible()).toBe(false);
-    expect(harness.track).not.toHaveBeenCalled();
-  });
-
-  it('opens on "*" for a self-hosted user but omits the kfc model id', async () => {
-    const harness = createHarness();
-    useModel(harness, { providerBaseUrl: GATEWAY_BASE_URL });
-    await harness.flush();
-    await harness.appear();
-
-    expect(harness.visible()).toBe(true);
-    expect(harness.track).toHaveBeenCalledWith(
-      'feedback_survey',
-      expect.objectContaining({ event_type: 'appeared', current_model: 'main' }),
-    );
-    expect(trackedKfcModelId(harness)).toBeUndefined();
-  });
-
-  it('stays closed for a self-hosted model that happens to share the listed id', async () => {
-    const harness = createHarness({
-      config: () => ({ ...DEFAULT_SURVEY_POPUP_PAYLOAD, on_for_models: ['k3'] }),
-    });
-    useModel(harness, { providerBaseUrl: GATEWAY_BASE_URL });
-    await harness.flush();
-    await harness.appear();
-
-    expect(harness.visible()).toBe(false);
-    expect(harness.track).not.toHaveBeenCalled();
-  });
-
-  it('opens on "*" with a dangling alias and omits the kfc model id', async () => {
-    const harness = createHarness();
-    await harness.flush();
-    await harness.appear();
-
-    expect(harness.visible()).toBe(true);
-    expect(harness.track).toHaveBeenCalledWith(
-      'feedback_survey',
-      expect.objectContaining({ event_type: 'appeared', current_model: 'k2' }),
-    );
-    expect(trackedKfcModelId(harness)).toBeUndefined();
-  });
-
-  it('stays closed on a concrete list when the alias cannot be resolved', async () => {
-    const harness = createHarness({
-      config: () => ({ ...DEFAULT_SURVEY_POPUP_PAYLOAD, on_for_models: ['k2'] }),
-    });
-    await harness.flush();
-    await harness.appear();
-
-    expect(harness.visible()).toBe(false);
-    expect(harness.track).not.toHaveBeenCalled();
-  });
-
-  it('reports the kfc model id on long-context events as well', async () => {
-    const harness = createHarness();
-    useModel(harness);
-    harness.env.contextTokens = 250_000;
-    await harness.flush();
-
-    harness.host.turnStarted(true);
-    harness.host.turnEnded();
-    await harness.elapse(2000);
-
-    expect(harness.track).toHaveBeenCalledWith(
-      'long_context_survey',
-      expect.objectContaining({
-        event_type: 'appeared',
-        current_model: 'main',
-        pfc_model_id: 'k3',
-      }),
-    );
-  });
-
-
-});
-
-describe('session rating model overrides', () => {
-  const savedBaseUrl = process.env['CUSTOM_API_BASE_URL'];
-
-  beforeEach(() => {
-    process.env['CUSTOM_API_BASE_URL'] = MANAGED_BASE_URL;
-  });
-
-  afterEach(() => {
-    if (savedBaseUrl === undefined) {
-      delete process.env['CUSTOM_API_BASE_URL'];
-    } else {
-      process.env['CUSTOM_API_BASE_URL'] = savedBaseUrl;
-    }
-  });
-
-
-  it('opens for the targeted model under its override probability when the base samples out', async () => {
-    const harness = createHarness({
-      config: () => ({
-        ...DEFAULT_SURVEY_POPUP_PAYLOAD,
-        probability: 0,
-        model_overrides: { k3: { probability: 1 } },
-      }),
-    });
-    useModel(harness);
-    await harness.flush();
-    await harness.appear();
-
-    expect(harness.track).toHaveBeenCalledWith(
-      'feedback_survey',
-      expect.objectContaining({ event_type: 'appeared', config_probability: 1 }),
-    );
-  });
-
-  it('keeps the base policy for models without an override entry', async () => {
-    const harness = createHarness({
-      config: () => ({
-        ...DEFAULT_SURVEY_POPUP_PAYLOAD,
-        probability: 0,
-        model_overrides: { k3: { probability: 1 } },
-      }),
-    });
-    useModel(harness, { model: 'other-model' });
-    await harness.flush();
-    await harness.appear();
-
-    expect(harness.visible()).toBe(false);
-    expect(harness.track).not.toHaveBeenCalled();
-  });
-
-  it('applies the override on the next evaluation after the model switches mid-session', async () => {
-    const harness = createHarness({
-      config: () => ({
-        ...DEFAULT_SURVEY_POPUP_PAYLOAD,
-        probability: 0,
-        model_overrides: { k3: { probability: 1 } },
-      }),
-    });
-    await harness.flush();
-    await harness.appear();
-    expect(harness.visible()).toBe(false);
-
-    useModel(harness);
-    harness.runTurns(1);
-    await harness.elapse(2000);
-    expect(harness.visible()).toBe(true);
-    expect(harness.track).toHaveBeenCalledWith(
-      'feedback_survey',
-      expect.objectContaining({ event_type: 'appeared', pfc_model_id: 'k3' }),
-    );
-  });
-
-  it('honors the override global cooldown against the shared persisted clock', async () => {
-    const harness = createHarness({
-      readGlobalLastShown: () => 1_700_000_000_000 - 1000,
-      config: () => ({
-        ...DEFAULT_SURVEY_POPUP_PAYLOAD,
-        model_overrides: { k3: { min_time_between_global_feedback_ms: 0 } },
-      }),
-    });
-    useModel(harness);
-    await harness.flush();
-    await harness.appear();
-
-    expect(harness.visible()).toBe(true);
-    expect(harness.track).toHaveBeenCalledWith(
-      'feedback_survey',
-      expect.objectContaining({
-        event_type: 'appeared',
-        config_min_time_between_global_feedback_ms: 0,
-      }),
-    );
-  });
-
-  it('keeps on_for_models as the gate even when an override entry matches', async () => {
-    const harness = createHarness({
-      config: () => ({
-        ...DEFAULT_SURVEY_POPUP_PAYLOAD,
-        on_for_models: ['someone-else'],
-        model_overrides: { k3: { probability: 1 } },
-      }),
-    });
-    useModel(harness);
-    await harness.flush();
-    await harness.appear();
-
-    expect(harness.visible()).toBe(false);
-    expect(harness.track).not.toHaveBeenCalled();
-  });
-
-  it('targets the long-context arm per model through the override', async () => {
-    const targeted = createHarness({
-      config: () => ({
-        ...DEFAULT_SURVEY_POPUP_PAYLOAD,
-        model_overrides: { k3: { long_context_probability: 0 } },
-      }),
-    });
-    useModel(targeted);
-    targeted.env.contextTokens = 250_000;
-    await targeted.flush();
-
-    targeted.host.turnStarted(true);
-    targeted.host.turnEnded();
-    await targeted.elapse(2000);
-    expect(targeted.visible()).toBe(false);
-    expect(targeted.track).not.toHaveBeenCalled();
-
-    const untargeted = createHarness({
-      config: () => ({
-        ...DEFAULT_SURVEY_POPUP_PAYLOAD,
-        model_overrides: { k3: { long_context_probability: 0 } },
-      }),
-    });
-    untargeted.env.contextTokens = 250_000;
-    await untargeted.flush();
-
-    untargeted.host.turnStarted(true);
-    untargeted.host.turnEnded();
-    await untargeted.elapse(2000);
-    expect(untargeted.track).toHaveBeenCalledWith(
-      'long_context_survey',
-      expect.objectContaining({ event_type: 'appeared' }),
-    );
-  });
-
-  it('treats the long-context roll as consumed per model across a mid-session switch', async () => {
-    const harness = createHarness({
-      config: () => ({
-        ...DEFAULT_SURVEY_POPUP_PAYLOAD,
-        model_overrides: { k3: { long_context_probability: 0 } },
-      }),
-    });
-    useModel(harness);
-    harness.env.contextTokens = 250_000;
-    await harness.flush();
-
-    harness.host.turnStarted(true);
-    harness.host.turnEnded();
-    await harness.elapse(2000);
-    expect(harness.visible()).toBe(false);
-
-    useModel(harness, { model: 'other-model' });
-    harness.host.turnStarted(true);
-    harness.host.turnEnded();
-    await harness.elapse(2000);
-    expect(harness.track).toHaveBeenCalledWith(
-      'long_context_survey',
-      expect.objectContaining({ event_type: 'appeared', pfc_model_id: 'other-model' }),
-    );
-
-    useModel(harness);
-    harness.host.turnStarted(true);
-    harness.host.turnEnded();
-    await harness.elapse(2000);
-    expect(
-      harness.track.mock.calls.filter(
-        (call) => (call[1] as { event_type?: string }).event_type === 'appeared',
-      ),
-    ).toHaveLength(1);
-  });
-
-  it('closes the long-context arm for the rest of the mount after the first appearance', async () => {
-    const harness = createHarness({
-      config: () => ({
-        ...DEFAULT_SURVEY_POPUP_PAYLOAD,
-        model_overrides: { k3: { long_context_probability: 1 } },
-      }),
-    });
-    useModel(harness);
-    harness.env.contextTokens = 250_000;
-    await harness.flush();
-
-    const appeared = () =>
-      harness.track.mock.calls.filter(
-        (call) => (call[1] as { event_type?: string }).event_type === 'appeared',
-      ).length;
-
-    harness.host.turnStarted(true);
-    harness.host.turnEnded();
-    await harness.elapse(2000);
-    expect(appeared()).toBe(1);
-    harness.clock.mono += 600;
-    harness.host.escape();
-
-    useModel(harness, { model: 'other-model' });
-    harness.host.turnStarted(true);
-    harness.host.turnEnded();
-    await harness.elapse(2000);
-    expect(appeared()).toBe(1);
-
-    useModel(harness);
-    harness.host.turnStarted(true);
-    harness.host.turnEnded();
-    await harness.elapse(2000);
-    expect(appeared()).toBe(1);
-  });
-
-  it('honors the override global cooldown on the long-context arm', async () => {
-    const harness = createHarness({
-      readGlobalLastShown: () => 1_700_000_000_000 - 1000,
-      config: () => ({
-        ...DEFAULT_SURVEY_POPUP_PAYLOAD,
-        model_overrides: { k3: { min_time_between_global_feedback_ms: 0 } },
-      }),
-    });
-    useModel(harness);
-    harness.env.contextTokens = 250_000;
-    await harness.flush();
-
-    harness.host.turnStarted(true);
-    harness.host.turnEnded();
-    await harness.elapse(2000);
-    expect(harness.track).toHaveBeenCalledWith(
-      'long_context_survey',
-      expect.objectContaining({ event_type: 'appeared' }),
-    );
-  });
-
-  it('reports the merged effective config in the policy snapshot', async () => {
-    const harness = createHarness({
-      config: () => ({
-        ...DEFAULT_SURVEY_POPUP_PAYLOAD,
-        model_overrides: { k3: { probability: 0.5, min_user_turns_before_feedback: 1 } },
-      }),
-    });
-    useModel(harness);
-    await harness.flush();
-    await harness.appear();
-
-    expect(harness.track).toHaveBeenCalledWith(
-      'feedback_survey',
-      expect.objectContaining({
-        event_type: 'appeared',
-        config_probability: 0.5,
-        config_min_user_turns_before_feedback: 1,
-        config_min_time_before_feedback_ms: 600_000,
-      }),
-    );
-  });
-});
 
 describe('session rating event payload', () => {
   it('reports the live session statistics and the current model', async () => {
@@ -1523,201 +1104,16 @@ describe('session rating event payload', () => {
   });
 
 
-  it('keeps deferring while a region-change refresh is still in flight', async () => {
-    let region = 'region-a';
-    let settle!: () => void;
-    let first = true;
-    const harness = createHarness({
-      configRegion: () => region,
-      refreshConfig: () => {
-        if (first) {
-          first = false;
-          return undefined;
-        }
-        return new Promise<void>((resolve) => {
-          settle = resolve;
-        });
-      },
-    });
-    await harness.flush();
-    harness.clock.mono += 600_000;
-    harness.runTurns(4);
 
-    region = 'region-b';
-    harness.runTurns(1);
-    await harness.elapse(2000);
-    expect(harness.visible()).toBe(false);
 
-    harness.runTurns(1);
-    await harness.elapse(2000);
-    expect(harness.visible()).toBe(false);
 
-    settle();
-    await harness.flush();
-    harness.runTurns(1);
-    await harness.elapse(2000);
-    expect(harness.visible()).toBe(true);
-  });
 
-  it('defers evaluation until the startup refresh settles', async () => {
-    let settle!: () => void;
-    const harness = createHarness({
-      refreshConfig: () =>
-        new Promise<void>((resolve) => {
-          settle = resolve;
-        }),
-    });
-    await harness.flush();
-    harness.clock.mono += 600_000;
-    harness.runTurns(5);
-    await harness.elapse(2000);
-    expect(harness.visible()).toBe(false);
-    expect(harness.track).not.toHaveBeenCalled();
 
-    settle();
-    await harness.flush();
-    harness.runTurns(1);
-    await harness.elapse(2000);
-    expect(harness.visible()).toBe(true);
-  });
 
-  it('refreshes and defers when the config cache has gone stale', async () => {
-    let fresh = true;
-    const refreshConfig = vi.fn(() => {
-      fresh = true;
-    });
-    const harness = createHarness({ configFresh: () => fresh, refreshConfig });
-    await harness.flush();
-    harness.clock.mono += 600_000;
-    harness.runTurns(4);
-    expect(harness.visible()).toBe(false);
 
-    fresh = false;
-    harness.clock.mono += 3_600_000;
-    harness.runTurns(1);
-    await harness.elapse(2000);
-    expect(refreshConfig).toHaveBeenCalledTimes(2);
-    expect(harness.visible()).toBe(false);
-
-    await harness.flush();
-    harness.runTurns(1);
-    await harness.elapse(2000);
-    expect(harness.visible()).toBe(true);
-  });
-
-  it('defers the evaluation that triggers a refresh so a stale policy cannot open the survey', async () => {
-    let region = 'region-a';
-    let config = { ...DEFAULT_SURVEY_POPUP_PAYLOAD, probability: 1 };
-    const refreshConfig = vi.fn(() => {
-      config = { ...config, probability: 0 };
-    });
-    const harness = createHarness({
-      configRegion: () => region,
-      config: () => config,
-      refreshConfig,
-      random: () => 0.9,
-    });
-    await harness.flush();
-    harness.clock.mono += 600_000;
-    harness.runTurns(4);
-
-    region = 'region-b';
-    harness.runTurns(1);
-    await harness.elapse(2000);
-    expect(refreshConfig).toHaveBeenCalledTimes(2);
-    expect(harness.visible()).toBe(false);
-    expect(harness.track).not.toHaveBeenCalled();
-
-    harness.runTurns(1);
-    await harness.elapse(2000);
-    expect(harness.visible()).toBe(false);
-    expect(harness.track).not.toHaveBeenCalled();
-  });
-
-  it('evaluates with the refreshed policy on the next turn after the deferred evaluation', async () => {
-    let region = 'region-a';
-    let config = { ...DEFAULT_SURVEY_POPUP_PAYLOAD, probability: 1, on_for_models: ['other-model'] };
-    const refreshConfig = vi.fn(() => {
-      config = { ...config, on_for_models: ['*'] };
-    });
-    const harness = createHarness({
-      configRegion: () => region,
-      config: () => config,
-      refreshConfig,
-    });
-    await harness.flush();
-    harness.clock.mono += 600_000;
-    harness.runTurns(4);
-
-    region = 'region-b';
-    harness.runTurns(1);
-    await harness.elapse(2000);
-    expect(harness.visible()).toBe(false);
-
-    await harness.flush();
-    harness.runTurns(1);
-    await harness.elapse(2000);
-    expect(harness.visible()).toBe(true);
-    expect(harness.track).toHaveBeenCalledWith(
-      'feedback_survey',
-      expect.objectContaining({ event_type: 'appeared', config_on_for_models: '*' }),
-    );
-  });
-
-  it('re-refreshes the cloud config when the region changes', async () => {
-    let region = 'region-a';
-    const refreshConfig = vi.fn();
-    const harness = createHarness({ refreshConfig, configRegion: () => region });
-    await harness.flush();
-    expect(refreshConfig).toHaveBeenCalledTimes(1);
-
-    region = 'region-b';
-    harness.runTurns(1);
-    await harness.elapse(2000);
-    expect(refreshConfig).toHaveBeenCalledTimes(2);
-  });
-
-  it('re-refreshes the cloud config once the previous refresh is over an hour old', async () => {
-    const refreshConfig = vi.fn();
-    const harness = createHarness({ refreshConfig });
-    await harness.flush();
-    expect(refreshConfig).toHaveBeenCalledTimes(1);
-
-    harness.clock.mono += 3_597_000;
-    harness.runTurns(1);
-    await harness.elapse(2000);
-    expect(refreshConfig).toHaveBeenCalledTimes(1);
-
-    harness.clock.mono += 2_000;
-    harness.runTurns(1);
-    await harness.elapse(2000);
-    expect(refreshConfig).toHaveBeenCalledTimes(2);
-  });
-
-  it('applies the cloud model gate at evaluation time', async () => {
-    const harness = createHarness({
-      config: () => ({ ...DEFAULT_SURVEY_POPUP_PAYLOAD, on_for_models: ['other-model'] }),
-    });
-    await harness.flush();
-    await harness.appear();
-    expect(harness.visible()).toBe(false);
-  });
 });
 
 describe('session rating appearance snapshot', () => {
-  const savedBaseUrl = process.env['CUSTOM_API_BASE_URL'];
-
-  beforeEach(() => {
-    process.env['CUSTOM_API_BASE_URL'] = MANAGED_BASE_URL;
-  });
-
-  afterEach(() => {
-    if (savedBaseUrl === undefined) {
-      delete process.env['CUSTOM_API_BASE_URL'];
-    } else {
-      process.env['CUSTOM_API_BASE_URL'] = savedBaseUrl;
-    }
-  });
 
 
 
@@ -1728,29 +1124,6 @@ describe('session rating appearance snapshot', () => {
     }
   }
 
-  it('reports the triggering turn trace id on every lifecycle event', async () => {
-    const harness = createHarness();
-    useModel(harness);
-    await harness.flush();
-    harness.clock.mono += 600_000;
-    runUserTurns(harness, ['trace-1', 'trace-2', 'trace-3', 'trace-4', 'trace-final']);
-    await harness.elapse(2000);
-    harness.clock.mono += 600;
-
-    expect(trackedEvent(harness, 'appeared')).toMatchObject({
-      pfc_model_id: 'k3',
-      pfc_trace_id: 'trace-final',
-    });
-
-    harness.host.choose('3');
-    await harness.elapse(3000);
-
-    expect(trackedEvent(harness, 'responded')).toMatchObject({
-      response: 'good',
-      pfc_model_id: 'k3',
-      pfc_trace_id: 'trace-final',
-    });
-  });
 
   it('keeps the environment frozen at open across the lifecycle events', async () => {
     const harness = createHarness();
@@ -1777,72 +1150,10 @@ describe('session rating appearance snapshot', () => {
     }
   });
 
-  it('omits pfc_trace_id for a non-kfc model even when a trace id is pending', async () => {
-    const harness = createHarness();
-    useModel(harness, { providerBaseUrl: GATEWAY_BASE_URL });
-    await harness.flush();
-    harness.clock.mono += 600_000;
-    runUserTurns(harness, [undefined, undefined, undefined, undefined, 'trace-gateway']);
-    await harness.elapse(2000);
 
-    const appeared = trackedEvent(harness, 'appeared');
-    expect(appeared['pfc_model_id']).toBeUndefined();
-    expect(appeared['pfc_trace_id']).toBeUndefined();
-  });
 
-  it('omits pfc_trace_id when the triggering turn carried no trace id', async () => {
-    const harness = createHarness();
-    useModel(harness);
-    await harness.flush();
-    await harness.appear();
 
-    const appeared = trackedEvent(harness, 'appeared');
-    expect(appeared['pfc_model_id']).toBe('k3');
-    expect(appeared['pfc_trace_id']).toBeUndefined();
-  });
 
-  it('carries pfc_trace_id under the long_context_survey name', async () => {
-    const harness = createHarness();
-    useModel(harness);
-    harness.env.contextTokens = 250_000;
-    await harness.flush();
-    harness.host.turnStarted(true);
-    harness.host.turnEnded('trace-long-context');
-    await harness.elapse(2000);
-
-    expect(trackedEvent(harness, 'appeared')).toMatchObject({
-      pfc_model_id: 'k3',
-      pfc_trace_id: 'trace-long-context',
-    });
-    expect(harness.track).toHaveBeenCalledWith(
-      'long_context_survey',
-      expect.objectContaining({ event_type: 'appeared' }),
-    );
-  });
-
-  it('keeps the pending trace id across an interleaved non-user turn', async () => {
-    const harness = createHarness();
-    useModel(harness);
-    await harness.flush();
-    harness.clock.mono += 600_000;
-    runUserTurns(harness, [undefined, undefined, undefined, undefined, 'trace-user']);
-    harness.host.turnStarted(false);
-    harness.host.turnEnded(undefined);
-    await harness.elapse(2000);
-
-    expect(trackedEvent(harness, 'appeared')).toMatchObject({ pfc_trace_id: 'trace-user' });
-  });
-
-  it('drops the pending trace id once a new user turn starts', async () => {
-    const harness = createHarness();
-    useModel(harness);
-    await harness.flush();
-    harness.clock.mono += 600_000;
-    runUserTurns(harness, [undefined, undefined, undefined, 'trace-stale', undefined]);
-    await harness.elapse(2000);
-
-    expect(trackedEvent(harness, 'appeared')['pfc_trace_id']).toBeUndefined();
-  });
 
   it('attributes lifecycle events to the snapshot session after the session is torn down', async () => {
     const harness = createHarness();
