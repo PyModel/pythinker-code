@@ -135,10 +135,9 @@ function toQuestionResult(
   const entries: [string, string][] = [];
   for (const [qid, ans] of Object.entries(body.answers ?? {})) {
     const item = itemsById.get(qid);
-    if (item === undefined) continue;
-    const key = item.question;
+    const key = item?.question ?? qid;
     const optionText = (id: string): string =>
-      item.options.find((o) => o.id === id)?.label ?? id;
+      item?.options.find((o) => o.id === id)?.label ?? id;
     switch (ans.kind) {
       case 'single':
         entries.push([key, optionText(ans.option_id)]);
