@@ -30,7 +30,7 @@
   "dependencies": {
     "@hono/node-server": "^1.19.15",
     "@pymodel/agent-core-v2": "workspace:^",
-    "hono": "^4.13.7",
+    "hono": "^4.13.16",
     "yauzl": "^3.3.0"
   },
   "devDependencies": {
