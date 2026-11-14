@@ -56,13 +56,26 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           pnpm changeset version --snapshot dev
           VERSION=$(node -p "require('./apps/pythinker-code/package.json').version")
           if npm view "@pymodel/pythinker-code@$VERSION" version >/dev/null 2>&1; then
             echo "already published — no new commits"
             exit 0
           fi
-          pnpm changeset publish --tag dev --no-git-tag
+          publish_log="$RUNNER_TEMP/dev-snapshot-publish.log"
+          set +e
+          pnpm changeset publish --tag dev --no-git-tag 2>&1 | tee "$publish_log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          if grep -Eq 'could not be found or you do not have permission to access it|npm error 404' "$publish_log"; then
+            echo "::warning::Skipping dev snapshot publish because npm denied publish permissions for this workflow identity."
+            exit 0
+          fi
+          exit "$status"
 
   desktop-nightly:
     name: Publish desktop Nightly

@@ -72,6 +72,8 @@ void test('nightly reconciliation maintains one release drift issue', () => {
   assert.match(workflow, /Release lane drift detected/u);
   assert.match(workflow, /issues: write/u);
   assert.match(workflow, /pull-requests: read/u);
+  assert.match(workflow, /dev-snapshot-publish\.log/u);
+  assert.match(workflow, /Skipping dev snapshot publish because npm denied publish permissions/u);
   assert.equal(publishJob.includes('GITHUB_TOKEN: ${{ github.token }}'), true);
   assert.doesNotMatch(workflow, /uses: actions\/(checkout|setup-node)@v\d+/u);
   assert.equal(workflow.match(/persist-credentials: false/gu)?.length, 2);
