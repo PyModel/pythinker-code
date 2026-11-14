@@ -2,12 +2,12 @@ import type { AssistantMessage, StreamedMessagePart, ToolCall } from '#/llm/mess
 import type { ThinkingEffort } from '#/llm/request';
 
 export type FinishReason =
-  | 'completed'                                                                                                     
-  | 'tool_calls'                                                          
-  | 'truncated'                                                                                                        
-  | 'filtered'                                                                                                                                                                     
-  | 'paused'                         
-  | 'other';                                                                                                                                    
+  | 'completed'
+  | 'tool_calls'
+  | 'truncated'
+  | 'filtered'
+  | 'paused'
+  | 'other';
 
 export interface FinishInfo {
   readonly finishReason: FinishReason | null;

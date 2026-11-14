@@ -197,4 +197,3 @@ export const pythinkerResponsesProtocol = openAIResponsesProtocol.with((base) =>
   },
   decodeError: withPythinkerErrors(base),
 }));
-

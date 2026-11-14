@@ -130,4 +130,3 @@ export function pairToolExchanges(
 export function legalizeStructure(messages: readonly Message[], report: LlmNoticeSink): readonly Message[] {
   return pairToolExchanges(cleanMessages(messages, report), report);
 }
-
