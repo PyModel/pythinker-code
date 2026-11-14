@@ -1,5 +1,4 @@
 export default {
-  authBannerMessage: 'Not signed in · Sign in to Pythinker Code to start a conversation',
   authBannerLogin: 'Sign in',
   authPageTitle: 'Set up Pythinker Code',
   authPageMessage: 'Add a model provider before starting or continuing conversations.',

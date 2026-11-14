@@ -1,5 +1,5 @@
 export default {
-  title: 'Sign in to Pythinker Code',
+  title: 'Sign in to a provider',
   close: 'Close (Esc)',
   starting: 'Starting authorization flow…',
   lead: 'Click the button below to authorize in a new browser tab.',

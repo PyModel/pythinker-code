@@ -17,7 +17,6 @@ import type {
   PromptPart,
   Session,
   SkillSummary,
-  TokenUsage,
   TurnEndedEvent,
   TurnStartedEvent,
   Unsubscribe,
@@ -45,16 +44,11 @@ import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { appendInputHistory, loadInputHistory } from '#/utils/history/input-history';
 import { openUrl } from '#/utils/open-url';
 import { getInputHistoryFile } from '#/utils/paths';
-import { applyRecommendedEffort } from '#/utils/recommended-effort';
-import { getRecommendedEffortConfig } from '#/utils/recommended-effort-config';
-import { managedAccessToken } from '#/utils/managed-access-token';
 import { migrateLegacySurveySetting } from '#/utils/survey-setting';
 import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { quoteShellArg } from '#/utils/shell-quote';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
 
-import { BannerProvider } from './banner/banner-provider';
-import { readBannerDisplayState, writeBannerDisplayState } from './banner/state';
 import {
   BUILTIN_SLASH_COMMANDS,
   buildPluginSlashCommands,
@@ -68,8 +62,6 @@ import {
 } from './commands';
 import * as slashCommands from './commands/dispatch';
 import { cycleThinkingEffort } from './commands/config';
-import { CacheHintController } from './controllers/cache-hint-controller';
-import { BannerComponent } from './components/chrome/banner';
 import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
 import { GutterContainer } from './components/chrome/gutter-container';
 import { ActivitySpinner } from './components/chrome/activity-spinner';
@@ -301,7 +293,6 @@ function createInitialAppState(input: PythinkerTUIStartupInput): AppState {
     editorCommand: input.tuiConfig.editorCommand,
     disablePasteBurst: input.tuiConfig.disablePasteBurst,
     renderLatex: input.tuiConfig.renderLatex,
-    cacheExpiryHint: input.tuiConfig.cacheExpiryHint,
     disableFeedbackSurvey: input.tuiConfig.disableFeedbackSurvey,
     notifications: input.tuiConfig.notifications,
     upgrade: input.tuiConfig.upgrade,
@@ -343,7 +334,6 @@ export class PythinkerTUI {
   private ensureSessionPromise: Promise<Session | undefined> | null = null;
   /** In-flight `/new` session replacement, shared by concurrent `/new` triggers. */
   private newSessionPromise: Promise<void> | null = null;
-  private readonly cacheHint = new CacheHintController(this);
   /** Staged prompt media lifecycle (daemon uploads + cache copies) — see StagingLeaseTracker. */
   private readonly staging: StagingLeaseTracker;
   private readonly steeringQueuedMessages = new Set<QueuedMessage>();
@@ -522,10 +512,6 @@ export class PythinkerTUI {
     this.sessionReplay = new SessionReplayRenderer(this);
     this.tasksBrowserController = new TasksBrowserController(this);
     this.surveyController = new SurveyController(this, {
-      accessToken: () => {
-        const { model, availableModels, availableProviders } = this.state.appState;
-        return managedAccessToken(this.harness.auth, model, availableModels, availableProviders);
-      },
       telemetryDisabled: () => isTelemetryDisabledByEnv() || this.telemetryDisabled,
     });
     this.modelMigration = new ModelMigrationController(this);
@@ -717,52 +703,6 @@ export class PythinkerTUI {
     }
   }
 
-  private async loadBanner(): Promise<void> {
-    const provider = new BannerProvider(this.state.appState.version);
-    const displayState = await readBannerDisplayState();
-    const now = new Date();
-    const banner = await provider.load({
-      state: displayState,
-      now,
-    });
-    this.state.appState.banner = banner;
-    if (banner === null) return;
-
-    this.renderBanner();
-    this.state.ui.requestRender();
-
-    if (banner.display === 'always') return;
-    try {
-      await writeBannerDisplayState({
-        version: 1,
-        shown: {
-          ...displayState.shown,
-          [banner.key]: { lastShownAt: now.toISOString() },
-        },
-      });
-    } catch {
-      // Best-effort: banner display state should never block startup.
-    }
-  }
-
-  private renderBanner(): void {
-    if (this.state.appState.banner === null || this.state.appState.banner === undefined) {
-      return;
-    }
-    if (this.state.transcriptContainer.children.some((child) => child instanceof BannerComponent)) {
-      return;
-    }
-    const welcomeIndex = this.state.transcriptContainer.children.findIndex(
-      (child) => child instanceof WelcomeComponent,
-    );
-    const banner = new BannerComponent(this.state.appState.banner);
-    if (welcomeIndex >= 0) {
-      this.state.transcriptContainer.children.splice(welcomeIndex + 1, 0, banner);
-    } else {
-      this.state.transcriptContainer.children.unshift(banner);
-    }
-    this.state.transcriptContainer.invalidate();
-  }
 
   private async initMainTui(): Promise<boolean> {
     const shouldReplayHistory = await this.init();
@@ -770,12 +710,10 @@ export class PythinkerTUI {
     // Mount only after init() succeeds; see mountFooter().
     mountFooter(this.state);
     this.renderWelcome();
-    void this.loadBanner();
     this.setupAutocomplete();
     void this.loadPersistedInputHistory();
     setEditorSlot(this.state, this.state.editor);
     this.state.ui.setFocus(this.state.editor);
-    this.applyRecommendedEffortInBackground();
     return shouldReplayHistory;
   }
 
@@ -825,28 +763,6 @@ export class PythinkerTUI {
       });
   }
 
-  private applyRecommendedEffortInBackground(): void {
-    void this.backgroundRefreshPromise?.then(async () => {
-      await applyRecommendedEffort({
-        fetchConfig: async () => {
-          const config = await this.harness.getConfig();
-          return getRecommendedEffortConfig({
-            accessToken: await managedAccessToken(
-              this.harness.auth,
-              config.defaultModel,
-              config.models,
-              config.providers,
-            ),
-          });
-        },
-        getConfig: () => this.harness.getConfig(),
-        setConfig: (patch) => this.harness.setConfig(patch),
-        track: (event, properties) => {
-          this.track(event, properties);
-        },
-      });
-    });
-  }
 
 
   private async refreshProviderModelsInBackground(): Promise<void> {
@@ -919,9 +835,6 @@ export class PythinkerTUI {
     if (this.session !== undefined) {
       this.sessionEventHandler.startSubscription();
       void this.showSessionWarnings(this.session);
-    }
-    if (shouldReplayHistory) {
-      void this.cacheHint.maybeShowOnResume();
     }
     void this.fetchSessions();
     if (this.session !== undefined) {
@@ -1459,14 +1372,14 @@ export class PythinkerTUI {
     this.updateQueueDisplay();
   }
 
-  async sendNormalUserInput(text: string, preExtracted?: ExtractionResult): Promise<void> {
+  async sendNormalUserInput(text: string): Promise<void> {
     if (this.btwPanelController.sendUserInput(text)) return;
     if (this.state.appState.model.trim().length === 0) {
       this.showError(LLM_NOT_SET_MESSAGE);
       return;
     }
     let extraction: ReturnType<typeof extractMediaAttachments>;
-    if (preExtracted === undefined) {
+    {
       // A just-pasted image/video may still be finishing its background
       // ingestion (compression/daemon upload): give it a bounded moment so
       // the submit can use the daemon-ref form — a slower image ingestion
@@ -1481,18 +1394,7 @@ export class PythinkerTUI {
       if (ingestionWait !== undefined) await ingestionWait;
     }
     try {
-      // A cache-hint-swallowed resend passes its pre-dialog extraction back
-      // in: the image store may already be cleared (e.g. after "Start a new
-      // session"), so re-extracting from the text would lose the media.
-      extraction = preExtracted ?? extractMediaAttachments(text, this.imageStore);
-      if (preExtracted !== undefined) {
-        const parts = refreshExpiringImageFileRefs(
-          extraction.parts,
-          extraction.imageAttachmentIds,
-          this.imageStore,
-        );
-        if (parts !== extraction.parts) extraction = { ...extraction, parts };
-      }
+      extraction = extractMediaAttachments(text, this.imageStore);
     } catch (error) {
       // A pasted video's daemon upload was unusable (still in flight,
       // failed, expired); nothing was dispatched.
@@ -1518,16 +1420,6 @@ export class PythinkerTUI {
     );
     if (!this.validateMediaCapabilities(extraction)) {
       this.staging.release(stagingLease);
-      return;
-    }
-    // Idle cache-hint interception sits before session creation; it is
-    // synchronous unless a hint actually fires. Aside from the bounded
-    // ingestion wait above, the send path stays await-free up to sendMessage.
-    if (this.cacheHint.maybeInterceptOnSubmit(text, extraction)) {
-      // The stash owns the extraction from here: its resend re-leases inside
-      // the re-entered send path, its restore goes through releaseRecalled
-      // (see CacheHintController). Detach so the stash is not double-owned.
-      this.staging.defer(stagingLease);
       return;
     }
     let session = this.session;
@@ -1556,7 +1448,6 @@ export class PythinkerTUI {
   async sendInlineSkillUserInput(
     text: string,
     activations: readonly InlineSkillActivation[],
-    preExtracted?: ExtractionResult,
   ): Promise<void> {
     if (this.btwPanelController.sendUserInput(text, activations)) return;
     if (this.state.appState.model.trim().length === 0) {
@@ -1566,7 +1457,7 @@ export class PythinkerTUI {
     const originatingSession = this.session;
     const mediaGeneration = this.imageStore.generation;
     let extraction: ExtractionResult;
-    if (preExtracted === undefined) {
+    {
       const ingestionWait = pendingMediaIngestions(
         text,
         this.imageStore,
@@ -1582,13 +1473,7 @@ export class PythinkerTUI {
       }
     }
     try {
-      extraction = preExtracted ?? extractMediaAttachments(text, this.imageStore);
-      if (
-        preExtracted?.mediaGeneration !== undefined &&
-        preExtracted.mediaGeneration !== this.imageStore.generation
-      ) {
-        extraction = { ...preExtracted, imageAttachmentIds: [], videoAttachmentIds: [] };
-      }
+      extraction = extractMediaAttachments(text, this.imageStore);
     } catch (error) {
       this.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
       return;
@@ -1599,7 +1484,6 @@ export class PythinkerTUI {
       ], []);
       return;
     }
-    if (this.cacheHint.maybeInterceptOnSubmit(text, extraction, activations)) return;
     let session = this.session;
     if (session === undefined) {
       session = await this.ensureSession();
@@ -1827,19 +1711,6 @@ export class PythinkerTUI {
     return last;
   }
 
-  /**
-   * Cache-hint restore: a dismissed/hand-back interception returns its draft
-   * to the editor — same semantics as a queue recall (consume the stash
-   * extraction's retains; the staged daemon uploads stay alive for the
-   * restored draft).
-   */
-  recallStashedMedia(extraction: ExtractionResult | undefined): void {
-    if (extraction === undefined) return;
-    this.staging.releaseRecalled([
-      ...extraction.imageAttachmentIds,
-      ...extraction.videoAttachmentIds,
-    ]);
-  }
 
   // =========================================================================
   // Session Requests / Queues
@@ -1897,7 +1768,6 @@ export class PythinkerTUI {
   }
 
   beginSessionRequest(): void {
-    this.cacheHint.onTurnBegin();
     this.streamingUI.setTurnId(undefined);
     this.streamingUI.resetLiveText();
     this.streamingUI.resetToolUi();
@@ -2728,8 +2598,6 @@ export class PythinkerTUI {
   }
 
   private async createSessionFromCurrentState(bindStartupAgent = false): Promise<Session> {
-    // Background warm-up of the cache-hint config on every new session.
-    this.cacheHint.refreshConfigInBackground();
     const model = this.state.appState.model.trim();
     if (model.length === 0) {
       throw new Error(LLM_NOT_SET_MESSAGE);
@@ -3087,7 +2955,6 @@ export class PythinkerTUI {
 
   resetSessionRuntime(options?: { readonly keepQueuedMessages?: boolean }): void {
     this.aborted = false;
-    this.cacheHint.resetRuntime();
     this.surveyController.reset();
     this.streamingUI.discardPending();
     if (options?.keepQueuedMessages !== true) this.clearQueuedMessages();
@@ -3180,7 +3047,6 @@ export class PythinkerTUI {
     }
     this.showStatus(statusMessage);
     void this.showSessionWarnings(session);
-    void this.cacheHint.maybeShowOnResume();
   }
 
   async reloadCurrentSessionView(
@@ -3859,7 +3725,7 @@ export class PythinkerTUI {
     void openUrl(url);
     this.state.transcriptContainer.addChild(
       new DeviceCodeBoxComponent({
-        title: 'Sign in to Pythinker Code',
+        title: 'Sign in to your provider',
         url,
         code: auth.userCode,
         hint: 'Press Ctrl-C to cancel',
@@ -4422,27 +4288,6 @@ export class PythinkerTUI {
     this.state.editor.setText(text);
     this.updateEditorBorderHighlight(text);
     this.state.ui.requestRender();
-  }
-
-  /** Latest in-process LLM round-trip; feeds the idle cache-hint scenario. */
-  recordSessionActivity(): void {
-    this.cacheHint.recordActivity();
-  }
-
-  /** Per-step usage for the client-side cache-break detector. */
-  noteStepUsage(usage: TokenUsage | undefined): void {
-    this.cacheHint.noteStepUsage(usage);
-  }
-
-  /** Compaction shrinks the cached prefix — reset the cache-break baseline. */
-  noteCompactionFinished(): void {
-    this.cacheHint.resetCacheBreakBaseline();
-    this.programStatus.finishCompaction();
-  }
-
-  /** /undo cut the context — the next step's cache drop is expected. */
-  noteContextCut(): void {
-    this.cacheHint.resetCacheBreakBaseline();
   }
 
   private async runMigrationScreen(plan: MigrationPlan): Promise<MigrationScreenResult> {

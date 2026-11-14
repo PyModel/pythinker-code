@@ -16,8 +16,6 @@ export interface SurveyEventProperties {
   appearance_index: number;
   response?: 'bad' | 'fine' | 'good' | 'dismissed';
   current_model: string;
-  pfc_model_id?: string;
-  pfc_trace_id?: string;
   user_turn_count?: number;
   cumulative_tokens: number;
   virtual_context_tokens: number;
@@ -30,7 +28,6 @@ export interface SurveyEventProperties {
   dynamic_workflow_run_count: number;
   dynamic_workflow_models?: string;
   config_probability: number;
-  config_on_for_models: string;
   config_min_time_before_feedback_ms: number;
   config_min_user_turns_before_feedback: number;
   config_min_time_between_feedback_ms: number;
@@ -50,8 +47,6 @@ export interface SurveyEventCoreFields {
 
 export interface SurveyEventEnvironmentFields {
   readonly current_model: string;
-  readonly pfc_model_id?: string;
-  readonly pfc_trace_id?: string;
   readonly user_turn_count?: number;
   readonly cumulative_tokens: number;
   readonly virtual_context_tokens: number;
@@ -73,8 +68,6 @@ const surveyEventPropertyDescriptions: {
   appearance_index: 'Ordinal of the appearance within the current session mount, starting at 1',
   response: 'Answer carried by responded events: bad, fine, good, or dismissed',
   current_model: 'Session model alias when the prompt appeared',
-  pfc_model_id: 'Managed Pythinker Code model id, present when the session model uses the managed endpoint',
-  pfc_trace_id: 'Trace id of the turn that triggered the prompt, present only with pfc_model_id',
   user_turn_count:
     'User turns in the session when the prompt appeared, absent when the history count is unknown',
   cumulative_tokens: 'Cumulative session token usage when the prompt appeared',
@@ -88,7 +81,6 @@ const surveyEventPropertyDescriptions: {
   dynamic_workflow_run_count: 'AgentDynamicWorkflow runs observed since the session mount began',
   dynamic_workflow_models: 'Sorted comma-separated models used by dynamic_workflow members',
   config_probability: 'Effective survey_popup probability when the prompt appeared',
-  config_on_for_models: 'Effective survey_popup on_for_models, comma-separated',
   config_min_time_before_feedback_ms: 'Effective survey_popup min_time_before_feedback_ms',
   config_min_user_turns_before_feedback: 'Effective survey_popup min_user_turns_before_feedback',
   config_min_time_between_feedback_ms: 'Effective survey_popup min_time_between_feedback_ms',
@@ -125,7 +117,6 @@ export function buildSurveyEventProperties(
     response: core.response,
     ...environment,
     config_probability: config.probability,
-    config_on_for_models: config.on_for_models.join(','),
     config_min_time_before_feedback_ms: config.min_time_before_feedback_ms,
     config_min_user_turns_before_feedback: config.min_user_turns_before_feedback,
     config_min_time_between_feedback_ms: config.min_time_between_feedback_ms,

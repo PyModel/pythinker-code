@@ -15,11 +15,9 @@ import {
   type LongContextArmGateInput,
   type SessionArmGateInput,
 } from '../common/gates';
-import { kfcModelIdOf, type RatingModelRoute } from './kfc';
 import { SessionRatingLedger, type RatingTracker } from './ledger';
 import type { RatingOffer, SurveyAppearance, SurveyKind } from '../common/types';
 import {
-  resolveSurveyPopupConfig,
   type SurveyPopupConfig,
   type SurveyPopupPayload,
 } from '../common/survey-popup-config';
@@ -51,7 +49,6 @@ export interface ResumedAgentSeed {
 export interface RatingEnvironment {
   readonly sessionId: string;
   readonly currentModel: string;
-  readonly model: RatingModelRoute;
   readonly cumulativeTokens: number;
   readonly contextTokens: number;
   readonly permissionMode: string;
@@ -129,7 +126,7 @@ class SessionRatingMountImpl implements SessionRatingMount {
   private userTurnsAtLastShown: number | undefined;
   private appearanceCount = 0;
   private globalLastShownAt: number | undefined;
-  private readonly longContextRollConsumedModels = new Set<string | undefined>();
+  private longContextRollConsumed = false;
   private longContextShownThisMount = false;
   private stickySample: { readonly turnCount: number; readonly value: number } | undefined;
   private toolCallCount = 0;
@@ -194,13 +191,10 @@ class SessionRatingMountImpl implements SessionRatingMount {
         this.globalLastShownAt = Math.max(persisted, this.globalLastShownAt ?? 0);
       }
       const environment = this.deps.environment();
-      const kfcModelId = kfcModelIdOf(environment.model);
-      const config = resolveSurveyPopupConfig(this.deps.config.payload(), kfcModelId);
-      const verdict = evaluateSurveyGate({ ...this.gateInputs(environment, kfcModelId), config });
-      if (verdict.longContextRollConsumed === true) {
-        this.longContextRollConsumedModels.add(kfcModelId);
-      }
-      return verdict.show ? this.open(verdict.survey, config, environment, kfcModelId) : undefined;
+      const config = this.deps.config.payload();
+      const verdict = evaluateSurveyGate({ ...this.gateInputs(environment), config });
+      if (verdict.longContextRollConsumed === true) this.longContextRollConsumed = true;
+      return verdict.show ? this.open(verdict.survey, config, environment) : undefined;
     } catch {
       return undefined;
     }
@@ -267,14 +261,12 @@ class SessionRatingMountImpl implements SessionRatingMount {
 
   private gateInputs(
     environment: RatingEnvironment,
-    kfcModelId: string | undefined,
   ): { session: SessionArmGateInput; longContext: LongContextArmGateInput } {
     const now = this.now();
     const shared = {
       turnInProgress: this.turnInProgress || environment.busy,
       feedbackSurveyDisabled: environment.ratingDisabled,
       telemetryDisabled: environment.telemetryDisabled,
-      kfcModelId,
     };
     const msSinceGlobalLastShown =
       this.globalLastShownAt === undefined ? undefined : this.wallNow() - this.globalLastShownAt;
@@ -295,7 +287,7 @@ class SessionRatingMountImpl implements SessionRatingMount {
         ...shared,
         cumulativeTokens: environment.cumulativeTokens,
         virtualContextTokens: environment.contextTokens,
-        mountRollConsumed: this.longContextRollConsumedModels.has(kfcModelId),
+        mountRollConsumed: this.longContextRollConsumed,
         mountSurveyShown: this.longContextShownThisMount,
         msSinceGlobalLastShown,
         drawMountRoll: () => this.random(),
@@ -314,7 +306,6 @@ class SessionRatingMountImpl implements SessionRatingMount {
     survey: SurveyKind,
     config: SurveyPopupConfig,
     environment: RatingEnvironment,
-    kfcModelId: string | undefined,
   ): RatingOffer {
     this.appearanceCount += 1;
     const appearance: SurveyAppearance = {
@@ -331,7 +322,7 @@ class SessionRatingMountImpl implements SessionRatingMount {
           appearance_id: appearance.appearanceId,
           appearance_index: appearance.appearanceIndex,
         },
-        this.environmentFields(environment, kfcModelId),
+        this.environmentFields(environment),
         config,
       ),
       context: { sessionId: environment.sessionId },
@@ -349,14 +340,9 @@ class SessionRatingMountImpl implements SessionRatingMount {
     return { appearanceId: appearance.appearanceId, survey };
   }
 
-  private environmentFields(
-    environment: RatingEnvironment,
-    kfcModelId: string | undefined,
-  ): SurveyEventEnvironmentFields {
+  private environmentFields(environment: RatingEnvironment): SurveyEventEnvironmentFields {
     return {
       current_model: environment.currentModel,
-      pfc_model_id: kfcModelId,
-      pfc_trace_id: kfcModelId === undefined ? undefined : this.pendingTraceId,
       user_turn_count:
         environment.historyUserTurnCount === undefined
           ? undefined

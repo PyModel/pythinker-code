@@ -1,6 +1,4 @@
-import { join } from 'node:path';
 
-import { resolvePythinkerRegion } from '@pymodel/pythinker-code-oauth';
 
 import {
   agentContextOf,
@@ -13,7 +11,6 @@ import {
   IConfigService,
   IEventBus,
   IEventDispatcher,
-  IModelCatalog,
   ISessionManager,
   ISessionMetadata,
   ISessionTokenCountingService,
@@ -35,7 +32,6 @@ import {
   ToolResultEvent,
 } from '@pymodel/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
 
-import { ClientConfigClient } from '#/client-configs/node/client-configs';
 import {
   mountSessionRating,
   type RatingConfigFeed,
@@ -49,8 +45,7 @@ import { SessionRatingLedger } from '#/session-rating/node/ledger';
 import type { RatingOffer, RatingReport } from '#/session-rating/common/types';
 import { ratingCooldownFile, type RatingCooldownStore } from '#/session-rating/node/cooldown-store';
 import {
-  cloudSurveyPopupConfigFeed,
-  SurveyPopupConfigFeed,
+  localSurveyPopupConfigFeed,
 } from '#/session-rating/node/survey-popup-config-feed';
 import {
   DEFAULT_SURVEY_POPUP_PAYLOAD,
@@ -59,7 +54,6 @@ import {
 
 export const SESSION_RATING_PREVIEW_ENV = 'PYTHINKER_CODE_SESSION_RATING_PREVIEW';
 
-const CLIENT_CONFIG_CACHE_DIR = join('cache', 'client-configs');
 
 const PREVIEW_SURVEY_POPUP_PAYLOAD: SurveyPopupPayload = {
   ...DEFAULT_SURVEY_POPUP_PAYLOAD,
@@ -79,25 +73,6 @@ function memoryCooldownStore(): RatingCooldownStore {
       lastShownTime = value;
     },
   };
-}
-
-class LazyConfigFeed implements RatingConfigFeed {
-  private feed: SurveyPopupConfigFeed | undefined;
-
-  constructor(private readonly create: () => SurveyPopupConfigFeed) {}
-
-  readyForEvaluation(): boolean {
-    return this.current().readyForEvaluation();
-  }
-
-  payload(): SurveyPopupPayload {
-    return this.current().payload();
-  }
-
-  private current(): SurveyPopupConfigFeed {
-    this.feed ??= this.create();
-    return this.feed;
-  }
 }
 
 export interface SessionRatingHostOptions {
@@ -131,21 +106,10 @@ export class SessionRatingHost implements IDisposable {
     this.ledger = new SessionRatingLedger({ telemetryDisabled: options.telemetryDisabled });
     this.preview = options.preview === true;
     if (this.preview) {
-      this.config = new SurveyPopupConfigFeed({
-        peek: () => PREVIEW_SURVEY_POPUP_PAYLOAD,
-        isFresh: () => true,
-        region: () => '',
-      });
+      this.config = localSurveyPopupConfigFeed(PREVIEW_SURVEY_POPUP_PAYLOAD);
       this.cooldown = memoryCooldownStore();
     } else {
-      const client = new ClientConfigClient({
-        region: () => resolvePythinkerRegion({ homeDir: bootstrap.homeDir }),
-        baseUrlOverride: () => bootstrap.getEnv('CUSTOM_API_BASE_URL'),
-        cacheDir: () => join(bootstrap.homeDir, CLIENT_CONFIG_CACHE_DIR),
-      });
-      this.config = new LazyConfigFeed(() =>
-        cloudSurveyPopupConfigFeed(client, async () => undefined),
-      );
+      this.config = localSurveyPopupConfigFeed();
       this.cooldown = ratingCooldownFile(bootstrap.homeDir);
     }
     const manager = core.accessor.get(ISessionManager);
@@ -331,15 +295,6 @@ function resumedAgentSeeds(
   return seeds;
 }
 
-function modelRouteOf(agent: IAgentScopeHandle, alias: string): RatingEnvironment['model'] {
-  try {
-    const model = agent.accessor.get(IModelCatalog).get(alias);
-    return { modelId: model.name, baseUrl: model.baseUrl };
-  } catch {
-    return { modelId: undefined, baseUrl: undefined };
-  }
-}
-
 function readEnvironment(
   sessionId: string,
   agent: IAgentScopeHandle | undefined,
@@ -350,7 +305,6 @@ function readEnvironment(
     return {
       sessionId,
       currentModel: '',
-      model: { modelId: undefined, baseUrl: undefined },
       cumulativeTokens: 0,
       contextTokens: 0,
       permissionMode: '',
@@ -365,7 +319,6 @@ function readEnvironment(
   return {
     sessionId,
     currentModel: alias,
-    model: modelRouteOf(agent, alias),
     cumulativeTokens:
       total === undefined
         ? 0

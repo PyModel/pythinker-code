@@ -1,7 +1,6 @@
 import { strictEqual } from 'node:assert';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
@@ -43,6 +42,26 @@ interface Envelope<T> {
   code: number;
   data: T;
 }
+
+const surveyPopup = vi.hoisted(() => ({ openRightAway: false }));
+
+vi.mock('../../product/src/session-rating/node/survey-popup-config-feed', async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import('../../product/src/session-rating/node/survey-popup-config-feed')>();
+  const { DEFAULT_SURVEY_POPUP_PAYLOAD } = await import(
+    '../../product/src/session-rating/common/survey-popup-config'
+  );
+  return {
+    ...original,
+    localSurveyPopupConfigFeed: (payload?: typeof DEFAULT_SURVEY_POPUP_PAYLOAD) =>
+      original.localSurveyPopupConfigFeed(
+        payload ??
+          (surveyPopup.openRightAway
+            ? { ...DEFAULT_SURVEY_POPUP_PAYLOAD, ...OPEN_RIGHT_AWAY_SURVEY_POPUP }
+            : DEFAULT_SURVEY_POPUP_PAYLOAD),
+      ),
+  };
+});
 
 const OPEN_RIGHT_AWAY_SURVEY_POPUP = {
   probability: 1,
@@ -236,7 +255,6 @@ describe('session rating preview outside development', () => {
       homeDir: home,
       env: serverEnv({
         PYTHINKER_CODE_SESSION_RATING_PREVIEW: '1',
-        CUSTOM_API_BASE_URL: 'http://127.0.0.1:9',
       }),
       logger: pino({ level: 'silent' }),
     });
@@ -260,37 +278,15 @@ describe('session rating lifecycle', () => {
   let server: RunningServer;
   let home: string;
   let client: RatingClient;
-  let configServer: Server;
-  let configRequests = 0;
   const records: TelemetryAppenderRecord[] = [];
 
-  const savedCustomBaseUrl = process.env['CUSTOM_API_BASE_URL'];
-
-  function managedModelConfig(baseUrl: string): string {
-    return [
-      'default_model = "acme/k3"',
-      '',
-      '[providers.acme]',
-      'type = "pythinker"',
-      `base_url = "${baseUrl}"`,
-      'api_key = "test-key"',
-      '',
-      '[models."acme/k3"]',
-      'provider = "acme"',
-      'model = "k3"',
-      'max_context_size = 262144',
-      '',
-    ].join('\n');
-  }
-
   async function startRatingServer(): Promise<RunningServer> {
-    const port = (configServer.address() as AddressInfo).port;
     const started = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
       host: '127.0.0.1',
       port: 0,
       homeDir: home,
-      env: serverEnv({ CUSTOM_API_BASE_URL: `http://127.0.0.1:${port}` }),
+      env: serverEnv({}),
       logger: pino({ level: 'silent' }),
     });
     started.core.accessor.get(ITelemetryService).addAppender({
@@ -299,16 +295,6 @@ describe('session rating lifecycle', () => {
       },
     });
     return started;
-  }
-
-  async function warmUpConfig(ratings: RatingClient): Promise<void> {
-    const id = await ratings.createSession(home);
-    await ratings.finishUserTurn(id);
-    await expect(ratings.evaluate(id)).resolves.toMatchObject({ data: { appearance: null } });
-    await vi.waitFor(() => {
-      if (configRequests === 0) throw new Error('survey_popup has not been fetched yet');
-    });
-    await new Promise((resolve) => setTimeout(resolve, 50));
   }
 
   function ratingEvents(sessionId: string): [unknown, unknown, unknown][] {
@@ -324,28 +310,14 @@ describe('session rating lifecycle', () => {
 
   beforeAll(async () => {
     home = await mkdtemp(join(tmpdir(), 'pythinker-server-v2-rating-'));
-    configServer = createServer((req, res) => {
-      configRequests += 1;
-      req.resume();
-      req.on('end', () => {
-        res.setHeader('content-type', 'application/json');
-        res.end(JSON.stringify({ name: 'survey_popup', config: OPEN_RIGHT_AWAY_SURVEY_POPUP }));
-      });
-    });
-    await new Promise<void>((resolve) => configServer.listen(0, '127.0.0.1', resolve));
-    const customBaseUrl = `http://127.0.0.1:${(configServer.address() as AddressInfo).port}`;
-    process.env['CUSTOM_API_BASE_URL'] = customBaseUrl;
-    await writeFile(join(home, 'config.toml'), managedModelConfig(customBaseUrl), 'utf8');
+    surveyPopup.openRightAway = true;
     server = await startRatingServer();
     client = new RatingClient(server);
-    await warmUpConfig(client);
   });
 
   afterAll(async () => {
     await server.close();
-    await new Promise((resolve) => configServer.close(resolve));
-    if (savedCustomBaseUrl === undefined) delete process.env['CUSTOM_API_BASE_URL'];
-    else process.env['CUSTOM_API_BASE_URL'] = savedCustomBaseUrl;
+    surveyPopup.openRightAway = false;
     await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
@@ -360,23 +332,6 @@ describe('session rating lifecycle', () => {
     ]);
   });
 
-  it('identifies the managed model and its trace for the kfc check', async () => {
-    const id = await client.createSession(home);
-    await (await client.mainAgent(id)).accessor.get(IAgentProfileService).setModel('acme/k3');
-    await client.openRating(id);
-
-    const appeared = records.find(
-      (record) =>
-        record.event === 'feedback_survey' &&
-        record.context['session_id'] === id &&
-        record.properties['event_type'] === 'appeared',
-    );
-    expect(appeared?.properties).toMatchObject({
-      current_model: 'acme/k3',
-      pfc_model_id: 'k3',
-      pfc_trace_id: 'trace-1',
-    });
-  });
 
   it.each(['archive', 'delete', 'reload'] as const)(
     'accepts a delayed answer after %s without automatically abandoning it', async (action) => {
