@@ -1,10 +1,19 @@
-import { OPENAI_CODEX_PROVIDER_ID } from '@pymodel/pythinker-code-oauth';
-import { runLogin, type LoginUi } from '@pymodel/pythinker-code-sdk';
+import {
+  OAuthAccessDeniedError,
+  OPENAI_CODEX_PROVIDER_ID,
+  type PythinkerRegion,
+} from '@pymodel/pythinker-code-oauth';
+import { log, runLogin, type LoginUi } from '@pymodel/pythinker-code-sdk';
 
 import type { ChoiceOption } from '../components/dialogs/choice-picker';
 import { PRODUCT_NAME } from '../constant/pythinker-tui';
 
-import { refreshPythinkerRegion } from '#/utils/region';
+import { formatErrorMessage } from '../utils/event-payload';
+import {
+  PYTHINKER_CODE_GLOBAL_PLATFORM_VALUE,
+  refreshPythinkerRegion,
+} from '#/utils/region';
+import type { LoginProgressSpinnerHandle } from '../types';
 import {
   promptApiKey,
   promptLogoutProviderSelection,
@@ -15,7 +24,6 @@ import {
 } from './prompts';
 import { openUrl } from '#/utils/open-url';
 import type { SlashCommandHost } from './dispatch';
-import type { LoginProgressSpinnerHandle } from '#/tui/types';
 
 const DEVICE_OAUTH_PROVIDER_NAME = 'openai';
 

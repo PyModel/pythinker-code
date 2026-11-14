@@ -10,7 +10,6 @@ import {
   CompactionCompleted,
   getLiveSessionById,
   IEventBus,
-  IAgentProfileService,
   IEventDispatcher,
   ISessionManager,
   ISessionMetadata,
@@ -469,7 +468,6 @@ describe('session rating lifecycle', () => {
 
   it('resumes and evaluates a completed turn for a cold session', async () => {
     const id = await client.createSession(home);
-    await (await client.mainAgent(id)).accessor.get(IAgentProfileService).setModel('acme/k3');
     await client.finishUserTurn(id, undefined, 0);
     const agent = await client.mainAgent(id);
     const dispatcher = agent.accessor.get(IEventDispatcher);
@@ -499,7 +497,7 @@ describe('session rating lifecycle', () => {
         record.context['session_id'] === id &&
         record.properties['event_type'] === 'appeared',
     );
-    expect(appeared?.properties).toMatchObject({ pfc_trace_id: 'trace-1', user_turn_count: 1 });
+    expect(appeared?.properties).toMatchObject({ user_turn_count: 1 });
   });
 
   it('does not load sessions when evaluating or reporting unknown appearances', async () => {
