@@ -106,8 +106,6 @@ export const TuiConfigSchema = z.object({
    * fixtures still typecheck. */
   renderLatex: z.boolean().optional(),
   disablePasteBurst: z.boolean(),
-  /** Present in every normalized config; optional only so hand-built test
-   * fixtures from before this field existed still typecheck. */
   disableFeedbackSurvey: z.boolean().optional(),
   editorCommand: z.string().nullable(),
   notifications: NotificationsConfigSchema,
