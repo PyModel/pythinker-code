@@ -38,6 +38,7 @@ reviews:
   path_filters:
     - "!**/node_modules/**"
     - "!**/dist/**"
+    - "!**/dist-web/**"
     - "!**/build/**"
     - "!**/*.min.js"
     - "!**/pnpm-lock.yaml"
