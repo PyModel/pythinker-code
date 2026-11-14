@@ -118,6 +118,7 @@
   },
   "dependencies": {
     "chokidar": "^4.0.3",
+    "node-pty": "1.1.0",
     "qrcode": "^1.5.4",
     "ws": "^8.21.3"
   }

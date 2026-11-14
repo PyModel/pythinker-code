@@ -109,7 +109,7 @@ importers:
         version: 2.13.1
       tsdown:
         specifier: 0.23.1
-        version: 0.23.1(@arethetypeswrong/core@0.18.3)(@typescript/native-preview@7.0.0-dev.20260707.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.11)(publint@0.3.21)(tsx@4.23.13)(typescript@7.0.2)(unrun@0.2.34)(vue-tsc@3.3.11(typescript@7.0.2))
+        version: 0.23.1(@arethetypeswrong/core@0.18.3)(@typescript/native-preview@7.0.0-dev.20260707.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.11)(publint@0.3.21)(tsx@4.23.13)(typescript@7.0.2)(unrun@0.2.34(@emnapi/core@2.0.0-beta.2)(@emnapi/runtime@2.0.0-beta.2))(vue-tsc@3.3.11(typescript@7.0.2))
       tsx:
         specifier: ^4.23.5
         version: 4.23.13
@@ -154,7 +154,7 @@ importers:
         version: 7.7.4
       tsdown:
         specifier: 0.23.1
-        version: 0.23.1(@arethetypeswrong/core@0.18.3)(@typescript/native-preview@7.0.0-dev.20260707.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.11)(publint@0.3.21)(tsx@4.23.13)(typescript@7.0.2)(unrun@0.2.34)(vue-tsc@3.3.11(typescript@7.0.2))
+        version: 0.23.1(@arethetypeswrong/core@0.18.3)(@typescript/native-preview@7.0.0-dev.20260707.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.11)(publint@0.3.21)(tsx@4.23.13)(typescript@7.0.2)(unrun@0.2.34(@emnapi/core@2.0.0-beta.2)(@emnapi/runtime@2.0.0-beta.2))(vue-tsc@3.3.11(typescript@7.0.2))
       typescript:
         specifier: 7.0.2
         version: 7.0.2
@@ -167,6 +167,9 @@ importers:
       chokidar:
         specifier: ^4.0.3
         version: 4.0.3
+      node-pty:
+        specifier: 1.1.0
+        version: 1.1.0
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4
@@ -398,7 +401,7 @@ importers:
         version: 8.1.6(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.23.13)(yaml@2.9.1)
       vitest:
         specifier: ~4.1.12
-        version: 4.1.12(@types/node@26.6.2)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(msw@2.15.0(@types/node@26.6.2)(typescript@6.0.3))(vite@8.1.6(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.23.13)(yaml@2.9.1))
+        version: 4.1.12(@types/node@26.6.2)(@vitest/coverage-v8@4.1.11(vitest@4.1.12))(jsdom@25.0.1)(msw@2.15.0(@types/node@26.6.2)(typescript@6.0.3))(vite@8.1.6(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.23.13)(yaml@2.9.1))
       vue-tsc:
         specifier: ~3.3.9
         version: 3.3.11(typescript@6.0.3)
@@ -656,7 +659,7 @@ importers:
         version: 3.5.2(vite@8.1.6(@types/node@22.19.17)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.23.13)(yaml@2.9.1))
       vitest:
         specifier: ~4.1.12
-        version: 4.1.12(@types/node@22.19.17)(@vitest/coverage-v8@4.1.11)(jsdom@30.0.1(@noble/hashes@2.4.0))(msw@2.15.0(@types/node@22.19.17)(typescript@7.0.2))(vite@8.1.6(@types/node@22.19.17)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.23.13)(yaml@2.9.1))
+        version: 4.1.12(@types/node@22.19.17)(@vitest/coverage-v8@4.1.11(vitest@4.1.12))(jsdom@30.0.1(@noble/hashes@2.4.0))(msw@2.15.0(@types/node@22.19.17)(typescript@7.0.2))(vite@8.1.6(@types/node@22.19.17)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.23.13)(yaml@2.9.1))
 
   docs:
     dependencies:
@@ -8008,6 +8011,9 @@ packages:
   node-addon-api@4.3.0:
     resolution: {integrity: sha512-73sE9+3UaLYYFmDsFZnqCInzPyh3MqIwZO9cw58yIqAZhONrrabrYyYe3TuIqtIiOuTXVhsGau8hcrhhwSsDIQ==}
 
+  node-addon-api@7.1.1:
+    resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
+
   node-addon-api@8.9.0:
     resolution: {integrity: sha512-ekZMeaaIzSQTSpr7X2X3iJM7lTzgnx8ahAG9pJfT/7+14mlEM8ZYQ9cgCDvSSRbReFK0oHli3WrZdCiRsgAT9Q==}
     engines: {node: ^18 || ^20 || >= 21}
@@ -8048,6 +8054,9 @@ packages:
 
   node-int64@0.4.0:
     resolution: {integrity: sha512-O5lz91xSOeoXP6DulyHfllpq+Eg00MWitZIbtPfoSEvqIHdl5gfcY6hYzDWnj0qD5tz52PI08u9qUvSVeUBeHw==}
+
+  node-pty@1.1.0:
+    resolution: {integrity: sha512-20JqtutY6JPXTUnL0ij1uad7Qe1baT46lyolh2sSENDd4sTzKZ4nmAFkeAARDKwmlLjPx6XKRlwRUxwjOy+lUg==}
 
   node-releases@2.0.56:
     resolution: {integrity: sha512-x0InOIyzgdk+eyaWaRJFH5snEtiImgBgblZ2CyPrLmqqcuMQkEvcDPHbzqbD8eDsSeJbVOjn+crzyzHaM4D+/A==}
@@ -18068,6 +18077,8 @@ snapshots:
   node-addon-api@4.3.0:
     optional: true
 
+  node-addon-api@7.1.1: {}
+
   node-addon-api@8.9.0: {}
 
   node-api-version@0.2.1:
@@ -18111,6 +18122,10 @@ snapshots:
       which: 6.0.1
 
   node-int64@0.4.0: {}
+
+  node-pty@1.1.0:
+    dependencies:
+      node-addon-api: 7.1.1
 
   node-releases@2.0.56: {}
 
@@ -19988,7 +20003,7 @@ snapshots:
       minimist: 1.2.8
       strip-bom: 3.0.0
 
-  tsdown@0.23.1(@arethetypeswrong/core@0.18.3)(@typescript/native-preview@7.0.0-dev.20260707.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.11)(publint@0.3.21)(tsx@4.23.13)(typescript@7.0.2)(unrun@0.2.34)(vue-tsc@3.3.11(typescript@7.0.2)):
+  tsdown@0.23.1(@arethetypeswrong/core@0.18.3)(@typescript/native-preview@7.0.0-dev.20260707.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.11)(publint@0.3.21)(tsx@4.23.13)(typescript@7.0.2)(unrun@0.2.34(@emnapi/core@2.0.0-beta.2)(@emnapi/runtime@2.0.0-beta.2))(vue-tsc@3.3.11(typescript@7.0.2)):
     dependencies:
       cac: 7.1.0
       defu: 6.1.7
@@ -20406,7 +20421,7 @@ snapshots:
       - universal-cookie
       - yaml
 
-  vitest@4.1.12(@types/node@22.19.17)(@vitest/coverage-v8@4.1.11)(jsdom@30.0.1(@noble/hashes@2.4.0))(msw@2.15.0(@types/node@22.19.17)(typescript@7.0.2))(vite@8.1.6(@types/node@22.19.17)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.23.13)(yaml@2.9.1)):
+  vitest@4.1.12(@types/node@22.19.17)(@vitest/coverage-v8@4.1.11(vitest@4.1.12))(jsdom@30.0.1(@noble/hashes@2.4.0))(msw@2.15.0(@types/node@22.19.17)(typescript@7.0.2))(vite@8.1.6(@types/node@22.19.17)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.23.13)(yaml@2.9.1)):
     dependencies:
       '@vitest/expect': 4.1.12
       '@vitest/mocker': 4.1.12(msw@2.15.0(@types/node@22.19.17)(typescript@7.0.2))(vite@8.1.6(@types/node@22.19.17)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.23.13)(yaml@2.9.1))
@@ -20435,7 +20450,7 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.12(@types/node@26.6.2)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(msw@2.15.0(@types/node@26.6.2)(typescript@6.0.3))(vite@8.1.6(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.23.13)(yaml@2.9.1)):
+  vitest@4.1.12(@types/node@26.6.2)(@vitest/coverage-v8@4.1.11(vitest@4.1.12))(jsdom@25.0.1)(msw@2.15.0(@types/node@26.6.2)(typescript@6.0.3))(vite@8.1.6(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.23.13)(yaml@2.9.1)):
     dependencies:
       '@vitest/expect': 4.1.12
       '@vitest/mocker': 4.1.12(msw@2.15.0(@types/node@26.6.2)(typescript@6.0.3))(vite@8.1.6(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.23.13)(yaml@2.9.1))
