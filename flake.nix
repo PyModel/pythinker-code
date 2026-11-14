@@ -167,7 +167,7 @@
               inherit (finalAttrs) pname version src pnpmWorkspaces;
               inherit pnpm;
               fetcherVersion = 3;
-              hash = "sha256-F9qqmV8LIVUSOUX92sTiNMOqMtUx6rcQ2nNbkVX27uM=";
+              hash = "sha256-T+O45XF2J4hGVtodTuAXNpjnoqsV/tmuHbJw83Kgwos=";
             };
 
             nativeBuildInputs = [

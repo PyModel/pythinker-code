@@ -9,7 +9,7 @@ packages:
   - docs
 
 catalog:
-  zod: 4.4.3
+  zod: 4.6.7
 
 overrides:
   "@babel/core@<7.29.6": "^7.29.6"
