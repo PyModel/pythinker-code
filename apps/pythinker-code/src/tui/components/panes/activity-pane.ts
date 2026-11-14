@@ -4,7 +4,7 @@ import type { ActivitySpinner } from '#/tui/components/chrome/activity-spinner';
 import { ACTIVITY_DETAIL_INDENT } from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
 
-export type ActivityPaneMode = 'hidden' | 'waiting' | 'thinking' | 'composing' | 'tool';
+export type ActivityPaneMode = 'hidden' | 'waiting' | 'thinking' | 'composing' | 'tool' | 'compacting';
 
 export interface ActivityPaneOptions {
   readonly mode: ActivityPaneMode;
@@ -26,7 +26,8 @@ export class ActivityPaneComponent extends Container {
       (options.mode === 'waiting' ||
         options.mode === 'tool' ||
         options.mode === 'composing' ||
-        options.mode === 'thinking') &&
+        options.mode === 'thinking' ||
+        options.mode === 'compacting') &&
       options.spinner !== undefined
     ) {
       this.addChild(new Spacer(1));

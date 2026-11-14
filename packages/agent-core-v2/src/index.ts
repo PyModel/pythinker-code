@@ -75,13 +75,10 @@ export * from '#/os/interface/hostClock';
 export * from '#/os/interface/hostEnvironment';
 export * from '#/os/interface/hostFileSystem';
 export * from '#/os/interface/hostProcess';
-export * from '#/os/interface/terminal';
-export * from '#/os/interface/terminalErrors';
 export * from '#/os/backends/node-local/hostClockService';
 export * from '#/os/backends/node-local/hostEnvironmentService';
 export * from '#/os/backends/node-local/hostFsService';
 export * from '#/os/backends/node-local/hostProcessService';
-export * from '#/os/backends/node-local/hostTerminalService';
 export * from '#/agent/tools/os/bash/bash';
 import '#/agent/tools/os/bash/bashTool';
 export * from '#/agent/tools/os/glob/glob';
@@ -92,10 +89,6 @@ export * from '#/agent/tools/os/read/read';
 import '#/agent/tools/os/read/readTool';
 export * from '#/agent/tools/os/write/write';
 import '#/agent/tools/os/write/writeTool';
-export * from '#/os/interface/terminal';
-export * from '#/os/interface/terminalErrors';
-export * from '#/os/backends/node-local/hostTerminalService';
-export * from '#/session/terminal/terminalService';
 export * from '#/app/task/task';
 import '#/app/task/taskService';
 export { TaskService } from '#/app/task/taskService';
@@ -148,22 +141,22 @@ export {
   type ToolCall,
   type ToolCallPart,
   type VideoURLPart,
-} from '#human/llm/message';
-export type { ToolDescription as Tool } from '#human/llm/message';
-export { addUsage, emptyUsage, grandTotal, inputTotal, type TokenUsage } from '#human/llm/usage';
-export type { FinishReason } from '#human/llm/finish-reason';
+} from '#human/message';
+export type { ToolDescription as Tool } from '#human/message';
+export { addUsage, emptyUsage, grandTotal, inputTotal, type TokenUsage } from '#human/llm-requester/usage';
+export type { FinishReason } from '#human/llm-requester/finish-reason';
 export type {
   JsonObjectResponseFormat,
   JsonSchemaObject,
   JsonSchemaResponseFormat,
   ResponseFormat,
-} from '#human/llm/response-format';
-export type { ThinkingEffort, ThinkingRequestOptions } from '#human/llm/thinking';
-export type { VideoUploadInput } from '#human/llm/media/upload';
-export type { ToolCallIdPolicy } from '#human/llm/requester/requester';
+} from '#human/llm-requester/response-format';
+export type { ThinkingEffort, ThinkingRequestOptions } from '#human/llm-requester/thinking';
+export type { VideoUploadInput } from '#human/media/upload';
+export type { ToolCallIdPolicy } from '#human/llm-requester/requester';
 export type { SamplingOptions } from '#/llm-adapter/model/model-requester';
 export * from '#/llm-adapter/contract/request-trace';
-export type { PythinkerThinkingConfig } from '#human/llm-pythinker/trait';
+export type { PythinkerThinkingConfig } from '#human/llm/builtin/provider/pythinker/protocol';
 
 export * from '#/app/sessionIndex/sessionIndex';
 export * from '#/app/sessionIndex/sessionIndexService';
@@ -341,8 +334,6 @@ export * from '#/features/btw/btw';
 export * from '#/features/btw/btwService';
 import '#/features/btw/btwFeature';
 import '#/features/plan/profile/plan';
-export * from '#/features/plan/tools/enter-plan-mode/enter-plan-mode';
-import '#/features/plan/tools/enter-plan-mode/enterPlanModeTool';
 export * from '#/features/plan/tools/exit-plan-mode/exit-plan-mode';
 import '#/features/plan/tools/exit-plan-mode/exitPlanModeTool';
 export * from '#/features/plan/configSection';
@@ -566,13 +557,9 @@ export * from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 export * from '#/session/sessionToolPolicyGate/sessionToolPolicyGateService';
 export * from '#/workspace/workspaceTrust/workspaceTrust';
 export * from '#/workspace/workspaceTrust/workspaceTrustService';
+export * from '#/workspace/workspaceTrust/workspaceTrustStore';
 export * from '#/app/hostFolderBrowser/hostFolderBrowser';
 export * from '#/app/hostFolderBrowser/hostFolderBrowserService';
-import '#/app/defaultWorkspace/configSection';
-export * from '#/app/defaultWorkspace/configSection';
-export * from '#/app/defaultWorkspace/defaultWorkspace';
-export * from '#/app/defaultWorkspace/defaultWorkspaceService';
-export * from '#/app/defaultWorkspace/errors';
 export * from '#/persistence/interface/storage';
 export * from '#/persistence/interface/appendLogStore';
 export * from '#/persistence/interface/sessionLock';
@@ -618,7 +605,7 @@ export {
   resolveMaxImageEdgePx,
   resolveReadImageByteBudget,
 } from '#/agent/media/image-compress';
-export { providerImagePolicy, type ProviderImagePolicy } from '#human/llm/media/image-formats';
+export { providerImagePolicy, type ProviderImagePolicy } from '#human/llm/protocol/kit/media';
 export {
   buildImageConversionGuidance,
   buildUnsupportedImageNotice,
@@ -702,6 +689,7 @@ export * from '#/agent/interruptionReminder/interruptionReminderOps';
 export * from '#/agent/mcp/mcp';
 export * from '#/agent/mcp/mcpService';
 export * from '#/agent/mcp/mcpDiscoveryOps';
+export * from '#/agent/mcp/mcpFailureOps';
 export * from '#/mcpCore/config-schema';
 export * from '#/agent/media/mediaTools';
 export * from '#/agent/media/mediaToolsRegistrar';

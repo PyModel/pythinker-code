@@ -4,25 +4,27 @@ Minimal terminal UI framework with differential rendering and synchronized outpu
 
 ## Features
 
-- **Differential Rendering**: Three-strategy rendering system that only updates what changed
+- **Interchangeable Renderers**: Shared `TUI` interface with main-screen and alternate-screen implementations
+- **Differential Rendering**: Updates only changed lines or viewport rows
+- **Application-owned Scrolling**: Alternate-screen viewport supports mouse, trackpad, and keyboard navigation
 - **Synchronized Output**: Uses CSI 2026 for atomic screen updates (no flicker)
 - **Bracketed Paste Mode**: Handles large pastes correctly with markers for >10 line pastes
 - **Component-based**: Simple Component interface with render() method
 - **Theme Support**: Components accept theme interfaces for customizable styling
-- **Built-in Components**: Text, TruncatedText, Input, Editor, Markdown, Loader, SelectList, SettingsList, Spacer, Image, Box, Container
+- **Built-in Components**: Text, TruncatedText, Input, Editor, Markdown, Loader, SelectList, SettingsList, MouseRegion, Spacer, Image, Box, Container, VStack, HStack, ScrollView
 - **Inline Images**: Renders images in terminals that support Kitty or iTerm2 graphics protocols
 - **Autocomplete Support**: File paths and slash commands
 
 ## Quick Start
 
 ```typescript
-import { TUI, Text, Editor, ProcessTerminal, matchesKey } from "@pymodel/pi-tui";
+import { type TUI, Text, Editor, ProcessTerminal, TuiMainScreen, matchesKey } from "@pymodel/pi-tui";
 
 // Create terminal
 const terminal = new ProcessTerminal();
 
-// Create TUI
-const tui = new TUI(terminal);
+// Create the default main-screen renderer through the shared TUI interface
+const tui: TUI = new TuiMainScreen(terminal);
 
 // Add components
 tui.addChild(new Text("Welcome to my app!"));
@@ -52,12 +54,20 @@ tui.start();
 
 ## Core API
 
-### TUI
+### TUI interface and renderers
 
-Main container that manages components and rendering.
+`TUI` is the shared interface for component management, focus, overlays, input, lifecycle, terminal queries, and rendering. Choose a concrete renderer only when constructing the application:
+
+- `TuiMainScreen` renders into the main terminal buffer and preserves terminal scrollback.
+- `TuiAltScreen` renders a fixed-height viewport in the alternate terminal buffer with application-owned scrolling. When stopped, it restores the main buffer and prints the complete final document.
 
 ```typescript
-const tui = new TUI(terminal);
+import { type TUI, TuiAltScreen, TuiMainScreen } from "@pymodel/pi-tui";
+
+const tui: TUI = new TuiMainScreen(terminal);
+// To use an application-owned viewport in the alternate terminal buffer instead:
+// const tui: TUI = new TuiAltScreen(terminal);
+
 tui.addChild(component);
 tui.removeChild(component);
 tui.start();
@@ -205,6 +215,7 @@ handle.unfocus();           // Release focus to normal fallback
 handle.unfocus({ target: baseComponent }); // Release this overlay to a specific component
 handle.unfocus({ target: null });   // Release this overlay and leave focus empty
 handle.isFocused();         // Check if overlay has focus
+handle.getBounds();         // Get last rendered terminal-relative bounds
 
 handle.unfocus();
 // Overlay loses focus; TUI falls back to another visible capturing overlay or the previous focus target.
@@ -252,6 +263,45 @@ interface Component {
 | `invalidate()` | Required. Clear any cached render state so the next `render()` starts from scratch. Components without cached render state can use an empty implementation. |
 
 The TUI appends a full SGR reset and OSC 8 reset at the end of each rendered line. Styles do not carry across lines. If you emit multi-line text with styling, reapply styles per line or use `wrapTextWithAnsi()` so styles are preserved for each wrapped line.
+
+### Mouse Input
+
+`TuiAltScreen` normalizes SGR mouse input and hit-tests components and overlays. Events contain component-local `x`/`y`, absolute `screenX`/`screenY`, bounds, button, modifiers, click count, and wheel delta. `TuiMainScreen` does not capture mouse input because the terminal owns its scrollback.
+
+```typescript
+import type { TuiMouseEvent, TuiMouseEventResult } from "@pymodel/pi-tui";
+
+handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+  if (event.type === "click" && event.button === "left") {
+    this.expanded = !this.expanded;
+    return { handled: true };
+  }
+  if (event.type === "press" && event.button === "left") {
+    return { handled: true, capture: true, focus: true };
+  }
+  if (event.type === "drag") {
+    this.updateFromPointer(event.x, event.y);
+    return { handled: true, render: true };
+  }
+  return undefined;
+}
+```
+
+Returning `handled` suppresses renderer-level fallback behavior. `capture` keeps subsequent drag and release events routed to the same component. `focus` requests keyboard focus. The optional `render` flag controls repainting: press, click, drag, and wheel default to rendering; move and release do not. Set `render: true` for a hover state that visibly changed, or `render: false` for a handled no-op. Render requests are coalesced and terminal output remains differential.
+
+Unhandled gestures retain alternate-screen defaults: wheel input scrolls the nearest `ScrollView` and chains unused delta, primary-button drags select text, OSC 8 links open before parent click handlers, and unhandled right-click preserves configured paste behavior. A click is emitted only when press/release completes without a drag.
+
+Use `MouseRegion` to add mouse behavior without changing a component's rendering:
+
+```typescript
+const collapsible = new MouseRegion(content, (event) => {
+  if (event.type !== "click" || event.button !== "left") return undefined;
+  expanded = !expanded;
+  return { handled: true };
+});
+```
+
+`Container` and `Box` route events to nested children using geometry recorded by the last rendered frame, so pointer motion does not rerender children merely to hit-test them. Explicit `VStack`, `HStack`, and `ScrollView` layouts use the alternate-screen layout frame directly.
 
 ### Focusable Interface (IME Support)
 
@@ -373,6 +423,8 @@ input.setValue("initial");
 input.getValue();
 ```
 
+Clicking positions the cursor and gives the input keyboard focus in alternate-screen mode.
+
 **Key Bindings:**
 - `Enter` - Submit
 - `Ctrl+A` / `Ctrl+E` - Line start/end
@@ -408,6 +460,7 @@ editor.getPaddingX();  // Get current padding
 ```
 
 **Features:**
+- Click-to-position cursor and clickable autocomplete rows in alternate-screen mode
 - Multi-line editing with word wrap
 - Slash command autocomplete (type `/`)
 - File path autocomplete (press `Tab`)
@@ -548,6 +601,8 @@ list.setFilter("opt"); // Filter items
 ```
 
 **Controls:**
+- Mouse move/wheel: Highlight rows in alternate-screen mode
+- Click: Select a row
 - Arrow keys: Navigate
 - Enter: Select
 - Escape: Cancel
@@ -588,6 +643,8 @@ settings.updateValue("theme", "light");
 ```
 
 **Controls:**
+- Mouse move/wheel: Highlight rows in alternate-screen mode
+- Click: Activate a row
 - Arrow keys: Navigate
 - Enter/Space: Activate (cycle value or open submenu)
 - Escape: Cancel
@@ -625,6 +682,10 @@ tui.addChild(image);
 ```
 
 Supported formats: PNG, JPEG, GIF, WebP. Dimensions are parsed from the image headers automatically.
+
+#### Alternate-screen image compatibility
+
+`TuiAltScreen` supports inline images and partial viewport cropping in terminals that implement the Kitty graphics protocol, including Kitty and Ghostty. iTerm2's inline-image protocol does not provide operations to delete an existing placement or crop its source while scrolling. To prevent stale images from remaining over repainted content, `TuiAltScreen` renders image components as text placeholders in iTerm2. `TuiMainScreen` continues to render iTerm2 inline images normally.
 
 ## Autocomplete
 
@@ -679,15 +740,17 @@ if (matchesKey(data, Key.enter)) {
 - With modifiers: `Key.ctrl("c")`, `Key.shift("tab")`, `Key.alt("left")`, `Key.ctrlShift("p")`
 - String format also works: `"enter"`, `"ctrl+c"`, `"shift+tab"`, `"ctrl+shift+p"`
 
-## Differential Rendering
+## Rendering modes
 
-The TUI uses three rendering strategies:
+`TuiMainScreen` uses three rendering strategies:
 
 1. **First Render**: Output all lines without clearing scrollback
-2. **Width Changed or Change Above Viewport**: Clear screen and full re-render
-3. **Normal Update**: Move cursor to first changed line, clear to end, render changed lines
+2. **Width Changed or Change Above Viewport**: Clear screen and fully re-render
+3. **Normal Update**: Move the cursor to the first changed line, clear to the end, and render changed lines
 
-All updates are wrapped in **synchronized output** (`\x1b[?2026h` ... `\x1b[?2026l`) for atomic, flicker-free rendering.
+`TuiAltScreen` owns a terminal-height viewport. Without an explicit layout root it preserves the legacy single-document scrolling behavior. With `setLayoutRoot()`, `VStack`, `HStack`, and nested `ScrollView` components can reserve fixed regions and independently scroll constrained regions. It updates changed viewport rows in place, follows streaming output while at the bottom, and preserves a manually selected scroll position while content grows. Mouse-wheel and configurable keyboard navigation scroll without modifying terminal scrollback, including jumps between OSC 133 semantic prompt markers. Scrollbars support hover expansion, thumb dragging, and track-click jumping. Clicking an OSC 8 hyperlink opens it with the configured URL handler. Dragging with the primary mouse button selects text and, unless `TuiAltScreenOptions.copyOnSelect` is `false`, copies it to the clipboard with OSC 52; holding the drag at a scroll view's top or bottom edge auto-scrolls and extends the selection into off-screen content. Kitty images support vertical viewport cropping; iTerm2 inline images fall back to text because the iTerm2 protocol cannot delete or crop placements during viewport repainting.
+
+Both renderers wrap updates in **synchronized output** (`\x1b[?2026h` ... `\x1b[?2026l`) for atomic, flicker-free rendering.
 
 ## Terminal Interface
 

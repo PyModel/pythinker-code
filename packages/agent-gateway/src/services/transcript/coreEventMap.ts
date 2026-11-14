@@ -6,7 +6,13 @@ import type {
   CompactionCompleted,
   CompactionStarted,
 } from '@pymodel/agent-core-v2/agent/fullCompaction/compactionOps';
-import { daemonFileRefFromPart, type ContentPart, type ContextUndone, type CronFired, type GoalUpdated } from '@pymodel/agent-core-v2';
+import {
+  daemonFileRefFromPart,
+  type ContextUndone,
+  type CronFired,
+  type GoalUpdated,
+} from '@pymodel/agent-core-v2';
+import type { ContentPart } from '@pymodel/agent-core-v2/human/llm/message';
 import { isUserPromptSubmitHookPart } from '@pymodel/agent-core-v2/agent/contextMemory/hookParts';
 import { annotateBundledSkillParts, isSkillActivationPart } from '@pymodel/agent-core-v2/human/agent/origin';
 import type {
@@ -91,8 +97,9 @@ import {
 
 import { toLegacyPhase, type LegacyActivityApproval } from '../legacyStatus/legacyStatus';
 import { LegacyActivityTracker, phaseFromDomainEvent } from '../legacyStatus/legacyActivity';
+import { interactionOutcome } from '../../protocol/interaction-wire';
 import { toWireQuestion } from '../../protocol/question-wire';
-import { projectPromptContentParts } from '../messages/messageProjection';
+import { projectPromptContentParts, projectToolResultOutput } from '../messages/messageProjection';
 
 export interface ProjectorInteraction {
   readonly id: string;
@@ -1038,11 +1045,12 @@ export class AgentTranscriptProjector {
     const hit = this.toolFrames.get(event.toolCallId) ?? this.adoptToolFrame(event.toolCallId);
     if (hit === undefined) return [];
     const isError = event.isError === true;
+    const output = projectToolResultOutput(event.output);
     const frame: ToolCallFrame = {
       ...hit.frame,
       state: isError ? 'error' : 'done',
-      output: event.output,
-      error: isError && typeof event.output === 'string' ? event.output : undefined,
+      output,
+      error: isError && typeof output === 'string' ? output : undefined,
     };
     this.toolFrames.set(event.toolCallId, { ...hit, frame });
     const ops: TranscriptOperation[] = [
@@ -1707,7 +1715,7 @@ export class AgentTranscriptProjector {
     const record = this.interactions.get(id);
     if (record === undefined) return [];
     this.interactions.delete(id);
-    const state = mapInteractionEndState(record.interactionKind, response);
+    const state = interactionOutcome(record.interactionKind, response);
     const ops: TranscriptOperation[] = [
       { op: 'interaction.upsert', interaction: { ...record, state, response } },
     ];
@@ -1797,17 +1805,6 @@ function mapTaskKind(kind: string): TranscriptTask['kind'] {
   }
 }
 
-function mapInteractionEndState(
-  kind: 'approval' | 'question',
-  response: unknown,
-): TranscriptInteraction['state'] {
-  if (kind === 'question') return response === null ? 'dismissed' : 'answered';
-  const decision = (response as { decision?: unknown } | null | undefined)?.decision;
-  if (decision === 'approved' || decision === 'rejected' || decision === 'cancelled') {
-    return decision;
-  }
-  return 'cancelled';
-}
 
 const TODO_LIST_TOOL_NAME = 'TodoList';
 const TODO_ENTITY_ID = 'todo';

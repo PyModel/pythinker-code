@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { deleteKittyImage, isImageLine } from "./terminal-image.ts";
 import { SEGMENT_RESET, type TUI, TuiBase, type TuiStopOptions } from "./tui.ts";
-import { asciiVisibleWidth, normalizeTerminalOutput, sliceByColumn, visibleWidth } from "./utils.ts";
+import { asciiVisibleWidthWithinLimit, normalizeTerminalOutput, sliceByColumn, visibleWidth } from "./utils.ts";
 
 const KITTY_SEQUENCE_PREFIX = "\x1b_G";
 const MAX_RENDER_WRITE_CHARS = 1024 * 1024;
@@ -318,7 +318,7 @@ export class TuiMainScreen extends TuiBase implements TUI {
 			if (isImageLine(line)) {
 				imageIds = extractKittyImageIds(line);
 			} else {
-				const lineWidth = asciiVisibleWidth(line, width) ?? visibleWidth(line);
+				const lineWidth = asciiVisibleWidthWithinLimit(line, width) ?? visibleWidth(line);
 				if (lineWidth > width) {
 					line = sliceByColumn(line, 0, width, true);
 				}
@@ -609,9 +609,8 @@ export class TuiMainScreen extends TuiBase implements TUI {
 		output.append("\x1b[?2026l"); // End synchronized output
 
 		if (process.env['PI_TUI_DEBUG'] === "1") {
-			const debugDir = "/tmp/tui";
-			fs.mkdirSync(debugDir, { recursive: true });
-			const debugPath = path.join(debugDir, `render-${Date.now()}-${Math.random().toString(36).slice(2)}.log`);
+			const debugDir = fs.mkdtempSync(path.join(os.tmpdir(), "tui-"));
+			const debugPath = path.join(debugDir, "render.log");
 			const debugData = [
 				`firstChanged: ${firstChanged}`,
 				`viewportTop: ${viewportTop}`,
@@ -634,7 +633,7 @@ export class TuiMainScreen extends TuiBase implements TUI {
 				"=== buffer ===",
 				`[${output.length} chars written in bounded chunks]`,
 			].join("\n");
-			fs.writeFileSync(debugPath, debugData);
+			fs.writeFileSync(debugPath, debugData, { mode: 0o600 });
 		}
 
 		output.flush();

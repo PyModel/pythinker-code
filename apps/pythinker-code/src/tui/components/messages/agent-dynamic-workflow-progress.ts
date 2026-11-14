@@ -312,6 +312,10 @@ export class AgentDynamicWorkflowProgressComponent implements Component {
     return !this.inputComplete;
   }
 
+  hasSubagents(): boolean {
+    return this.membersByAgentId.size > 0;
+  }
+
   updateArgs(
     args: Record<string, unknown>,
     options: { readonly streamingArguments?: string | undefined } = {},
@@ -1245,6 +1249,20 @@ export function agentDynamicWorkflowResultSummaryFromOutput(output: string): Age
     aborted,
     parsed: statuses.length > 0,
   };
+}
+
+/**
+ * Whether the output of a failed AgentDynamicWorkflow call is a rejection that ended the
+ * call before any subagent started, such as a call made while dynamic_workflow mode is
+ * off or one that failed input validation. The rejection is addressed to the
+ * model, so the transcript shows no dynamic_workflow for it. Cancellations keep their
+ * aborted rendering.
+ */
+export function isAgentDynamicWorkflowRejection(output: string): boolean {
+  return (
+    !/\b(?:aborted|cancelled|interrupted)\b/i.test(output) &&
+    !agentDynamicWorkflowResultSummaryFromOutput(output).parsed
+  );
 }
 
 function parseAgentDynamicWorkflowResultStatuses(output: string): AgentDynamicWorkflowResultStatus[] {

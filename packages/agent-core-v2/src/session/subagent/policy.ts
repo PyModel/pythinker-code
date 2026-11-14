@@ -137,7 +137,7 @@ export function toPersistedSecondaryModel(
         defaultEffort: policy.defaultEffort,
       };
     case 'force':
-      return { defaultModel: policy.defaultModel, force: true, defaultEffort: policy.defaultEffort };
+      return { defaultModel: policy.defaultModel, defaultEffort: policy.defaultEffort };
   }
 }
 

@@ -56,7 +56,7 @@ export const cjkBreakRegex =
 
 // CJK letters remain part of words and paths; only punctuation can separate prose from completions.
 export const cjkPunctuationRegex = new RegExp(
-	`(?:(?=\\p{Punctuation})${cjkBreakRegex.source}|[，．：；！？（）［］｛｝“”‘’…—])`,
+	`(?:(?=\\p{Punctuation})${cjkBreakRegex.source}|[\uff0c\uff0e\uff1a\uff1b\uff01\uff1f\uff08\uff09\uff3b\uff3d\uff5b\uff5d“”‘’…—])`,
 	"u",
 );
 export const autocompleteSeparatorRegex = new RegExp(`(?:\\s|${cjkPunctuationRegex.source})`, "u");
@@ -254,7 +254,7 @@ export function visibleWidth(str: string): number {
 
 	// Fast path: printable ASCII, tabs, and ANSI escape sequences. Styled lines take this path, so
 	// re-rendering after a theme change does not run grapheme segmentation on every line.
-	const asciiWidth = asciiTabVisibleWidth(str);
+	const asciiWidth = asciiVisibleWidth(str);
 	if (asciiWidth !== -1) {
 		return asciiWidth;
 	}
@@ -387,7 +387,7 @@ export function getOsc8LinkAtColumn(line: string, column: number): string | unde
  * content (caller should fall back to visibleWidth()). Early-exits as soon
  * as the width exceeds `limit`, returning the partial count (> limit).
  */
-export function asciiVisibleWidth(line: string, limit: number): number | undefined {
+export function asciiVisibleWidthWithinLimit(line: string, limit: number): number | undefined {
 	let width = 0;
 	let i = 0;
 	while (i < line.length) {
@@ -453,7 +453,7 @@ export function extractAnsiCode(str: string, pos: number): { code: string; lengt
  * Width of a string made of printable ASCII, tabs, and ANSI escape sequences, or -1 if it contains
  * anything else. Matches `visibleWidth` for those strings without allocating.
  */
-function asciiTabVisibleWidth(str: string): number {
+function asciiVisibleWidth(str: string): number {
 	let width = 0;
 	let i = 0;
 	while (i < str.length) {

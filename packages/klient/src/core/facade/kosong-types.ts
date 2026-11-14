@@ -9,9 +9,9 @@ import type { Message } from '@pymodel/agent-core-v2/llm-adapter/contract/messag
 import type {
   StreamedMessagePart,
   ToolDescription as Tool,
-} from '@pymodel/agent-core-v2/human/llm/message';
-import type { TokenUsage } from '@pymodel/agent-core-v2/human/llm/usage';
-import type { ResponseFormat } from '@pymodel/agent-core-v2/human/llm/response-format';
+} from '@pymodel/agent-core-v2/human/message';
+import type { TokenUsage } from '@pymodel/agent-core-v2/human/llm-requester/usage';
+import type { ResponseFormat } from '@pymodel/agent-core-v2/human/llm-requester/response-format';
 
 // ---------------------------------------------------------------------------
 // Provider auth

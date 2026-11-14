@@ -1,6 +1,5 @@
 import {
   PRIMARY_SUBAGENT_MODEL_CHOICE,
-  SECONDARY_DERIVED_MODEL_ALIAS,
   type ExperimentalFeatureState,
   type ModelAlias,
   type PermissionMode,
@@ -27,7 +26,6 @@ import type { ThemeName } from '#/tui/theme';
 import { currentTheme, isBuiltInTheme, lightColors, loadCustomThemeMerged } from '#/tui/theme';
 import { NO_ACTIVE_SESSION_MESSAGE, TUI_MODE_RESTART_NOTICE } from '../constant/pythinker-tui';
 import { formatErrorMessage } from '../utils/event-payload';
-import { isSessionOccupiedError } from '../utils/session-lock-errors';
 import { setMarkdownMermaidMode, type MermaidRenderMode } from '../utils/markdown-options';
 import {
   effectiveModelForHost,
@@ -125,8 +123,9 @@ export async function handleCompactCommand(host: SlashCommandHost, args: string)
   try {
     await session.compact({ instruction: customInstruction });
   } catch (error) {
-    if (!isSessionOccupiedError(error)) throw error;
-    host.showError(formatErrorMessage(error));
+    const message = formatErrorMessage(error);
+    host.setAppState({ isCompacting: false });
+    host.failSessionRequest(message);
   }
 }
 
@@ -159,26 +158,26 @@ export async function handleModelCommand(host: SlashCommandHost, args: string): 
   const alias = args.trim();
   await refreshModelsForPicker(host);
   if (alias.length === 0) {
-    showModelPicker(host);
+    await showModelPicker(host);
     return;
   }
   if (host.state.appState.availableModels[alias] === undefined) {
     host.showError(`Unknown model alias: ${alias}`);
     return;
   }
-  showModelPicker(host, alias);
+  await showModelPicker(host, alias);
 }
 
 export async function handleSecondaryModelCommand(host: SlashCommandHost, args: string): Promise<void> {
   const alias = args.trim();
   await refreshModelsForPicker(host);
   const models = pickerModelsForHost(host);
-  // The pool reserves `primary` as the symbolic "caller's own model" choice —
-  // a user alias with that name can never be the subagent default.
+  // The pool reserves `primary` for Tower spawn's symbolic "tower's own model"
+  // choice — a user alias with that name can never be the subagent default.
   delete models[PRIMARY_SUBAGENT_MODEL_CHOICE];
   if (alias === PRIMARY_SUBAGENT_MODEL_CHOICE) {
     host.showError(
-      `"${PRIMARY_SUBAGENT_MODEL_CHOICE}" is reserved by the subagent model pool (it always binds the caller's own model) — rename the [models] alias to use it here.`,
+      `"${PRIMARY_SUBAGENT_MODEL_CHOICE}" is reserved by the subagent model pool — rename the [models] alias to use it here.`,
     );
     return;
   }
@@ -343,19 +342,18 @@ async function applyEditorChoice(host: SlashCommandHost, value: string): Promise
 
 /**
  * The models a picker may offer: the user's configured aliases with
- * host-effective provider resolution applied, minus the synthesized
- * `__secondary__` derived entry — a runtime artifact of the v1 engine's
- * `[secondary_model]` recipe that must never be selectable as a model.
+ * host-effective provider resolution applied.
  */
 function pickerModelsForHost(host: SlashCommandHost): Record<string, ModelAlias> {
   return Object.fromEntries(
-    Object.entries(host.state.appState.availableModels)
-      .filter(([alias]) => alias !== SECONDARY_DERIVED_MODEL_ALIAS)
-      .map(([alias, model]) => [alias, effectiveModelForHost(host, model)]),
+    Object.entries(host.state.appState.availableModels).map(([alias, model]) => [
+      alias,
+      effectiveModelForHost(host, model),
+    ]),
   );
 }
 
-export function showModelPicker(host: SlashCommandHost, selectedValue: string = host.state.appState.model): void {
+export async function showModelPicker(host: SlashCommandHost, selectedValue: string = host.state.appState.model): Promise<void> {
   const models = pickerModelsForHost(host);
   const entries = Object.entries(models);
   if (entries.length === 0) {
@@ -882,7 +880,7 @@ export function showSettingsSelector(host: SlashCommandHost): void {
 function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelection): void {
   host.restoreEditor();
   switch (value) {
-    case 'model': showModelPicker(host); return;
+    case 'model': void showModelPicker(host); return;
     case 'permission': showPermissionPicker(host); return;
     case 'theme': showThemePicker(host); return;
     case 'tuiMode': showTuiModePicker(host); return;

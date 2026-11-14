@@ -37,7 +37,8 @@ export interface DynamicWorkflowModeExit {
 export const dynamicWorkflowKey = defineState('dynamic_workflow', (): DynamicWorkflowModeTrigger | null => null).replayable({
   schema: z.custom<DynamicWorkflowModeTrigger | null>(),
 })
-  .on(DynamicWorkflowModeEnter, (_s, e, ctx) => {
+  .on(DynamicWorkflowModeEnter, (s, e, ctx) => {
+    if (e.trigger === 'tool') return s;
     ctx.emit(new AgentStatusUpdated({ agentId: e.agentId, dynamicWorkflowMode: true }));
     return e.trigger;
   })

@@ -20,6 +20,12 @@ const KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT_MS = 150;
 const KITTY_KEYBOARD_PROTOCOL_QUERY = `\x1b[>${DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS}u\x1b[?u`;
 const DEVICE_ATTRIBUTES_QUERY = "\x1b[c";
 
+function formatProgramStatusOutput(status: ProgramStatus): string {
+	const formatted = formatProgramStatus(status);
+	if (process.env['TMUX'] === undefined) return formatted;
+	return `\x1bPtmux;${formatted.replace(/\x1b/g, "\x1b\x1b")}\x1b\\`;
+}
+
 export type KeyboardProtocolNegotiationSequence =
 	| { type: "kitty-flags"; flags: number }
 	| { type: "device-attributes" };
@@ -83,6 +89,12 @@ export interface Terminal {
 	stop(): void;
 
 	/**
+	 * Synchronously restore terminal modes from a process `exit` handler when stop() did not run.
+	 * Writes `before`, then this terminal's own mode resets, then `after`.
+	 */
+	restoreOnExit?(before: string, after: string): void;
+
+	/**
 	 * Drain stdin before exiting to prevent Kitty key release events from
 	 * leaking to the parent shell over slow SSH connections.
 	 * @param maxMs - Maximum time to drain (default: 1000ms)
@@ -122,7 +134,7 @@ export interface Terminal {
 	 * Report what the program is doing (OSC 7501). Sent only to terminals that support it; the latest
 	 * status is re-sent when support is confirmed or the terminal restarts.
 	 */
-	setProgramStatus(status: ProgramStatus): void;
+	setProgramStatus?(status: ProgramStatus): void;
 }
 
 const DEFAULT_ESCAPE_TIMEOUT_MS = 10;
@@ -161,8 +173,8 @@ export class ProcessTerminal implements Terminal {
 	private stdinBuffer?: StdinBuffer;
 	private stdinDataHandler?: (data: string) => void;
 	private progressInterval?: ReturnType<typeof setInterval>;
-	/** Latest program status, kept across stop() so start() can report it again. */
-	private programStatus?: ProgramStatus;
+	/** Latest program status by record id, kept across stop() so start() can report the records again. */
+	private readonly programStatuses = new Map<string | undefined, ProgramStatus>();
 	/** Whether the terminal confirmed OSC 7501 support since the last start(), or `PI_PROGRAM_STATUS=1`. */
 	private programStatusSupported = false;
 	/** The support query was sent and its DA1 sentinel has not arrived yet. */
@@ -240,7 +252,7 @@ export class ProcessTerminal implements Terminal {
 				if (this.programStatusQueryPending) {
 					this.programStatusQueryPending = false;
 					this.programStatusSupported = true;
-					this.writeProgramStatus();
+					this.writeProgramStatuses();
 				}
 				return;
 			}
@@ -292,11 +304,22 @@ export class ProcessTerminal implements Terminal {
 		this.pendingKeyboardProtocolDeviceAttributes += 1;
 		this.clearKeyboardProtocolNegotiationBuffer();
 		const programStatusOverride = process.env['PI_PROGRAM_STATUS'];
-		this.programStatusSupported = programStatusOverride === "1";
-		this.programStatusQueryPending = programStatusOverride !== "1" && programStatusOverride !== "0";
+		const rexProgramStatus = Boolean(process.env['REX_SESSION'] || process.env['REX_BLOCK']);
+		const multiplexerWithoutQuery =
+			process.env['TMUX'] !== undefined ||
+			process.env['STY'] !== undefined ||
+			process.env['ZELLIJ'] !== undefined ||
+			process.env['ZELLIJ_SESSION_NAME'] !== undefined;
+		this.programStatusSupported =
+			programStatusOverride === "1" || (programStatusOverride !== "0" && rexProgramStatus);
+		this.programStatusQueryPending =
+			programStatusOverride !== "1" &&
+			programStatusOverride !== "0" &&
+			!rexProgramStatus &&
+			!multiplexerWithoutQuery;
 		const programStatusQuery = this.programStatusQueryPending ? PROGRAM_STATUS_QUERY : "";
 		process.stdout.write(`${KITTY_KEYBOARD_PROTOCOL_QUERY}${programStatusQuery}${DEVICE_ATTRIBUTES_QUERY}`);
-		this.writeProgramStatus();
+		this.writeProgramStatuses();
 	}
 
 	private handleKeyboardProtocolNegotiationSequence(
@@ -469,8 +492,8 @@ export class ProcessTerminal implements Terminal {
 			process.stdout.write(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
 		}
 		// Remove the status while stopped, for example after exit or while suspended. start() reports it again.
-		if (this.programStatusSupported && this.programStatus) {
-			process.stdout.write(formatProgramStatus({ state: "clear" }));
+		if (this.programStatusSupported && this.programStatuses.size > 0) {
+			process.stdout.write(formatProgramStatusOutput({ state: "clear" }));
 		}
 		this.programStatusSupported = false;
 		this.programStatusQueryPending = false;
@@ -515,6 +538,24 @@ export class ProcessTerminal implements Terminal {
 		// Restore raw mode state
 		if (process.stdin.setRawMode) {
 			process.stdin.setRawMode(this.wasRaw);
+		}
+	}
+
+	restoreOnExit(before: string, after: string): void {
+		let sequence = before;
+		if (this.progressInterval) sequence += TERMINAL_PROGRESS_CLEAR_SEQUENCE;
+		if (this.programStatusSupported && this.programStatuses.size > 0) {
+			sequence += formatProgramStatusOutput({ state: "clear" });
+		}
+		sequence += "\x1b[?2004l";
+		if (this.keyboardProtocolPushed || this._kittyProtocolActive) sequence += "\x1b[<u";
+		if (this._modifyOtherKeysActive) sequence += "\x1b[>4;0m";
+		sequence += after;
+		try {
+			// process.stdout.write() may be asynchronous (e.g. Windows TTYs) and would not flush during exit.
+			fs.writeSync(process.stdout.fd, sequence);
+		} catch {
+			// The terminal may already be gone.
 		}
 	}
 
@@ -574,13 +615,27 @@ export class ProcessTerminal implements Terminal {
 	}
 
 	setProgramStatus(status: ProgramStatus): void {
-		this.programStatus = status.state === "clear" ? undefined : status;
-		if (this.programStatusSupported) process.stdout.write(formatProgramStatus(status));
+		const formatted = formatProgramStatusOutput(status);
+		if (status.state === "clear") {
+			if (status.id === undefined) {
+				this.programStatuses.clear();
+			} else {
+				this.programStatuses.delete(status.id);
+				const descendantPrefix = `${status.id}/`;
+				for (const id of this.programStatuses.keys()) {
+					if (id?.startsWith(descendantPrefix)) this.programStatuses.delete(id);
+				}
+			}
+		} else {
+			this.programStatuses.set(status.id, status);
+		}
+		if (this.programStatusSupported) process.stdout.write(formatted);
 	}
 
-	private writeProgramStatus(): void {
-		if (this.programStatusSupported && this.programStatus) {
-			process.stdout.write(formatProgramStatus(this.programStatus));
+	private writeProgramStatuses(): void {
+		if (!this.programStatusSupported) return;
+		for (const status of this.programStatuses.values()) {
+			process.stdout.write(formatProgramStatusOutput(status));
 		}
 	}
 

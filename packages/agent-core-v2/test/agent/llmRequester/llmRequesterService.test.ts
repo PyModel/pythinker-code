@@ -24,9 +24,10 @@ import {
   type TurnInput,
   type TurnLlmEvent,
 } from '#human/agent/turn';
-import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
-import type { LlmModel } from '#human/llm/model';
-import type { LlmRequester } from '#human/llm/requester/requester';
+import { UNKNOWN_CAPABILITY } from '#human/llm-requester/capability';
+import { createOpenAIRequester } from '#human/llm-requester/factories';
+import type { LlmModel } from '#human/llm-requester/model';
+import type { LlmRequester } from '#human/llm-requester/requester';
 import { createActor, emit, setup } from '#human/xstate2';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IAgentProfileService } from '#/agent/profile/profile';
@@ -48,13 +49,19 @@ import {
   APIRequestTooLargeError,
   APIStatusError,
 } from '#/llm-adapter/contract/errors';
-import { emptyUsage, type TokenUsage } from '#human/llm/usage';
-import { type Message } from '#/llm-adapter/contract/message';
-import { isToolCall, type StreamedMessagePart, type ToolCall } from '#human/llm/message';
-import type { ThinkingEffort } from '#human/llm/thinking';
+import { emptyUsage, type TokenUsage } from '#human/llm-requester/usage';
+import {
+  isToolCall,
+  type Message,
+  type StreamedMessagePart,
+  type ToolCall,
+} from '#human/llm/message';
+import { mediaUrlOf } from '#human/llm/protocol/kit/media';
+import type { ThinkingEffort } from '#human/llm-requester/thinking';
 import type { ModelCapability } from '#/llm-adapter/contract/capability';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { IModelService } from '#/llm-adapter/model/model';
+import { ModelRequesterImpl } from '#/llm-adapter/model/model-requester-impl';
 import {
   type ModelRequestEvent,
   type ModelRequestInput,
@@ -121,19 +128,23 @@ const capabilities: ModelCapability = {
 };
 
 const history: Message[] = [
-  { role: 'user', content: [{ type: 'text', text: 'hello' }], toolCalls: [] },
+  { role: 'user', content: [{ type: 'text', text: 'hello' }] },
 ];
 
 type ProjectionKind = 'normal' | 'strict' | 'degraded' | 'stripped';
 
 function classifyProjectionPolicy(policy: ProjectionPolicy | undefined): ProjectionKind {
-  if (typeof policy?.media === 'object') return 'stripped';
-  if (policy?.media === 'degraded') return 'degraded';
+  if (policy?.media !== undefined) return 'degradeCount' in policy.media ? 'degraded' : 'stripped';
   if (policy?.structure === 'strict') return 'strict';
   return 'normal';
 }
 
-function recordProjectionCalls(): {
+function recordProjectionCalls(
+  project: (
+    messages: readonly ContextMessage[],
+    policy: ProjectionPolicy | undefined,
+  ) => readonly Message[] = (messages) => messages,
+): {
   projector: Pick<IAgentContextProjectorService, 'project'>;
   calls: ProjectionKind[];
 } {
@@ -142,7 +153,7 @@ function recordProjectionCalls(): {
     projector: {
       project: (messages: readonly ContextMessage[], policy) => {
         calls.push(classifyProjectionPolicy(policy));
-        return messages;
+        return project(messages, policy);
       },
     },
     calls,
@@ -203,13 +214,15 @@ function createService(
   requester: ModelRequester,
   projector:
     | (Pick<IAgentContextProjectorService, 'project'> &
-        Partial<Pick<IAgentContextProjectorService, 'captureMediaStripSnapshot'>>)
+        Partial<Pick<IAgentContextProjectorService, 'captureMediaStripSnapshot' | 'captureMediaDegradeCount'>>)
     | undefined,
   options: {
     readonly thinkingLevel?: ThinkingEffort;
     readonly mediaResolver?: Partial<IAgentMediaResolverService>;
     readonly contextMessages?: Message[];
     readonly env?: Record<string, string>;
+    readonly modelAlias?: () => string;
+    readonly prefixRevision?: () => number;
   } = {},
 ) {
   const ix = disposables.add(new TestInstantiationService());
@@ -218,7 +231,7 @@ function createService(
   const profile: Partial<IAgentProfileService> = {
     hasProvider: () => true,
     resolveModelContext: () => ({
-      modelAlias: 'm',
+      modelAlias: options.modelAlias?.() ?? 'm',
       modelCapabilities: capabilities,
       maxOutputSize: undefined,
       alwaysThinking: undefined,
@@ -252,7 +265,7 @@ function createService(
   const usage = { record: () => Promise.resolve(), status: () => ({}) };
   const context = {
     get: () => options.contextMessages ?? history,
-    prefixRevision: () => 0,
+    prefixRevision: options.prefixRevision ?? (() => 0),
   };
   const tools = { list: () => [] };
   const config: Partial<IConfigService> = {
@@ -276,7 +289,10 @@ function createService(
 
   ix.stub(IAgentContextMemoryService, context);
   ix.stub(IAgentToolSelectService, toolSelect);
-  ix.stub(IAgentMediaResolverService, options.mediaResolver ?? { resolve: async (messages) => messages });
+  ix.stub(IAgentMediaResolverService, options.mediaResolver ?? {
+    resolve: async (messages) => messages,
+    displayPaths: async () => new Map(),
+  });
   if (projector === undefined) {
     ix.set(
       IAgentContextProjectorService,
@@ -285,6 +301,7 @@ function createService(
   } else {
     ix.stub(IAgentContextProjectorService, {
       captureMediaStripSnapshot: () => testSnapshot,
+      captureMediaDegradeCount: () => 0,
       ...projector,
     });
   }
@@ -567,6 +584,41 @@ describe('AgentLLMRequesterService media-stripped resend', () => {
     expect(calls.value).toBe(1);
     expect(projection.calls).toEqual(['normal']);
   });
+
+  it('warns the user when media are stripped from the retried request', async () => {
+    const calls = { value: 0 };
+    const projection = recordProjectionCalls((messages, policy) =>
+      typeof policy?.media === 'object' ? history : messages,
+    );
+    const contextMessages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image_url',
+            imageUrl: { url: 'data:image/png;base64,IMAGE' },
+          },
+        ],
+      },
+    ];
+    const { service, dispatcher, events } = createService(
+      createRequester(calls, IMAGE_FORMAT_400),
+      projection.projector,
+      { contextMessages },
+    );
+
+    await service.request();
+    await dispatcher.flush();
+
+    expect(events.filter((event) => event.type === 'warning')).toEqual([
+      expect.objectContaining({
+        type: 'warning',
+        code: 'media-stripped',
+        message:
+          'Provider rejected the media in the request; all media were omitted and the request was retried.',
+      }),
+    ]);
+  });
 });
 
 describe('AgentLLMRequesterService media-degraded resend', () => {
@@ -592,8 +644,44 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
     expect(projection.calls).toEqual(['normal', 'degraded']);
   });
 
-  it('falls back to media-stripped when the media-degraded request still receives 413', async () => {
+  it('attaches display paths to degraded older media', async () => {
     const calls = { value: 0 };
+    const capturedInputs: ModelRequestInput[] = [];
+    const imageMessage = (url: string): Message => ({
+      role: 'user',
+      content: [{ type: 'image_url', imageUrl: { url } }],
+    });
+    const { service } = createService(
+      createRequester(calls, BODY_TOO_LARGE_413, [], capturedInputs),
+      undefined,
+      {
+        mediaResolver: {
+          resolve: async (messages) => messages,
+          displayPaths: async () => new Map([['pythinker-file://f_old', '/session/media/f_old.png']]),
+        },
+      },
+    );
+
+    await service.request({
+      messages: [
+        imageMessage('pythinker-file://f_old'),
+        imageMessage('pythinker-file://f_keep1'),
+        imageMessage('pythinker-file://f_keep2'),
+      ],
+      source: { type: 'turn', turnId: 1, step: 1 },
+    });
+
+    expect(calls.value).toBe(2);
+    const parts = capturedInputs[1]!.messages.flatMap((message) => message.content);
+    const urls = parts
+      .filter((part) => part.type === 'image_url')
+      .map((part) => mediaUrlOf(part));
+    expect(urls).toEqual(['pythinker-file://f_keep1', 'pythinker-file://f_keep2']);
+    const texts = parts.filter((part) => part.type === 'text').map((part) => part.text);
+    expect(texts).toContain('<image path="/session/media/f_old.png"></image>');
+  });
+
+  it('falls back to media-stripped when the media-degraded request still receives 413', async () => {    const calls = { value: 0 };
     const projection = recordProjectionCalls();
     const { service } = createService(
       createRequester(calls, BODY_TOO_LARGE_413, [BODY_TOO_LARGE_413]),
@@ -635,7 +723,6 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
     const imageMessage = (url: string, id: string): Message => ({
       role: 'user',
       content: [{ type: 'image_url', imageUrl: { url, id } }],
-      toolCalls: [],
     });
     const { service } = createService(
       createRequester(
@@ -663,7 +750,7 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
       .at(-1)
       ?.messages.flatMap((message) => message.content)
       .filter((part) => part.type === 'image_url')
-      .map((part) => part.imageUrl.url);
+      .map((part) => mediaUrlOf(part));
     expect(visibleUrls).toEqual([newUrl]);
   });
 
@@ -710,6 +797,304 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
       expect(projection.calls).toEqual(['normal']);
     }
   });
+
+  it('does not warn when the degraded projection leaves the request unchanged', async () => {
+    const calls = { value: 0 };
+    const projection = recordProjectionCalls();
+    const { service, dispatcher, events } = createService(
+      createRequester(calls, BODY_TOO_LARGE_413),
+      projection.projector,
+    );
+
+    await service.request();
+    await dispatcher.flush();
+
+    expect(events.filter((event) => event.type === 'warning')).toEqual([]);
+  });
+
+  it('warns for each escalation when the degraded resend is also rejected as too large', async () => {
+    const calls = { value: 0 };
+    const projection = recordProjectionCalls((messages, policy) => {
+      if (policy?.media !== undefined && 'degradeCount' in policy.media) {
+        const message = messages[0]!;
+        return [{ ...message, content: message.content.slice(-2) }];
+      }
+      return policy?.media !== undefined ? history : messages;
+    });
+    const contextMessages: Message[] = [
+      {
+        role: 'user',
+        content: ['ONE', 'TWO', 'THREE'].map((data) => ({
+          type: 'image_url',
+          imageUrl: { url: `data:image/png;base64,${data}` },
+        })),
+      },
+    ];
+    const { service, dispatcher, events } = createService(
+      createRequester(calls, BODY_TOO_LARGE_413, [BODY_TOO_LARGE_413]),
+      projection.projector,
+      { contextMessages },
+    );
+
+    await service.request({ source: { type: 'turn', turnId: 1, step: 1 } });
+    await dispatcher.flush();
+
+    expect(events.filter((event) => event.type === 'warning')).toEqual([
+      expect.objectContaining({ type: 'warning', code: 'media-degraded' }),
+      expect.objectContaining({ type: 'warning', code: 'media-stripped' }),
+    ]);
+  });
+});
+
+describe('AgentLLMRequesterService media recovery prefix parity', () => {
+  const BODY_TOO_LARGE_413 = new APIRequestTooLargeError(413, 'Request Entity Too Large');
+  const IMAGE_FORMAT_400 = new APIStatusError(
+    400,
+    'unsupported image format: image/avif is not supported',
+  );
+  const REJECTED_FORMAT_URL = 'data:image/avif;base64,REJECTED';
+  const COMPACTION_INSTRUCTION = 'Summarize the conversation.';
+
+  function imageMessage(url: string, id: string): Message {
+    return {
+      role: 'user',
+      content: [{ type: 'image_url', imageUrl: { url, id } }],
+    };
+  }
+
+  function textMessage(text: string): Message {
+    return { role: 'user', content: [{ type: 'text', text }] };
+  }
+
+  function mediaRejectingRequester(inputs: ModelRequestInput[]): ModelRequester {
+    const accepting = createRequester({ value: 0 }, null);
+    return {
+      model: accepting.model,
+      request: async function* (input, signal, params) {
+        inputs.push(input);
+        const images = input.messages
+          .flatMap((message) => message.content)
+          .filter((part) => part.type === 'image_url');
+        if (images.some((part) => mediaUrlOf(part) === REJECTED_FORMAT_URL)) {
+          throw IMAGE_FORMAT_400;
+        }
+        if (images.length > 2) throw BODY_TOO_LARGE_413;
+        yield* accepting.request(input, signal, params);
+      },
+    };
+  }
+
+  function expectPrefixExtension(previous: ModelRequestInput, next: ModelRequestInput): void {
+    expect(next.systemPrompt).toBe(previous.systemPrompt);
+    expect(next.tools).toEqual(previous.tools);
+    expect(next.messages.slice(0, previous.messages.length)).toEqual(previous.messages);
+  }
+
+  const degradedTurn = [
+    imageMessage('data:image/png;base64,OLDEST', 'oldest'),
+    imageMessage('data:image/png;base64,MIDDLE', 'middle'),
+    imageMessage('data:image/png;base64,NEWEST', 'newest'),
+  ];
+
+  it('starts the next turn on the media-degraded projection the previous turn settled on', async () => {
+    const inputs: ModelRequestInput[] = [];
+    const { service } = createService(mediaRejectingRequester(inputs), undefined);
+
+    await service.request({ messages: degradedTurn, source: { type: 'turn', turnId: 1, step: 1 } });
+    expect(inputs).toHaveLength(2);
+    const settled = inputs[1]!;
+
+    await service.request({
+      messages: [...degradedTurn, textMessage('next turn')],
+      source: { type: 'turn', turnId: 2, step: 1 },
+    });
+
+    expectPrefixExtension(settled, inputs[2]!);
+    expect(inputs).toHaveLength(3);
+  });
+
+  it('keeps the media-degraded prefix when a later turn adds new media', async () => {
+    const inputs: ModelRequestInput[] = [];
+    const { service } = createService(
+      createRequester({ value: 0 }, BODY_TOO_LARGE_413, [], inputs),
+      undefined,
+    );
+
+    await service.request({ messages: degradedTurn, source: { type: 'turn', turnId: 1, step: 1 } });
+    expect(inputs).toHaveLength(2);
+    const settled = inputs[1]!;
+
+    await service.request({
+      messages: [...degradedTurn, imageMessage('data:image/png;base64,FRESH', 'fresh')],
+      source: { type: 'turn', turnId: 2, step: 1 },
+    });
+
+    expect(inputs).toHaveLength(3);
+    expectPrefixExtension(settled, inputs[2]!);
+  });
+
+  it('re-degrades instead of stripping when new media push an inherited degraded request over the limit', async () => {
+    const inputs: ModelRequestInput[] = [];
+    const { service } = createService(mediaRejectingRequester(inputs), undefined);
+
+    await service.request({ messages: degradedTurn, source: { type: 'turn', turnId: 1, step: 1 } });
+    await service.request({
+      messages: [...degradedTurn, imageMessage('data:image/png;base64,FRESH', 'fresh')],
+      source: { type: 'turn', turnId: 2, step: 1 },
+    });
+
+    expect(inputs).toHaveLength(4);
+    expect(
+      inputs[3]!.messages
+        .flatMap((message) => message.content)
+        .filter((part) => part.type === 'image_url')
+        .map((part) => part.imageUrl.url),
+    ).toEqual(['data:image/png;base64,NEWEST', 'data:image/png;base64,FRESH']);
+  });
+
+  it.each([
+    { rejection: 'image-format', added: [imageMessage(REJECTED_FORMAT_URL, 'new-rejected')] },
+    { rejection: '413', added: degradedTurn },
+  ])('recovers newly added media rejected with $rejection after a strip', async ({ added }) => {
+    for (const source of [
+      { type: 'turn', turnId: 2, step: 1 },
+      { type: 'operation', turnId: 1, requestKind: 'full_compaction' },
+      { type: 'operation', turnId: undefined, requestKind: 'full_compaction' },
+    ] as const) {
+      const inputs: ModelRequestInput[] = [];
+      const { service } = createService(mediaRejectingRequester(inputs), undefined);
+      const rejected = imageMessage(REJECTED_FORMAT_URL, 'rejected');
+
+      await service.request({ messages: [rejected], source: { type: 'turn', turnId: 1, step: 1 } });
+      expect(inputs).toHaveLength(2);
+
+      await service.request({ messages: [rejected, ...added], source });
+
+      expect(inputs).toHaveLength(4);
+      expect(inputs[2]!.messages[0]).toEqual(inputs[1]!.messages[0]);
+      expect(
+        inputs[2]!.messages.flatMap((message) => message.content)
+          .filter((part) => part.type === 'image_url'),
+      ).toEqual(added.flatMap((message) => message.content));
+      expect(
+        inputs[3]!.messages.flatMap((message) => message.content)
+          .filter((part) => part.type === 'image_url'),
+      ).toEqual([]);
+
+      await service.request({
+        messages: [rejected, ...added, textMessage('next turn')],
+        source: { type: 'turn', turnId: 3, step: 1 },
+      });
+
+      expect(inputs).toHaveLength(source.type === 'turn' ? 5 : 6);
+      expect(
+        inputs[4]!.messages.flatMap((message) => message.content)
+          .filter((part) => part.type === 'image_url'),
+      ).toEqual(source.type === 'turn' ? [] : added.flatMap((message) => message.content));
+      expectPrefixExtension(inputs[3]!, inputs.at(-1)!);
+    }
+  });
+
+  it.each([
+    { rejection: 'image-format', error: IMAGE_FORMAT_400 },
+    { rejection: '413', error: BODY_TOO_LARGE_413 },
+  ])('bounds $rejection recovery after inheriting a strip snapshot', async ({ error }) => {
+    for (const hasNewMedia of [false, true]) {
+      const inputs: ModelRequestInput[] = [];
+      const requester = mediaRejectingRequester(inputs);
+      const { service } = createService(requester, undefined);
+      const rejected = imageMessage(REJECTED_FORMAT_URL, 'rejected');
+      await service.request({ messages: [rejected], source: { type: 'turn', turnId: 1, step: 1 } });
+
+      requester.request = createRequester({ value: 0 }, error, [error], inputs).request;
+      const messages = hasNewMedia
+        ? [rejected, imageMessage('data:image/png;base64,FRESH', 'fresh')]
+        : [rejected];
+      await expect(
+        service.request({ messages, source: { type: 'turn', turnId: 2, step: 1 } }),
+      ).rejects.toBe(error);
+
+      expect(inputs).toHaveLength(hasNewMedia ? 4 : 3);
+    }
+  });
+
+  it.each([
+    { change: 'the history prefix is rewritten', bump: 'revision' },
+    { change: 'the model changes', bump: 'model' },
+  ] as const)('retries full media on the next turn after $change', async ({ bump }) => {
+    let revision = 0;
+    let modelAlias = 'm';
+    const inputs: ModelRequestInput[] = [];
+    const { service } = createService(mediaRejectingRequester(inputs), undefined, {
+      modelAlias: () => modelAlias,
+      prefixRevision: () => revision,
+    });
+
+    await service.request({ messages: degradedTurn, source: { type: 'turn', turnId: 1, step: 1 } });
+    expect(inputs).toHaveLength(2);
+
+    if (bump === 'revision') revision += 1;
+    else modelAlias = 'other';
+    await service.request({ messages: degradedTurn, source: { type: 'turn', turnId: 2, step: 1 } });
+
+    expect(inputs).toHaveLength(4);
+    expect(inputs[2]!.messages).toEqual(degradedTurn);
+  });
+
+  it.each([
+    { trigger: 'auto', turnId: 1 },
+    { trigger: 'manual', turnId: undefined },
+  ])(
+    'starts a $trigger compaction request on the media-degraded projection of the last turn',
+    async ({ turnId }) => {
+      const inputs: ModelRequestInput[] = [];
+      const { service } = createService(mediaRejectingRequester(inputs), undefined);
+
+      await service.request({ messages: degradedTurn, source: { type: 'turn', turnId: 1, step: 1 } });
+      expect(inputs).toHaveLength(2);
+      const settled = inputs[1]!;
+
+      await service.request({
+        messages: [...degradedTurn, textMessage(COMPACTION_INSTRUCTION)],
+        source: { type: 'operation', turnId, requestKind: 'full_compaction' },
+      });
+
+      expectPrefixExtension(settled, inputs[2]!);
+      expect(inputs).toHaveLength(3);
+    },
+  );
+
+  it.each([
+    { trigger: 'auto', turnId: 1 },
+    { trigger: 'manual', turnId: undefined },
+  ])(
+    'keeps media added after the strip snapshot visible in a $trigger compaction request',
+    async ({ turnId }) => {
+      const inputs: ModelRequestInput[] = [];
+      const { service } = createService(mediaRejectingRequester(inputs), undefined);
+      const rejected = imageMessage(REJECTED_FORMAT_URL, 'rejected');
+      const fresh = imageMessage('data:image/png;base64,FRESH', 'fresh');
+
+      await service.request({ messages: [rejected], source: { type: 'turn', turnId: 1, step: 1 } });
+      await service.request({
+        messages: [rejected, fresh],
+        source: { type: 'turn', turnId: 1, step: 2 },
+      });
+      expect(inputs).toHaveLength(3);
+      const lastLoop = inputs[2]!;
+      expect(
+        lastLoop.messages.flatMap((message) => message.content).filter((part) => part.type === 'image_url'),
+      ).toEqual(fresh.content);
+
+      await service.request({
+        messages: [rejected, fresh, textMessage(COMPACTION_INSTRUCTION)],
+        source: { type: 'operation', turnId, requestKind: 'full_compaction' },
+      });
+
+      expectPrefixExtension(lastLoop, inputs[3]!);
+      expect(inputs).toHaveLength(4);
+    },
+  );
 });
 
 describe('AgentLLMRequesterService combined recovery projections', () => {
@@ -745,7 +1130,7 @@ describe('AgentLLMRequesterService combined recovery projections', () => {
     expect(policies).toEqual([
       undefined,
       { structure: 'strict' },
-      { structure: 'strict', media: 'degraded' },
+      { structure: 'strict', media: { degradeCount: expect.anything() } },
       { structure: 'strict', media: { strip: expect.anything() } },
     ]);
     await dispatcher.flush();
@@ -769,21 +1154,43 @@ describe('AgentLLMRequesterService combined recovery projections', () => {
     expect(typeof policies[2]?.media).toBe('object');
   });
 
-  it('applies the strict repair on top of degraded media when a structural 400 follows a 413', async () => {
+  it('applies the strict repair on top of degraded media without repeating the media warning', async () => {
     const calls = { value: 0 };
     const policies: (ProjectionPolicy | undefined)[] = [];
-    const { service } = createService(
+    const contextMessages: Message[] = [
+      {
+        role: 'user',
+        content: ['ONE', 'TWO', 'THREE'].map((data) => ({
+          type: 'image_url',
+          imageUrl: { url: `data:image/png;base64,${data}` },
+        })),
+      },
+    ];
+    const projector = {
+      project: (messages: readonly ContextMessage[], policy: ProjectionPolicy | undefined) => {
+        policies.push(policy);
+        if (policy?.media === undefined || !('degradeCount' in policy.media)) return messages;
+        const message = messages[0]!;
+        return [{ ...message, content: message.content.slice(policy.structure === 'strict' ? -1 : -2) }];
+      },
+    };
+    const { service, dispatcher, events } = createService(
       createRequester(calls, BODY_TOO_LARGE_413, [STRUCTURAL_400]),
-      createPolicyRecordingProjector({ policies }),
+      projector,
+      { contextMessages },
     );
 
     await service.request();
+    await dispatcher.flush();
 
     expect(calls.value).toBe(3);
     expect(policies).toEqual([
       undefined,
-      { media: 'degraded' },
-      { structure: 'strict', media: 'degraded' },
+      { media: { degradeCount: expect.anything() } },
+      { structure: 'strict', media: { degradeCount: expect.anything() } },
+    ]);
+    expect(events.filter((event) => event.type === 'warning')).toEqual([
+      expect.objectContaining({ type: 'warning', code: 'media-degraded' }),
     ]);
   });
 });
@@ -1024,55 +1431,110 @@ describe('AgentLLMRequesterService media resolver wiring', () => {
   });
 });
 
-describe('AgentLLMRequesterService tool call id normalization', () => {
-  function createScriptedRequester(
-    script: { ids: string[]; error?: Error }[],
-  ): ModelRequester {
-    const base = createRequester({ value: 0 });
-    let callIndex = 0;
-    return {
-      model: base.model,
-      request: async function* () {
-        const step = script[Math.min(callIndex++, script.length - 1)]!;
-        if (step.error !== undefined) {
-          if (step.ids.length > 0) {
-            yield {
-              type: 'part',
-              part: {
-                type: 'function',
-                id: step.ids[0]!,
-                name: 'Bash',
-                arguments: null,
-                _streamIndex: 0,
-              },
-            } satisfies ModelRequestEvent;
-          }
-          throw step.error;
-        }
-        const toolCalls: ToolCall[] = [];
-        for (const [index, id] of step.ids.entries()) {
-          yield {
-            type: 'part',
-            part: { type: 'function', id, name: 'Bash', arguments: null, _streamIndex: index },
-          } satisfies ModelRequestEvent;
-          yield {
-            type: 'part',
-            part: { type: 'tool_call_part', argumentsPart: '{"command":"ls"}', index },
-          } satisfies ModelRequestEvent;
-          toolCalls.push({ type: 'function', id, name: 'Bash', arguments: '{"command":"ls"}' });
-        }
-        yield {
-          type: 'finish',
-          message: { role: 'assistant', content: [], toolCalls },
-          providerFinishReason: 'completed',
-          rawFinishReason: 'stop',
-          id: 'resp-1',
-        } satisfies ModelRequestEvent;
-      },
-    };
-  }
+type ScriptedToolCallId = string | { readonly id: string; readonly rawId?: string };
 
-  it('passes provider-unique ids through unchanged', async () => {
+function createScriptedRequester(
+  script: { ids: ScriptedToolCallId[]; error?: Error }[],
+): ModelRequester {
+  const base = createRequester({ value: 0 });
+  let callIndex = 0;
+  return {
+    model: base.model,
+    request: async function* () {
+      const step = script[Math.min(callIndex++, script.length - 1)]!;
+      if (step.error !== undefined) {
+        if (step.ids.length > 0) {
+          const value = step.ids[0]!;
+          yield {
+            type: 'part',
+            part: {
+              type: 'function',
+              id: typeof value === 'string' ? value : value.id,
+              name: 'Bash',
+              arguments: null,
+              _streamIndex: 0,
+              rawId: typeof value === 'string' ? undefined : value.rawId,
+            },
+          } satisfies ModelRequestEvent;
+        }
+        throw step.error;
+      }
+      const toolCalls: ToolCall[] = [];
+      for (const [index, value] of step.ids.entries()) {
+        const id = typeof value === 'string' ? value : value.id;
+        const rawId = typeof value === 'string' ? undefined : value.rawId;
+        yield {
+          type: 'part',
+          part: { type: 'function', id, name: 'Bash', arguments: null, _streamIndex: index, rawId },
+        } satisfies ModelRequestEvent;
+        yield {
+          type: 'part',
+          part: { type: 'tool_call_part', argumentsPart: '{"command":"ls"}', index },
+        } satisfies ModelRequestEvent;
+        toolCalls.push({ type: 'function', id, name: 'Bash', arguments: '{"command":"ls"}', rawId });
+      }
+      yield {
+        type: 'finish',
+        message: { role: 'assistant', content: [], toolCalls },
+        providerFinishReason: 'completed',
+        rawFinishReason: 'stop',
+        id: 'resp-1',
+      } satisfies ModelRequestEvent;
+    },
+  };
+}
+
+function createOpenAIModelRequester(ids: readonly string[]): ModelRequester {
+  const base = createRequester({ value: 0 });
+  const requester = createOpenAIRequester({
+    clientFactory: () => ({
+      chat: {
+        completions: {
+          create: () => ({
+            withResponse: async () => ({
+              data: (async function* () {
+                yield {
+                  id: 'chatcmpl-1',
+                  object: 'chat.completion.chunk',
+                  created: 0,
+                  model: 'test-model',
+                  choices: [
+                    {
+                      index: 0,
+                      delta: {
+                        tool_calls: ids.map((id, index) => ({
+                          index,
+                          id,
+                          type: 'function',
+                          function: { name: 'Bash', arguments: '{"command":"ls"}' },
+                        })),
+                      },
+                      finish_reason: 'tool_calls',
+                    },
+                  ],
+                };
+              })(),
+              response: new Response(null),
+            }),
+          }),
+        },
+      },
+    }) as never,
+  });
+  return new ModelRequesterImpl(
+    { ...base.model, protocol: 'openai' },
+    {
+      resolve: () => ({
+        requester,
+        protocol: 'openai',
+        model: { ...turnHarnessModel, baseUrl: 'https://example.test/v1' },
+      }),
+    },
+  );
+}
+
+describe('AgentLLMRequesterService tool call id forwarding', () => {
+  it('passes lower-layer unique ids through unchanged', async () => {
     const parts: StreamedMessagePart[] = [];
     const { service } = createService(
       createScriptedRequester([{ ids: ['call_1', 'call_2'] }]),
@@ -1087,19 +1549,25 @@ describe('AgentLLMRequesterService tool call id normalization', () => {
     expect(parts.filter(isToolCall).map((p) => p.id)).toEqual(['call_1', 'call_2']);
   });
 
-  it('rewrites an id repeated across responses and keeps streamed parts consistent', async () => {
+  it('normalizes repeated provider ids in llm and forwards the result', async () => {
     const parts: StreamedMessagePart[] = [];
-    const { service } = createService(
-      createScriptedRequester([{ ids: ['Bash_0'] }, { ids: ['Bash_0'] }]),
-      undefined,
-    );
+    const { service } = createService(createOpenAIModelRequester(['Bash_0']), undefined);
 
     const first = await service.request({}, (part) => {
       parts.push(part);
     });
-    const second = await service.request({}, (part) => {
-      parts.push(part);
-    });
+    const second = await service.request(
+      {
+        messages: [
+          ...history,
+          first.message,
+          { role: 'tool', content: [{ type: 'text', text: 'done' }], toolCallId: 'Bash_0' },
+        ],
+      },
+      (part) => {
+        parts.push(part);
+      },
+    );
 
     expect(first.message.toolCalls[0]!.id).toBe('Bash_0');
     expect(second.message.toolCalls[0]).toMatchObject({ id: 'Bash_0__2', rawId: 'Bash_0' });
@@ -1109,9 +1577,11 @@ describe('AgentLLMRequesterService tool call id normalization', () => {
     ]);
   });
 
-  it('rewrites duplicates within a single response', async () => {
+  it('preserves lower-layer duplicate id assignments', async () => {
     const { service } = createService(
-      createScriptedRequester([{ ids: ['Bash_0', 'Bash_0'] }]),
+      createScriptedRequester([
+        { ids: ['Bash_0', { id: 'Bash_0__2', rawId: 'Bash_0' }] },
+      ]),
       undefined,
     );
 
@@ -1123,7 +1593,7 @@ describe('AgentLLMRequesterService tool call id normalization', () => {
     ]);
   });
 
-  it('rolls claims back when the attempt fails mid-stream', async () => {
+  it('does not alter lower-layer ids after a failed attempt', async () => {
     const { service } = createService(
       createScriptedRequester([
         { ids: ['Bash_9'], error: new Error('stream boom') },
@@ -1137,7 +1607,7 @@ describe('AgentLLMRequesterService tool call id normalization', () => {
     expect(retry.message.toolCalls[0]!.id).toBe('Bash_9');
   });
 
-  it('rewrites an id that already exists in the restored context', async () => {
+  it('does not rewrite ids against restored context', async () => {
     const { service } = createService(
       createScriptedRequester([{ ids: ['Bash_0'] }]),
       undefined,
@@ -1153,7 +1623,7 @@ describe('AgentLLMRequesterService tool call id normalization', () => {
     );
 
     const result = await service.request();
-    expect(result.message.toolCalls[0]!.id).toBe('Bash_0__2');
+    expect(result.message.toolCalls[0]!.id).toBe('Bash_0');
   });
 });
 
@@ -1207,53 +1677,6 @@ describe('AgentLLMRequesterService attempt retry notification', () => {
 });
 
 describe('turn machine stream state across service-internal retries', () => {
-  function createScriptedRequester(
-    script: { ids: string[]; error?: Error }[],
-  ): ModelRequester {
-    const base = createRequester({ value: 0 });
-    let callIndex = 0;
-    return {
-      model: base.model,
-      request: async function* () {
-        const step = script[Math.min(callIndex++, script.length - 1)]!;
-        if (step.error !== undefined) {
-          if (step.ids.length > 0) {
-            yield {
-              type: 'part',
-              part: {
-                type: 'function',
-                id: step.ids[0]!,
-                name: 'Bash',
-                arguments: null,
-                _streamIndex: 0,
-              },
-            } satisfies ModelRequestEvent;
-          }
-          throw step.error;
-        }
-        const toolCalls: ToolCall[] = [];
-        for (const [index, id] of step.ids.entries()) {
-          yield {
-            type: 'part',
-            part: { type: 'function', id, name: 'Bash', arguments: null, _streamIndex: index },
-          } satisfies ModelRequestEvent;
-          yield {
-            type: 'part',
-            part: { type: 'tool_call_part', argumentsPart: '{"command":"ls"}', index },
-          } satisfies ModelRequestEvent;
-          toolCalls.push({ type: 'function', id, name: 'Bash', arguments: '{"command":"ls"}' });
-        }
-        yield {
-          type: 'finish',
-          message: { role: 'assistant', content: [], toolCalls },
-          providerFinishReason: 'completed',
-          rawFinishReason: 'stop',
-          id: 'resp-1',
-        } satisfies ModelRequestEvent;
-      },
-    };
-  }
-
   afterEach(() => {
     vi.useRealTimers();
   });

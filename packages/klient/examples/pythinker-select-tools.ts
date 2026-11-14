@@ -61,9 +61,8 @@ import { bootstrap, logSeed, resolveLoggingConfig } from '@pymodel/agent-core-v2
 import { IConfigService } from '@pymodel/agent-core-v2/app/config/config';
 import { renderLoadableToolsAnnouncement } from '@pymodel/agent-core-v2/agent/toolSelect/dynamicTools';
 import { UNKNOWN_CAPABILITY } from '@pymodel/agent-core-v2/llm-adapter/contract/capability';
-import type { Message } from '@pymodel/agent-core-v2/llm-adapter/contract/message';
-import type { ToolDescription as Tool } from '@pymodel/agent-core-v2/human/llm/message';
-import { staticCredentials } from '@pymodel/agent-core-v2/human/credentials/credentials';
+import type { Message, ToolDescription as Tool } from '@pymodel/agent-core-v2/human/llm/message';
+import { createStaticCredentialProvider } from '@pymodel/agent-core-v2/human/credentials/credentials';
 import type { Model } from '@pymodel/agent-core-v2/llm-adapter/model/catalog';
 import { IModelCatalog } from '@pymodel/agent-core-v2/llm-adapter/model/catalog';
 import type {
@@ -179,15 +178,13 @@ const SYSTEM_PROMPT =
 const userMessage = (text: string): Message => ({
   role: 'user',
   content: [{ type: 'text', text }],
-  toolCalls: [],
 });
 
 /** The schema-injection message the engine appends after a successful load. */
 const toolDeclarationMessage = (tools: readonly Tool[]): Message => ({
   role: 'system',
   content: [],
-  toolCalls: [],
-  tools,
+  tools: [...tools],
 });
 
 const announcementMessage = (names: readonly string[]): Message => ({
@@ -195,7 +192,6 @@ const announcementMessage = (names: readonly string[]): Message => ({
   content: [
     { type: 'text', text: renderLoadableToolsAnnouncement(names, []) },
   ],
-  toolCalls: [],
 });
 
 // ---------------------------------------------------------------------------
@@ -298,7 +294,7 @@ async function probeWireEncoding(): Promise<void> {
       alwaysThinking: false,
       providerType,
       providerName: providerType ?? 'probe',
-      credentials: staticCredentials('sk-probe'),
+      credentialProvider: createStaticCredentialProvider('sk-probe'),
     };
     return new ModelRequesterImpl(model, registry);
   };
@@ -334,8 +330,10 @@ async function probeWireEncoding(): Promise<void> {
       'pythinker: deferred tool stays OUT of top-level tools[]',
     );
     console.log(
-      `[ok] pythinker: declaration on wire (role=${String(declaration.role)}), ` +
-        `top-level tools=[${(pythinkerBody?.tools ?? []).map((t) => t.function?.name ?? '?').join(', ')}]`,
+      oneLine(
+        `[ok] pythinker: declaration on wire (role=${String(declaration.role)}), ` +
+          `top-level tools=[${(pythinkerBody?.tools ?? []).map((t) => t.function?.name ?? '?').join(', ')}]`,
+      ),
     );
 
     // 2) plain openai: the same declaration message is dropped outright — the
@@ -477,8 +475,7 @@ async function step2UseLoadedTool(
         role: 'tool',
         toolCallId: step1.callId,
         content: [{ type: 'text', text: `Loaded: ${loadName}` }],
-        toolCalls: [],
-      },
+            },
       // The schema-injection message — the exact wire shape whose acceptance
       // this probe measures. Dropped entirely in the isolation retry below.
       ...(withDeclaration ? [toolDeclarationMessage([loadedTool])] : []),
@@ -661,8 +658,10 @@ async function probeTappedContext(): Promise<void> {
           void (async () => {
             const raw = Buffer.concat(chunks);
             tapCount += 1;
-            console.log(`\n[${m.model}] ── request #${String(tapCount)} → ${upstream}${req.url ?? ''}`);
-            for (const line of describeWireBody(raw)) console.log(line);
+            console.log(
+              oneLine(`\n[${m.model}] ── request #${String(tapCount)} → ${upstream}${req.url ?? ''}`),
+            );
+            for (const line of describeWireBody(raw)) console.log(oneLine(line));
             const headers = { ...(req.headers as Record<string, string>) };
             delete headers['host'];
             delete headers['content-length'];
@@ -680,9 +679,9 @@ async function probeTappedContext(): Promise<void> {
             });
             res.writeHead(response.status, passthrough);
             res.end(Buffer.from(await response.arrayBuffer()));
-          })().catch((error: unknown) => {
+          })().catch(() => {
             res.writeHead(502);
-            res.end(String(error));
+            res.end('upstream request failed');
           });
         });
       });
@@ -734,6 +733,10 @@ async function main(): Promise<void> {
 try {
   await main();
 } catch (error) {
-  console.error(error);
+  console.error(oneLine(error));
   process.exit(1);
+}
+
+function oneLine(value: unknown): string {
+  return String(value).replaceAll(/\n/g, '').replaceAll(/\r/g, '');
 }

@@ -79,8 +79,7 @@
     "prepack": "node scripts/check-web-assets.mjs"
   },
   "optionalDependencies": {
-    "@mariozechner/clipboard": "^0.3.9",
-    "node-pty": "^1.1.0"
+    "@mariozechner/clipboard": "^0.3.9"
   },
   "devDependencies": {
     "@pymodel/acp-server": "workspace:^",
@@ -94,6 +93,7 @@
     "@pymodel/pythinker-code-sdk": "workspace:^",
     "@pymodel/pythinker-telemetry": "workspace:^",
     "@pymodel/remote-control": "workspace:^",
+    "@pymodel/session-import": "workspace:^",
     "@pymodel/vis-server": "workspace:^",
     "@pymodel/vis-web": "workspace:*",
     "@types/qrcode": "^1.5.6",

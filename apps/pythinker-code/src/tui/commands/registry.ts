@@ -22,8 +22,8 @@ const GOAL_NEXT_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
 ];
 
 const DYNAMIC_WORKFLOW_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'on', description: 'Turn dynamic_workflow mode on' },
-  { value: 'off', description: 'Turn dynamic_workflow mode off' },
+  { value: 'on', description: 'Turn Dynamic Workflow mode on' },
+  { value: 'off', description: 'Turn Dynamic Workflow mode off' },
 ];
 
 const TOWER_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
@@ -155,7 +155,7 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'auto',
     aliases: [],
-    description: 'Never Ask mode: never interrupts you; everything runs and is decided automatically.',
+    description: 'Never Ask mode: everything runs and is decided automatically; only plans in Plan mode wait for your review.',
     priority: 99,
     availability: 'always',
   },
@@ -183,7 +183,7 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'dynamic_workflow',
     aliases: [],
-    description: 'Toggle dynamic_workflow mode or run one task in dynamic_workflow mode',
+    description: 'Toggle Dynamic Workflow mode or run one task in Dynamic Workflow mode',
     priority: 100,
     argumentHint: '[on|off] | <task>',
     completeArgs: dynamicWorkflowArgumentCompletions,
@@ -415,6 +415,13 @@ export const BUILTIN_SLASH_COMMANDS = [
     aliases: [],
     description: 'Export current session as a debug ZIP archive',
     priority: 40,
+  },
+  {
+    name: 'import-sessions',
+    aliases: [],
+    description: 'Import recent Claude Code and Codex sessions',
+    priority: 40,
+    availability: 'idle-only',
   },
   {
     name: 'copy',

@@ -7,6 +7,68 @@ import { getBuiltInPalette } from '#/tui/theme';
 
 const DATASOURCE_TOOL = 'mcp__plugin-example-data_data__call_data_source_tool';
 
+function makeHost() {
+  const streamingUI = {
+    setTurnId: vi.fn(),
+    flushNow: vi.fn(),
+    resetToolUi: vi.fn(),
+    clearNotifyPanel: vi.fn(),
+    markNotifyPanelEnded: vi.fn(),
+    setStep: vi.fn(),
+    finalizeTurn: vi.fn(),
+    getTurnContext: vi.fn(() => ({ turnId: 1, step: 0 })),
+    registerToolCall: vi.fn(),
+    completeToolResult: vi.fn(),
+  };
+  const host = {
+    state: {
+      appState: {
+        sessionId: 's1',
+        streamingPhase: 'waiting',
+        model: 'pythinker-model',
+        permissionMode: 'auto',
+      },
+      queuedMessages: [],
+      queuedMessageDispatchPending: false,
+      theme: { palette: getBuiltInPalette('dark') },
+      toolOutputExpanded: false,
+      transcriptContainer: { addChild: vi.fn() },
+      ui: { requestRender: vi.fn() },
+    },
+    session: {},
+    aborted: false,
+    sessionEventUnsubscribe: undefined,
+    streamingUI,
+    requireSession: vi.fn(() => ({})),
+    setAppState: vi.fn(),
+    patchLivePane: vi.fn(),
+    resetLivePane: vi.fn(),
+    showError: vi.fn(),
+    showStatus: vi.fn(),
+    showNotice: vi.fn(),
+    updateActivityPane: vi.fn(),
+    track: vi.fn(),
+    recordSessionActivity: vi.fn(),
+    noteStepUsage: vi.fn(),
+    noteCompactionFinished: vi.fn(),
+    mountEditorReplacement: vi.fn(),
+    restoreEditor: vi.fn(),
+    restoreInputText: vi.fn(),
+    appendTranscriptEntry: vi.fn(),
+    sendNormalUserInput: vi.fn(),
+    sendQueuedMessage: vi.fn(),
+    shiftQueuedMessage: vi.fn(),
+    btwPanelController: { routeEvent: vi.fn(() => false) },
+    tasksBrowserController: {},
+    surveyController: {
+      notifyToolCallStarted: vi.fn(),
+      notifyToolCallEnded: vi.fn(),
+      notifySubagentSpawned: vi.fn(),
+    },
+  };
+  return { host: host as never, streamingUI };
+}
+
 function makeNotifier() {
   return {
     handleMcpToolCompleted: vi.fn(),

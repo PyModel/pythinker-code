@@ -1,5 +1,7 @@
 import type { Component, Focusable } from '@pymodel/pi-tui';
 import type { DeviceAuthorization } from '@pymodel/pythinker-code-oauth';
+import type { ReverseRpcModalOwner } from '../reverse-rpc/modal-coordinator';
+
 import type { PythinkerHarness, Session } from '@pymodel/pythinker-code-sdk';
 
 import type { ColorToken, ThemeName } from '#/tui/theme';
@@ -7,6 +9,7 @@ import type { ColorToken, ThemeName } from '#/tui/theme';
 import { LLM_NOT_SET_MESSAGE } from '../constant/pythinker-tui';
 import type { AuthFlowController } from '../controllers/auth-flow';
 import type { BtwPanelController } from '../controllers/btw-panel';
+import type { ModelMigrationController } from '../controllers/model-migration';
 import type { StreamingUIController } from '../controllers/streaming-ui';
 import type { TasksBrowserController } from '../controllers/tasks-browser';
 import { tryHandleDanceCommand } from '../easter-eggs/dance';
@@ -38,6 +41,7 @@ import {
   showSettingsSelector,
 } from './config';
 import { handleGoalCommand } from './goal';
+import { handleImportSessionsCommand } from './import-sessions';
 import { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 import { handleAddDirCommand } from './add-dir';
 import { parseSlashInput } from './parse';
@@ -126,7 +130,12 @@ export interface SlashCommandHost {
   showNotice(title: string, detail?: string): void;
   appendTranscriptEntry(entry: TranscriptEntry): void;
   track(event: string, props?: Record<string, unknown>): void;
-  mountEditorReplacement(panel: Component & Focusable, onDisplaced?: () => void): void;
+  mountEditorReplacement(
+    panel: Component & Focusable,
+    onDisplaced?: () => void,
+    onReplaced?: () => void,
+    owner?: ReverseRpcModalOwner,
+  ): void;
   restoreEditor(): void;
   restoreInputText(text: string): void;
   refreshSlashCommandAutocomplete(): void;
@@ -144,10 +153,10 @@ export interface SlashCommandHost {
   /**
    * Seed appState with the config defaults the v2 engine would apply at
    * createSession time (model, permission, plan mode, thinking effort,
-   * context cap). No-op semantics on a live session path: only /reload calls
-   * it while still session-less.
+   * context cap). Only call it while session-less; `includeModel: false`
+   * refreshes the other defaults without changing the pending model choice.
    */
-  hydrateLazyConfigDefaults(): Promise<void>;
+  hydrateLazyConfigDefaults(includeModel?: boolean): Promise<void>;
 
   // Session
   requireSession(): Session;
@@ -166,11 +175,15 @@ export interface SlashCommandHost {
   beginSessionRequest(): void;
   failSessionRequest(message: string): void;
   sendQueuedMessage(session: Session, item: QueuedMessage): void;
+  /** Queue a `/compact` for FIFO dispatch; false when one is already queued. */
+  enqueueCompactCommand(args: string): boolean;
   requestQueuedGoalPromotion?(): void;
 
   // UI
   showLoginProgressSpinner(label: string): LoginProgressSpinnerHandle;
   showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle;
+  beginAuthBlock(): () => void;
+  setAuthRequired(required: boolean): void;
   showProgressSpinner(label: string): LoginProgressSpinnerHandle;
 
   // Theme
@@ -211,6 +224,7 @@ export interface SlashCommandHost {
   readonly btwPanelController: BtwPanelController;
   readonly tasksBrowserController: TasksBrowserController;
   readonly authFlow: AuthFlowController;
+  readonly modelMigration: ModelMigrationController;
 }
 
 // ---------------------------------------------------------------------------
@@ -299,6 +313,16 @@ async function executeSlashCommand(
       host.sendNormalUserInput(intent.input);
       return;
     case 'builtin':
+      if (intent.enqueue === true) {
+        if (!host.enqueueCompactCommand(intent.args)) {
+          host.track('input_command_invalid', { reason: 'duplicate-compact', command: intent.name });
+          host.showError('A /compact is already queued.');
+          host.restoreInputText(input);
+          return;
+        }
+        host.track('input_queue');
+        return;
+      }
       host.track('input_command', { command: intent.name });
       if (intent.name === 'new' && parsedCommand?.name === 'clear') {
         host.track('clear');
@@ -364,6 +388,17 @@ async function handleBuiltInSlashCommand(
       command !== undefined &&
       resolveSlashCommandAvailability(command, args) === 'idle-only'
     ) {
+      // Same enqueue semantics as the dispatch builtin branch: a /compact
+      // submitted before the session existed joins the queue when the
+      // awaited creation lands on a running turn.
+      if (name === 'compact' && busyReason === 'streaming' && !host.state.appState.isCompacting) {
+        if (!host.enqueueCompactCommand(args)) {
+          host.showError('A /compact is already queued.');
+          // Same restore as the adjacent blocked path, guarded the same way.
+          if (canRestoreSubmittedInput(host)) host.restoreInputText(input);
+        }
+        return;
+      }
       host.showError(slashBusyMessage(name, busyReason));
       // Same as the dispatch blocked branch: give the cleared input back,
       // guarded the same way — session creation awaited above.
@@ -447,7 +482,7 @@ async function handleBuiltInSlashCommand(
       await handleEffortCommand(host, args);
       return;
     case 'provider':
-      await handleProviderCommand(host);
+      await handleProviderCommand(host, args);
       return;
     case 'permission':
       showPermissionPicker(host);
@@ -502,6 +537,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'export-debug-zip':
       await handleExportDebugZipCommand(host);
+      return;
+    case 'import-sessions':
+      handleImportSessionsCommand(host);
       return;
     case 'copy':
       await handleCopyCommand(host);

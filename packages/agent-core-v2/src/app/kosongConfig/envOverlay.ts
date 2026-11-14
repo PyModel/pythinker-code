@@ -5,10 +5,8 @@ import type { ConfigEffectiveOverlay } from '#/app/config/config';
 import { registerConfigOverlay } from '#/app/config/configOverlayContributions';
 import { CONFIG_INVALID_ERROR_CODE } from '#/llm-adapter/contract/errors';
 import { resolveProviderEndpoint } from '#/llm-adapter/provider/provider-definition';
-import {
-  PYTHINKER_BASE_URL_ENV,
-  PYTHINKER_DEFAULT_BASE_URL,
-} from '#human/llm-pythinker/trait';
+import { PYTHINKER_BASE_URL_ENV } from '#human/llm-requester/endpoints';
+import { PYTHINKER_DEFAULT_BASE_URL } from '#human/llm/builtin/provider/pythinker/protocol';
 
 import { ENV_MODEL_PROVIDER_KEY } from './configSection';
 

@@ -3,19 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   DsmlStreamParser,
   extractDsmlToolCalls,
-} from '#/llm/requester/bases/openai/dsml-tool-parser';
-import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import { createUserMessage } from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
-import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
-import type { LlmRequestEvent } from '#/llm/requester/requester';
-
-const model: LlmModel = {
-  provider: 'test',
-  model: 'deepseek-chat',
-  capability: UNKNOWN_CAPABILITY,
-  baseUrl: 'https://example.test/v1',
-};
+} from '#/llm/builtin/protocol/openai/dsml-tool-parser';
+import { createDecoder } from '#/llm/builtin/protocol/openai/decode';
+import type { StreamedMessagePart } from '#/llm/message';
+import type { DecodeSink } from '#/llm/protocol/protocol';
+import type { FinishInfo } from '#/llm/response';
 
 describe('agent-core-v2: DsmlStreamParser and extractDsmlToolCalls', () => {
   describe('extractDsmlToolCalls', () => {
@@ -198,52 +190,47 @@ describe('agent-core-v2: DsmlStreamParser and extractDsmlToolCalls', () => {
     });
   });
 
-  describe('OpenAI requester DSML integration', () => {
-    function streamingClient(chunks: readonly unknown[]) {
-      async function* stream() {
-        for (const chunk of chunks) yield chunk;
-      }
-      return () =>
-        ({
-          chat: {
-            completions: {
-              create: () => ({
-                withResponse: async () => ({ data: stream(), response: { headers: new Headers() } }),
-              }),
-            },
-          },
-        }) as never;
-    }
-
-    async function run(chunks: readonly unknown[]): Promise<readonly LlmRequestEvent[]> {
-      const events: LlmRequestEvent[] = [];
-      await createOpenAIRequester({ clientFactory: streamingClient(chunks) }).generate(
-        { model },
-        { messages: [createUserMessage('hi')] },
-        { signal: new AbortController().signal, onEvent: (event) => events.push(event) },
-      );
-      return events;
+  describe('OpenAI decoder DSML integration', () => {
+    function run(chunks: Parameters<ReturnType<typeof createDecoder>['push']>[0][]): {
+      parts: StreamedMessagePart[];
+      finish: FinishInfo | undefined;
+    } {
+      const parts: StreamedMessagePart[] = [];
+      let finish: FinishInfo | undefined;
+      const sink: DecodeSink = {
+        onDelta: (part) => {
+          parts.push(part);
+        },
+        onFinish: (next) => {
+          finish = next;
+        },
+        onToolCallEnd: () => undefined,
+        onMessageId: () => undefined,
+        onUsage: () => undefined,
+        onError: () => undefined,
+      };
+      const decoder = createDecoder(sink);
+      for (const chunk of chunks) decoder.push(chunk);
+      decoder.end();
+      return { parts, finish };
     }
 
     const dsmlContent =
       'Reading the code.\n\n<｜DSML｜tool_calls>\n<｜DSML｜invoke name="Read">\n<｜DSML｜parameter name="filePath" string="true">src/server.ts</｜DSML｜parameter>\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>';
 
-    it('recovers streamed DSML tool calls from delta.content and reports tool_calls', async () => {
-      const events = await run([
+    it('recovers streamed DSML tool calls from delta.content and reports tool_calls', () => {
+      const { parts, finish } = run([
         { id: 'c1', choices: [{ index: 0, delta: { content: dsmlContent }, finish_reason: 'stop' }] },
       ]);
-      const parts = events.flatMap((event) => (event.type === 'llm.streaming.part' ? [event.part] : []));
       expect(parts).toEqual([
         { type: 'text', text: 'Reading the code.\n\n' },
         expect.objectContaining({ type: 'function', name: 'Read', arguments: '{"filePath":"src/server.ts"}' }),
       ]);
-      const finish = events.find((event) => event.type === 'llm.streaming.finish');
-      expect(finish).toMatchObject({ finish: { finishReason: 'tool_calls' } });
-      expect(events.at(-1)).toEqual({ type: 'llm.done' });
+      expect(finish).toMatchObject({ finishReason: 'tool_calls' });
     });
 
-    it('keeps native tool calls and drops DSML recovery when the model sends both', async () => {
-      const events = await run([
+    it('keeps native tool calls and drops DSML recovery when the model sends both', () => {
+      const { parts } = run([
         { id: 'c1', choices: [{ index: 0, delta: { content: dsmlContent }, finish_reason: null }] },
         {
           id: 'c1',
@@ -256,9 +243,7 @@ describe('agent-core-v2: DsmlStreamParser and extractDsmlToolCalls', () => {
           ],
         },
       ]);
-      const calls = events.flatMap((event) =>
-        event.type === 'llm.streaming.part' && event.part.type === 'function' ? [event.part.name] : [],
-      );
+      const calls = parts.flatMap((part) => (part.type === 'function' ? [part.name] : []));
       expect(calls).toEqual(['Bash']);
     });
   });

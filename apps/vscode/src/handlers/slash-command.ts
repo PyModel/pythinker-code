@@ -147,7 +147,7 @@ export async function runHostSlashCommand(
 
 const PERMISSION_MODE_ENABLED_MESSAGE = {
   yolo: "You only live once! Tool actions will be auto-approved; the agent may still ask questions.",
-  auto: "Auto mode enabled. Questions will be auto-dismissed and tool calls auto-approved.",
+  auto: "Auto mode enabled. Questions will be auto-dismissed and tool calls auto-approved; plans in plan mode still wait for your review.",
 } as const;
 
 const PERMISSION_MODE_DISABLED_MESSAGE = {

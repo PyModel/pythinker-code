@@ -1,5 +1,6 @@
 import {
   type PythinkerHarness,
+  type RefreshProviderModelsOptions,
   type RefreshProviderModelsResponse,
   type Session,
   type ThinkingEffort,
@@ -17,8 +18,9 @@ export interface AuthFlowHost {
   setAppState(patch: Partial<AppState>): void;
   setStartupReady(): void;
   resetSessionRuntime(): void;
+  setAuthRequired(required: boolean): void;
   appendStartupNotice(extra: string): void;
-  hydrateLazyConfigDefaults(): Promise<void>;
+  hydrateLazyConfigDefaults(includeModel?: boolean): Promise<void>;
 }
 
 export class AuthFlowController {
@@ -43,6 +45,7 @@ export class AuthFlowController {
       contextUsage: 0,
       sessionTitle: null,
     });
+    this.host.setAuthRequired(true);
     this.host.appendStartupNotice(OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE);
     this.host.setStartupReady();
   }
@@ -66,6 +69,7 @@ export class AuthFlowController {
       if (effort !== undefined) {
         await session.setThinking(effort);
       }
+      host.setAuthRequired(false);
       return modelChanged;
     }
 
@@ -79,6 +83,7 @@ export class AuthFlowController {
       patch.lazySessionThinking = effort as ThinkingEffort;
     }
     host.setAppState(patch);
+    host.setAuthRequired(false);
     return false;
   }
 
@@ -153,11 +158,14 @@ export class AuthFlowController {
    * config.  Runs best-effort: individual provider failures are collected
    * and returned instead of thrown.
    */
-  async refreshProviderModels(): Promise<RefreshProviderModelsResponse> {
-    const result = await this.host.harness.refreshProviderModels();
-    if (result.changed.length > 0) {
-      await this.refreshAvailableModels();
-    }
+  async refreshProviderModels(
+    options?: RefreshProviderModelsOptions,
+  ): Promise<RefreshProviderModelsResponse> {
+    const result = await this.host.harness.refreshProviderModels(options);
+    // The engine persists provider-only config changes (type, baseUrl, …)
+    // while reporting the provider as unchanged, so reload even when no model
+    // changed.
+    await this.refreshAvailableModels();
     return result;
   }
 

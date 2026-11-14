@@ -13,6 +13,9 @@ import { formatErrorMessage } from '../utils/event-payload';
 import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
 import type { SlashCommandHost } from './dispatch';
 
+const DYNAMIC_WORKFLOW_USAGE_NOTICE =
+  "High usage: DynamicWorkflow is built for large parallel jobs and can use many times the tokens of a normal task. Start small, and run /dynamic_workflow off when you're done.";
+
 export async function handleDynamicWorkflowCommand(host: SlashCommandHost, args: string): Promise<void> {
   if (host.session === undefined) {
     host.showError(NO_ACTIVE_SESSION_MESSAGE);
@@ -95,7 +98,7 @@ async function startDynamicWorkflowTask(host: SlashCommandHost, prompt: string):
   if (!host.state.appState.dynamicWorkflowMode && !(await setDynamicWorkflowMode(host, true, 'task'))) {
     return;
   }
-  renderDynamicWorkflowModeMarker(host, 'active');
+  renderDynamicWorkflowActivated(host);
   host.sendNormalUserInput(prompt);
 }
 
@@ -118,12 +121,13 @@ async function applyDynamicWorkflowMode(
         return;
       }
       if (!(await setDynamicWorkflowMode(host, true, 'manual'))) return;
-      renderDynamicWorkflowModeMarker(host, 'active');
+      renderDynamicWorkflowActivated(host);
     });
     return;
   }
   if (!(await setDynamicWorkflowMode(host, enabled, 'manual'))) return;
-  renderDynamicWorkflowModeMarker(host, enabled ? 'active' : 'inactive');
+  if (enabled) renderDynamicWorkflowActivated(host);
+  else renderDynamicWorkflowModeMarker(host, 'inactive');
 }
 
 async function setDynamicWorkflowMode(
@@ -135,7 +139,7 @@ async function setDynamicWorkflowMode(
     await host.requireSession().setDynamicWorkflowMode(enabled, trigger);
   } catch (error) {
     host.showError(
-      `Failed to ${enabled ? 'enable' : 'disable'} dynamic_workflow mode: ${formatErrorMessage(error)}`,
+      `Failed to ${enabled ? 'enable' : 'disable'} Dynamic Workflow mode: ${formatErrorMessage(error)}`,
     );
     return false;
   }
@@ -149,6 +153,11 @@ function dynamicWorkflowModeSubcommand(input: string): boolean | undefined {
   if (command === 'on') return true;
   if (command === 'off') return false;
   return undefined;
+}
+
+function renderDynamicWorkflowActivated(host: SlashCommandHost): void {
+  renderDynamicWorkflowModeMarker(host, 'active');
+  host.showStatus(DYNAMIC_WORKFLOW_USAGE_NOTICE, 'warning');
 }
 
 function renderDynamicWorkflowModeMarker(host: SlashCommandHost, state: DynamicWorkflowModeMarkerState): void {

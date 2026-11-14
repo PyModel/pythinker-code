@@ -855,25 +855,71 @@ describe('PythinkerTUI resume message replay', () => {
     expect(transcript).not.toContain('<agent_dynamic_workflow_result>');
   });
 
-  it('hydrates todo and background snapshot state from resumed main agent', async () => {
-    const driver = await replayIntoDriver([], {
-      toolStore: {
-        todo: [
-          { title: 'Review resume snapshot', status: 'done' },
-          { title: 'Render replay transcript', status: 'in_progress' },
-          { title: '', status: 'pending' },
+  it('does not render replayed AgentDynamicWorkflow calls rejected before any subagent started', async () => {
+    const replay: AgentReplayRecord[] = [
+      message('user', [{ type: 'text', text: 'use agentdynamic_workflow to review the files' }]),
+      message('assistant', [], {
+        toolCalls: [
+          toolCall('call_dynamic_workflow', 'AgentDynamicWorkflow', {
+            description: 'Review changed files',
+            prompt_template: 'Review {{item}}',
+            items: ['src/a.ts', 'src/b.ts'],
+          }),
         ],
-      },
+      }),
+      message(
+        'tool',
+        [{
+          type: 'text',
+          text: 'DynamicWorkflow mode is off, so AgentDynamicWorkflow did not run and no subagents were started.',
+        }],
+        { toolCallId: 'call_dynamic_workflow', isError: true },
+      ),
+      message('assistant', [{ type: 'text', text: 'DynamicWorkflow mode is off. Run /dynamic_workflow <task> to start it.' }]),
+    ];
+
+    const driver = await replayIntoDriver(replay);
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+
+    expect(transcript).toContain('use agentdynamic_workflow to review the files');
+    expect(transcript).toContain('Run /dynamic_workflow <task> to start it.');
+    expect(transcript).not.toContain('Agent dynamic_workflow');
+    expect(transcript).not.toContain('Review changed files');
+    expect(transcript).not.toContain('AgentDynamicWorkflow did not run');
+    expect(driver.streamingUI.getToolComponent('call_dynamic_workflow')).toBeUndefined();
+  });
+
+  it('keeps replayed AgentDynamicWorkflow calls cancelled before any subagent started', async () => {
+    const replay: AgentReplayRecord[] = [
+      message('user', [{ type: 'text', text: 'review files with a dynamic_workflow' }]),
+      message('assistant', [], {
+        toolCalls: [
+          toolCall('call_dynamic_workflow', 'AgentDynamicWorkflow', {
+            description: 'Review changed files',
+            items: ['src/a.ts', 'src/b.ts'],
+          }),
+        ],
+      }),
+      message('tool', [{ type: 'text', text: 'Aborted by the user' }], {
+        toolCallId: 'call_dynamic_workflow',
+        isError: true,
+      }),
+    ];
+
+    const driver = await replayIntoDriver(replay);
+    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
+
+    expect(transcript).toContain('Agent dynamic_workflow: ⊘ Aborted.');
+  });
+
+  it('hydrates background snapshot state from resumed main agent', async () => {
+    const driver = await replayIntoDriver([], {
       background: [
         backgroundTask('agent-bg1', 'Review long-running work', 'running'),
         backgroundTask('bash-bg1', 'Build package', 'completed'),
       ],
     });
 
-    expect(driver.state.todoPanel.getTodos()).toEqual([
-      { title: 'Review resume snapshot', status: 'done' },
-      { title: 'Render replay transcript', status: 'in_progress' },
-    ]);
     expect(driver.sessionEventHandler.backgroundTasks.has('agent-bg1')).toBe(true);
     expect(driver.sessionEventHandler.backgroundTasks.has('bash-bg1')).toBe(true);
     expect(driver.sessionEventHandler.backgroundTaskTranscriptedTerminal.has('bash-bg1')).toBe(true);

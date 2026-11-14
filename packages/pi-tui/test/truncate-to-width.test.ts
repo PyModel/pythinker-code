@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { asciiVisibleWidth, normalizeTerminalOutput, truncateToWidth, visibleWidth } from "../src/utils.ts";
+import { asciiVisibleWidthWithinLimit, normalizeTerminalOutput, truncateToWidth, visibleWidth } from "../src/utils.ts";
 
 describe("truncateToWidth", () => {
 	it("keeps output within width for very large unicode input", () => {
@@ -86,15 +86,15 @@ describe("visibleWidth", () => {
 		assert.strictEqual(visibleWidth("بّ"), 1);
 		assert.strictEqual(visibleWidth("རྐ"), 1);
 		assert.strictEqual(visibleWidth("ᜠ᜴"), 1);
-		assert.strictEqual(visibleWidth("가〮"), 2);
-		assert.strictEqual(visibleWidth("가〯"), 2);
+		assert.strictEqual(visibleWidth("\uac00\u302e"), 2);
+		assert.strictEqual(visibleWidth("\uac00\u302f"), 2);
 	});
 
 	it("keeps CJK and Japanese width accounting unchanged", () => {
 		assert.strictEqual(visibleWidth("\u7f51\u7edc"), 4);
-		assert.strictEqual(visibleWidth("ネットワーク"), 12);
-		assert.strictEqual(visibleWidth("が"), 2);
-		assert.strictEqual(visibleWidth("か\u3099"), 2);
+		assert.strictEqual(visibleWidth("\u30cd\u30c3\u30c8\u30ef\u30fc\u30af"), 12);
+		assert.strictEqual(visibleWidth("\u304c"), 2);
+		assert.strictEqual(visibleWidth("\u304b\u3099"), 2);
 	});
 
 	it("counts Myanmar marks that terminals allocate cells for", () => {
@@ -126,20 +126,20 @@ describe("visibleWidth", () => {
 	});
 });
 
-describe("asciiVisibleWidth", () => {
+describe("asciiVisibleWidthWithinLimit", () => {
 	it("measures ASCII lines and skips ANSI sequences", () => {
-		assert.strictEqual(asciiVisibleWidth("hello", 80), 5);
-		assert.strictEqual(asciiVisibleWidth("\x1b[31mhello\x1b[0m", 80), 5);
+		assert.strictEqual(asciiVisibleWidthWithinLimit("hello", 80), 5);
+		assert.strictEqual(asciiVisibleWidthWithinLimit("\x1b[31mhello\x1b[0m", 80), 5);
 	});
 
 	it("returns undefined for non-ASCII, control chars, or lone ESC", () => {
-		assert.strictEqual(asciiVisibleWidth("\u4f60\u597d", 80), undefined);
-		assert.strictEqual(asciiVisibleWidth("a\tb", 80), undefined);
-		assert.strictEqual(asciiVisibleWidth("a\x1b", 80), undefined);
+		assert.strictEqual(asciiVisibleWidthWithinLimit("\u4f60\u597d", 80), undefined);
+		assert.strictEqual(asciiVisibleWidthWithinLimit("a\tb", 80), undefined);
+		assert.strictEqual(asciiVisibleWidthWithinLimit("a\x1b", 80), undefined);
 	});
 
 	it("early-exits once width exceeds the limit", () => {
-		const result = asciiVisibleWidth("x".repeat(100), 4);
+		const result = asciiVisibleWidthWithinLimit("x".repeat(100), 4);
 		assert.ok(result !== undefined && result > 4);
 	});
 });

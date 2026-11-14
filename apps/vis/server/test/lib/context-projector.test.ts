@@ -72,27 +72,34 @@ describe('context-projector', () => {
         raw: {},
       },
       {
+        lineNo: 4.5,
+        data: {
+          type: 'context.append_loop_event' as const,
+          event: {
+            type: 'content.part' as const,
+            uuid: 'c2', turnId: 't1', step: 0, stepUuid: 's1',
+            part: {
+              type: 'image_url' as const,
+              imageUrl: { url: 'data:image/png;base64,AAA' },
+            },
+          },
+        },
+        raw: {},
+      },
+      {
         lineNo: 5,
         data: {
           type: 'context.append_loop_event' as const,
           event: {
             type: 'tool.call' as const,
             uuid: 'tc1', turnId: 't1', step: 0, stepUuid: 's1',
-            toolCallId: 'call_1', name: 'LS', args: '{"path":"/"}',
+            toolCallId: 'call_1', name: 'LS', args: { path: '/' },
           },
         },
         raw: {},
       },
       {
         lineNo: 6,
-        data: {
-          type: 'context.append_loop_event' as const,
-          event: { type: 'step.end' as const, uuid: 's1', turnId: 't1', step: 0 },
-        },
-        raw: {},
-      },
-      {
-        lineNo: 7,
         data: {
           type: 'context.append_loop_event' as const,
           event: {
@@ -104,6 +111,14 @@ describe('context-projector', () => {
         },
         raw: {},
       },
+      {
+        lineNo: 7,
+        data: {
+          type: 'context.append_loop_event' as const,
+          event: { type: 'step.end' as const, uuid: 's1', turnId: 't1', step: 0 },
+        },
+        raw: {},
+      },
     ];
 
     const proj = projectContext(entries as any);
@@ -111,9 +126,13 @@ describe('context-projector', () => {
 
     expect(proj.messages[0]!.message.role).toBe('user');
 
-    expect(proj.messages[1]!.message.role).toBe('assistant');
-    expect(proj.messages[1]!.message.content).toEqual([{ type: 'text', text: 'Let me check' }]);
-    expect(proj.messages[1]!.message.toolCalls).toEqual([
+    const assistant = proj.messages[1]!.message;
+    if (assistant.role !== 'assistant') throw new Error('expected assistant message');
+    expect(assistant.content).toEqual([
+      { type: 'text', text: 'Let me check' },
+      { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAA' } },
+    ]);
+    expect(assistant.toolCalls).toEqual([
       { type: 'function', id: 'call_1', name: 'LS', arguments: '{"path":"/"}' },
     ]);
     // The assistant message was opened by step.begin (line 3), so its
@@ -122,11 +141,107 @@ describe('context-projector', () => {
     expect(proj.messages[1]!.lineNo).toBe(3);
     expect(proj.messages[1]!.toolStepUuids).toEqual(['s1']);
 
-    expect(proj.messages[2]!.message.role).toBe('tool');
-    expect(proj.messages[2]!.message.toolCallId).toBe('call_1');
-    expect(proj.messages[2]!.message.content).toEqual([
+    const tool = proj.messages[2]!.message;
+    if (tool.role !== 'tool') throw new Error('expected tool message');
+    expect(tool.toolCallId).toBe('call_1');
+    expect(tool.content).toEqual([
       { type: 'text', text: 'file1.txt\nfile2.txt' },
     ]);
+  });
+
+  it('drops a vacuous assistant when a step ends without output', () => {
+    const entries = [
+      { lineNo: 1, data: { type: 'context.append_loop_event' as const,
+          event: { type: 'step.begin' as const, uuid: 's1' } }, raw: {} },
+      { lineNo: 2, data: { type: 'context.append_loop_event' as const,
+          event: { type: 'step.end' as const, uuid: 's1' } }, raw: {} },
+    ];
+
+    expect(projectContext(entries as any).messages).toEqual([]);
+  });
+
+  it.each(['interrupted', 'error'] as const)(
+    'keeps a %s step open until the next attempt settles it',
+    (finishReason) => {
+      const entries: Array<{ lineNo: number; data: Record<string, unknown>; raw: object }> = [
+        { lineNo: 1, data: { type: 'context.append_loop_event' as const,
+            event: { type: 'step.begin' as const, uuid: 's1' } }, raw: {} },
+        { lineNo: 2, data: { type: 'context.append_loop_event' as const,
+            event: { type: 'content.part' as const, stepUuid: 's1',
+              part: { type: 'text' as const, text: 'partial' } } }, raw: {} },
+        { lineNo: 3, data: { type: 'context.append_loop_event' as const,
+            event: { type: 'step.end' as const, uuid: 's1', finishReason } }, raw: {} },
+      ];
+
+      const interrupted = projectContext(entries as any);
+      expect(interrupted.messages).toHaveLength(1);
+      expect(interrupted.messages[0]!.message.partial).toBe(true);
+
+      entries.push(
+        { lineNo: 4, data: { type: 'context.append_loop_event' as const,
+            event: { type: 'step.begin' as const, uuid: 's2' } }, raw: {} },
+        { lineNo: 5, data: { type: 'context.append_loop_event' as const,
+            event: { type: 'content.part' as const, stepUuid: 's2',
+              part: { type: 'text' as const, text: 'recovered' } } }, raw: {} },
+        { lineNo: 6, data: { type: 'context.append_loop_event' as const,
+            event: { type: 'step.end' as const, uuid: 's2' } }, raw: {} },
+      );
+      const recovered = projectContext(entries as any);
+      expect(recovered.messages.map((message) => message.message.partial)).toEqual([
+        undefined,
+        undefined,
+      ]);
+      expect(recovered.messages.map((message) => message.message.content[0])).toMatchObject([
+        { text: 'partial' },
+        { text: 'recovered' },
+      ]);
+    },
+  );
+
+  it('closes a pending tool call with an interrupted result at step end', () => {
+    const entries = [
+      { lineNo: 1, data: { type: 'context.append_loop_event' as const,
+          event: { type: 'step.begin' as const, uuid: 's1' } }, raw: {} },
+      { lineNo: 2, data: { type: 'context.append_loop_event' as const,
+          event: { type: 'tool.call' as const, stepUuid: 's1', toolCallId: 'c1',
+            name: 'Bash', args: {} } }, raw: {} },
+      { lineNo: 3, data: { type: 'context.append_loop_event' as const,
+          event: { type: 'step.end' as const, uuid: 's1' } }, raw: {} },
+    ];
+
+    const proj = projectContext(entries as any);
+    expect(proj.messages.map((message) => message.message.role)).toEqual(['assistant', 'tool']);
+    expect(proj.messages[1]!.message).toMatchObject({ toolCallId: 'c1', isError: true });
+    expect(proj.messages[1]!.message.content[0]).toMatchObject({
+      text: expect.stringContaining('interrupted before its result was recorded'),
+    });
+    expect(proj.messages[1]!.lineNo).toBeLessThan(3);
+  });
+
+  it('defers appended messages until a pending tool result arrives while preserving line metadata', () => {
+    const entries = [
+      { lineNo: 1, data: { type: 'context.append_loop_event' as const,
+          event: { type: 'step.begin' as const, uuid: 's1' } }, raw: {} },
+      { lineNo: 2, data: { type: 'context.append_loop_event' as const,
+          event: { type: 'tool.call' as const, stepUuid: 's1', toolCallId: 'c1',
+            name: 'Read', args: { path: '/tmp/a' } } }, raw: {} },
+      { lineNo: 3, data: { type: 'context.append_message' as const,
+          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'reminder' }],
+            toolCalls: [], origin: { kind: 'injection' as const, variant: 'test' } } }, raw: {} },
+      { lineNo: 4, data: { type: 'context.append_loop_event' as const,
+          event: { type: 'tool.result' as const, toolCallId: 'c1', result: { output: 'ok' } } }, raw: {} },
+      { lineNo: 5, data: { type: 'context.append_loop_event' as const,
+          event: { type: 'step.end' as const, uuid: 's1' } }, raw: {} },
+    ];
+
+    const proj = projectContext(entries as any);
+    expect(proj.messages.map((message) => message.message.role)).toEqual([
+      'assistant',
+      'tool',
+      'user',
+    ]);
+    expect(proj.messages[2]!.message.content[0]).toMatchObject({ text: 'reminder' });
+    expect(proj.messages[2]!.lineNo).toBe(3);
   });
 
   it('does not reset contextTokens on a zero-usage step.end', () => {
@@ -185,7 +300,12 @@ describe('context-projector', () => {
         lineNo: 3,
         data: {
           type: 'context.append_loop_event' as const,
-          event: { type: 'step.end' as const, uuid: 's1', turnId: 't1', step: 0 },
+          event: {
+            type: 'tool.result' as const,
+            parentUuid: 'tc1',
+            toolCallId: 'call_1',
+            result,
+          },
         },
         raw: {},
       },
@@ -193,12 +313,7 @@ describe('context-projector', () => {
         lineNo: 4,
         data: {
           type: 'context.append_loop_event' as const,
-          event: {
-            type: 'tool.result' as const,
-            parentUuid: 'tc1',
-            toolCallId: 'call_1',
-            result,
-          },
+          event: { type: 'step.end' as const, uuid: 's1', turnId: 't1', step: 0 },
         },
         raw: {},
       },
@@ -209,7 +324,7 @@ describe('context-projector', () => {
 
   it('tool.result: error string output is prefixed with the error sentinel', () => {
     const msg = projectToolResult({ output: 'boom: file not found', isError: true });
-    expect(msg.role).toBe('tool');
+    if (msg.role !== 'tool') throw new Error('expected tool message');
     expect(msg.toolCallId).toBe('call_1');
     expect(msg.isError).toBe(true);
     expect(msg.content).toEqual([
@@ -291,6 +406,24 @@ describe('context-projector', () => {
     expect(proj.messages[0]!.message.origin).toEqual({ kind: 'compaction_summary' });
     expect(proj.messages[0]!.message.content[0]).toMatchObject({ text: 'old stuff' });
     expect(proj.messages[1]!.message.content[0]).toMatchObject({ text: 'new' });
+  });
+
+  it('ignores a malformed compaction record like core-v2 restore', () => {
+    const entries = [
+      { lineNo: 1, data: { type: 'context.append_message' as const,
+          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'before' }], toolCalls: [] } }, raw: {} },
+      { lineNo: 2, data: { type: 'context.apply_compaction' as const,
+          summary: 'missing compactedCount' }, raw: {} },
+      { lineNo: 3, data: { type: 'context.append_message' as const,
+          message: { role: 'user' as const, content: [{ type: 'text' as const, text: 'after' }], toolCalls: [] } }, raw: {} },
+    ];
+
+    const projection = projectContext(entries as any);
+
+    expect(projection.messages.map((message) => message.message.content[0])).toMatchObject([
+      { text: 'before' },
+      { text: 'after' },
+    ]);
   });
 
   it('uses contextSummary only for the model view and raw summary for full history', () => {
@@ -558,7 +691,7 @@ describe('context-projector', () => {
     expect(proj.messages[2]!.lineNo).toBe(4);
   });
 
-  it('context.undo keeps injection messages inside the undo window (skip, not remove)', () => {
+  it('context.undo removes injection messages inside the undo window', () => {
     const userMsg = (text: string) => ({
       role: 'user' as const, content: [{ type: 'text' as const, text }], toolCalls: [],
       origin: { kind: 'user' as const },
@@ -569,10 +702,10 @@ describe('context-projector', () => {
     });
     // Layout: [u1, a1, u2, INJECTION, a2]. undo(1) walks from the end:
     //   a2  → removed (non-injection)
-    //   INJECTION → skipped (kept), NOT counted
+    //   INJECTION → skipped while finding the user anchor
     //   u2  → removed, real user prompt → count(1) reached → stop.
-    // The injection sits INSIDE the undo window (between the trailing real user
-    // prompt u2 and the cutoff) and must SURVIVE; u2 and a2 around it are gone.
+    // Once u2 is the cut anchor, the engine slices the whole suffix, so the
+    // injection inside that suffix is removed together with u2 and a2.
     const entries = [
       { lineNo: 1, data: { type: 'context.append_message' as const, message: userMsg('u1') }, raw: {} },
       { lineNo: 2, data: { type: 'context.append_message' as const,
@@ -584,16 +717,43 @@ describe('context-projector', () => {
       { lineNo: 6, data: { type: 'context.undo' as const, count: 1 }, raw: {} },
     ];
     const proj = projectContext(entries as any);
-    // u1, a1 remain; the injection survives in place; u2 + a2 removed; undo marker last.
+    // u1 and a1 remain; u2, the injection, and a2 are removed; marker last.
     expect(proj.messages.map((m) => m.source)).toEqual([
-      'append_message', 'append_message', 'append_message', 'undo',
+      'append_message', 'append_message', 'undo',
     ]);
     expect(proj.messages[0]!.message.content[0]).toMatchObject({ text: 'u1' });
     expect(proj.messages[1]!.message.content[0]).toMatchObject({ text: 'a1' });
-    expect(proj.messages[2]!.message.origin).toEqual({ kind: 'injection' });
-    expect(proj.messages[2]!.message.content[0]).toMatchObject({ text: 'inj' });
-    // removedMessageCount counts only the removed (non-skipped) messages: u2 + a2 = 2.
-    expect(proj.messages[3]!.undo).toEqual({ count: 1, removedMessageCount: 2 });
+    expect(proj.messages[2]!.undo).toEqual({ count: 1, removedMessageCount: 3 });
+  });
+
+  it('context.undo includes a prompt-owned injection immediately before its prompt', () => {
+    const entries = [
+      { lineNo: 1, data: { type: 'context.append_message' as const, message: {
+          id: 'p1', role: 'user' as const,
+          content: [{ type: 'text' as const, text: 'u1' }], toolCalls: [],
+          origin: { kind: 'user' as const },
+        } }, raw: {} },
+      { lineNo: 2, data: { type: 'context.append_message' as const, message: {
+          role: 'user' as const,
+          content: [{ type: 'text' as const, text: 'owned reminder' }], toolCalls: [],
+          origin: { kind: 'injection' as const, variant: 'prompt-context', ownerPromptId: 'p2' },
+        } }, raw: {} },
+      { lineNo: 3, data: { type: 'context.append_message' as const, message: {
+          id: 'p2', role: 'user' as const,
+          content: [{ type: 'text' as const, text: 'u2' }], toolCalls: [],
+          origin: { kind: 'user' as const },
+        } }, raw: {} },
+      { lineNo: 4, data: { type: 'context.append_message' as const, message: {
+          role: 'assistant' as const,
+          content: [{ type: 'text' as const, text: 'a2' }], toolCalls: [],
+        } }, raw: {} },
+      { lineNo: 5, data: { type: 'context.undo' as const, count: 1 }, raw: {} },
+    ];
+
+    const proj = projectContext(entries as any);
+    expect(proj.messages.map((message) => message.source)).toEqual(['append_message', 'undo']);
+    expect(proj.messages[0]!.message.content[0]).toMatchObject({ text: 'u1' });
+    expect(proj.messages[1]!.undo).toEqual({ count: 1, removedMessageCount: 3 });
   });
 
   it('micro_compaction.apply blanks tool-result content before the cutoff', () => {

@@ -30,7 +30,7 @@ function createMockSpinner(initialText = 'working') {
 }
 
 describe('ActivityPaneComponent', () => {
-  it.each(['waiting', 'tool', 'composing', 'thinking'] as const)(
+  it.each(['waiting', 'tool', 'composing', 'thinking', 'compacting'] as const)(
     'keeps one spacer row for %s; the spinner is drawn in the editor rule',
     (mode) => {
       const { spinner, getTip } = createMockSpinner('working');

@@ -1,7 +1,6 @@
 export * from './chrome/footer';
 export * from './chrome/activity-spinner';
 export * from './chrome/pythinker-logo';
-export * from './chrome/todo-panel';
 export * from './chrome/welcome';
 export * from './chrome/welcome-banner';
 export * from './chrome/welcome-logo-animation';

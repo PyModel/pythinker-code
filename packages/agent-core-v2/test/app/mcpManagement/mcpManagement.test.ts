@@ -31,6 +31,7 @@ import { McpRegistryService } from '#/app/mcpRegistry/mcpRegistryService';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { PluginMcpServerEntry } from '#/app/plugin/types';
 import { ErrorCodes, Error2 } from '#/errors';
+import { McpConnectionManager } from '#/mcpCore/connection-manager';
 import { McpOAuthService, type McpOAuthEvent } from '#/mcpCore/oauth/service';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
@@ -78,7 +79,7 @@ describe('McpManagementService', () => {
   let identityReady: Promise<AgentIdentitySnapshot>;
   let identitySnapshot: AgentIdentitySnapshot;
   let trusted: boolean;
-  let getOrCreate: Mock<IWorkspaceInstanceManager['getOrCreate']>;
+  let acquire: Mock<IWorkspaceInstanceManager['acquire']>;
   let findContaining: Mock<IWorkspaceInstanceManager['findContaining']>;
   let management: IMcpManagementService;
 
@@ -96,9 +97,10 @@ describe('McpManagementService', () => {
     identitySnapshot = stubAgentIdentity({ slug: 'test-agent' }).current();
     identityReady = Promise.resolve(identitySnapshot);
     trusted = true;
-    getOrCreate = vi.fn<IWorkspaceInstanceManager['getOrCreate']>(async () =>
-      ({ id: 'test-workspace' }) as unknown as WorkspaceInstance,
-    );
+    acquire = vi.fn<IWorkspaceInstanceManager['acquire']>(async () => ({
+      instance: { id: 'test-workspace' } as unknown as WorkspaceInstance,
+      dispose: () => {},
+    }));
     findContaining = vi.fn<IWorkspaceInstanceManager['findContaining']>(() => undefined);
     const hostProcess = new HostProcessService();
     const runtime = Object.assign(
@@ -137,6 +139,7 @@ describe('McpManagementService', () => {
         reg.defineInstance(IHostProcessService, hostProcess);
         reg.definePartialInstance(IAtomicDocumentStore, {
           get: async <T>() => (trusted ? ({} as T) : undefined),
+          list: async () => [],
         });
         reg.define(IMcpRegistryService, McpRegistryService);
         reg.defineInstance(IMcpOAuthService, oauth);
@@ -156,7 +159,7 @@ describe('McpManagementService', () => {
           inspect: () => runtime,
           acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
         });
-        reg.definePartialInstance(IWorkspaceInstanceManager, { findContaining, getOrCreate });
+        reg.definePartialInstance(IWorkspaceInstanceManager, { findContaining, acquire });
         reg.defineInstance(ILogService, stubLog());
         reg.definePartialInstance(IFlagService, {
           enabled: () => true,
@@ -676,7 +679,7 @@ describe('McpManagementService', () => {
       await expect(management.getServer('local', { cwd: project })).rejects.toMatchObject({
         code: ErrorCodes.MCP_SERVER_NOT_FOUND,
       });
-      expect(getOrCreate).not.toHaveBeenCalled();
+      expect(acquire).not.toHaveBeenCalled();
     });
   });
 
@@ -692,7 +695,7 @@ describe('McpManagementService', () => {
       expect(result.output).toContain('Connected to MCP server "unsaved-probe".');
       expect(result.output).toContain('Available tools: 1');
       expect(result.output).toContain('- echo: Echoes text');
-      expect(getOrCreate).not.toHaveBeenCalled();
+      expect(acquire).not.toHaveBeenCalled();
       await expect(store.list()).resolves.toEqual([]);
     }, 20000);
 
@@ -729,15 +732,48 @@ describe('McpManagementService', () => {
       expect(result.output).toContain('Available tools: 4');
       expect(result.output).toContain('- echo: Echoes input text');
       expect(findContaining).toHaveBeenCalledWith(cwd);
-      expect(getOrCreate).not.toHaveBeenCalled();
+      expect(acquire).not.toHaveBeenCalled();
     }, 20000);
 
-    it('probes a nested cwd against the containing workspace runtimes', async () => {
+    it('retains the containing workspace through a nested cwd probe and its shutdown', async () => {
       const cwd = mkdtempSync(join(tmpdir(), 'pythinker-mcp-management-nested-'));
       tempDirs.push(cwd);
-      findContaining.mockReturnValue({ id: 'test-workspace' } as unknown as WorkspaceInstance);
-
-      const result = await management.testServer({
+      const workspace = { id: 'test-workspace' } as unknown as WorkspaceInstance;
+      findContaining.mockReturnValue(workspace);
+      const events: string[] = [];
+      const dispose = vi.fn(() => {
+        events.push('release');
+      });
+      acquire.mockImplementation(async () => {
+        events.push('acquire');
+        return { instance: workspace, dispose };
+      });
+      const originalConnectAll = McpConnectionManager.prototype.connectAll;
+      const connectAll = vi.spyOn(McpConnectionManager.prototype, 'connectAll').mockImplementation(
+        function (this: McpConnectionManager, configs) {
+          events.push('connect');
+          return originalConnectAll.call(this, configs);
+        },
+      );
+      let notifyShutdownStarted: () => void = () => undefined;
+      const shutdownStarted = new Promise<void>((resolve) => {
+        notifyShutdownStarted = resolve;
+      });
+      let allowShutdown: () => void = () => undefined;
+      const shutdownGate = new Promise<void>((resolve) => {
+        allowShutdown = resolve;
+      });
+      const originalShutdown = McpConnectionManager.prototype.shutdown;
+      const shutdown = vi.spyOn(McpConnectionManager.prototype, 'shutdown').mockImplementation(
+        async function (this: McpConnectionManager) {
+          events.push('shutdown-start');
+          notifyShutdownStarted();
+          await shutdownGate;
+          await originalShutdown.call(this);
+          events.push('shutdown-end');
+        },
+      );
+      const probe = management.testServer({
         server: {
           name: 'stdio-probe',
           transport: 'stdio',
@@ -746,11 +782,24 @@ describe('McpManagementService', () => {
         },
         cwd,
       });
-
-      expect(result.success).toBe(true);
-      expect(result.output).toContain('Available tools: 4');
-      expect(findContaining).toHaveBeenCalledWith(cwd);
-      expect(getOrCreate).not.toHaveBeenCalled();
+      try {
+        await shutdownStarted;
+        expect(events).toEqual(['acquire', 'connect', 'shutdown-start']);
+        expect(dispose).not.toHaveBeenCalled();
+        allowShutdown();
+        const result = await probe;
+        expect(result.success).toBe(true);
+        expect(result.output).toContain('Available tools: 4');
+        expect(findContaining).toHaveBeenCalledWith(cwd);
+        expect(acquire).toHaveBeenCalledWith({ workspaceId: 'test-workspace' });
+        expect(dispose).toHaveBeenCalledTimes(1);
+        expect(events).toEqual(['acquire', 'connect', 'shutdown-start', 'shutdown-end', 'release']);
+      } finally {
+        allowShutdown();
+        await probe.catch(() => {});
+        connectAll.mockRestore();
+        shutdown.mockRestore();
+      }
     }, 20000);
 
     it('rejects a non-local runtime_id probe when no workspace contains the cwd', async () => {
@@ -773,7 +822,7 @@ describe('McpManagementService', () => {
         message: expect.stringContaining('runtime_id "remote"'),
       });
       expect(findContaining).toHaveBeenCalledWith(cwd);
-      expect(getOrCreate).not.toHaveBeenCalled();
+      expect(acquire).not.toHaveBeenCalled();
     });
 
     it('probes a non-local runtime_id through the containing workspace', async () => {
@@ -794,7 +843,7 @@ describe('McpManagementService', () => {
 
       expect(result.success).toBe(true);
       expect(findContaining).toHaveBeenCalledWith(cwd);
-      expect(getOrCreate).not.toHaveBeenCalled();
+      expect(acquire).toHaveBeenCalledWith({ workspaceId: 'test-workspace' });
     }, 20000);
 
     it('keeps the transient local probe for an explicit local runtime_id', async () => {
@@ -814,7 +863,7 @@ describe('McpManagementService', () => {
 
       expect(result.success).toBe(true);
       expect(findContaining).toHaveBeenCalledWith(cwd);
-      expect(getOrCreate).not.toHaveBeenCalled();
+      expect(acquire).not.toHaveBeenCalled();
     }, 20000);
 
     it('rejects an inline probe whose name disagrees with the server config', async () => {
@@ -888,7 +937,7 @@ describe('McpManagementService', () => {
       releaseIdentity();
       await expect(probe).resolves.toMatchObject({ success: true });
       expect(findContaining).toHaveBeenCalledWith(cwd);
-      expect(getOrCreate).not.toHaveBeenCalled();
+      expect(acquire).not.toHaveBeenCalled();
     }, 20000);
 
     it('rejects a name-only probe under an enabled runtime-name collision', async () => {

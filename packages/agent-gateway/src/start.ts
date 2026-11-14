@@ -13,6 +13,7 @@ import {
   IProviderDiscoveryService,
   ISessionIndex,
   ISessionIndexMirror,
+  ISessionManager,
   ICapabilityService,
   IPluginService,
   IWorkspaceService,
@@ -78,6 +79,7 @@ import {
 import { createServerSessionRating } from './services/sessionRating';
 import { TranscriptService } from './services/transcript/transcriptService';
 import { ModelCatalogRefreshScheduler } from './services/modelCatalog/modelCatalogRefreshScheduler';
+import { SessionIdleReaper, resolveSessionIdleReclaimMs } from './services/sessionIdleReaper';
 import { startConfigChangedPublisher } from './services/config/configChangedPublisher';
 import { createAuthFailureLimiter } from './middleware/rateLimit';
 import { createRemoteControlManager, inspectRemoteControlLock } from '@pymodel/remote-control';
@@ -141,6 +143,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   const port = opts.port ?? DEFAULT_PORT;
   const homeDir = resolvePythinkerHome(opts.homeDir);
   const serverVersion = opts.serverVersion ?? getServerVersion();
+  const idleReclaimMs = resolveSessionIdleReclaimMs(opts.env ?? process.env);
   const registry = createInstanceRegistry({
     instancesDir: opts.instancesDir ?? join(homeDir, 'server', 'instances'),
   });
@@ -159,7 +162,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     );
   }
   const enableShutdown = exposureClass === 'loopback' || opts.allowRemoteShutdown === true;
-  const enableTerminals = exposureClass === 'loopback';
   const debugEndpoints = exposureClass === 'loopback' && opts.debugEndpoints === true;
   const logger = opts.logger ?? createServerLogger({ level: opts.logLevel ?? 'info' });
   const onUnhandledRejection = (reason: unknown): void => {
@@ -250,6 +252,11 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     core.accessor.get(IConfigService),
     logger,
   );
+  const sessionIdleReaper = new SessionIdleReaper(
+    core.accessor.get(ISessionManager),
+    logger,
+    idleReclaimMs,
+  );
 
   try {
     await core.accessor.get(IWorkspaceService).list();
@@ -315,6 +322,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     capabilityInstallSubscription.dispose();
     authFailureLimiter?.dispose();
     modelCatalogRefreshScheduler.dispose();
+    await sessionIdleReaper.close();
     try {
       await shutdownServerTelemetry(telemetry);
     } catch (error) {
@@ -350,7 +358,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   const sessionRating = createServerSessionRating(core, { debugEndpoints, logger });
   core.accessor.get(IGlobalSearchService).setLiveTranscriptSource(transcriptService);
   const broadcaster = new SessionEventBroadcaster({
-    eventsDir: join(homeDir, 'server', 'events'),
     core,
     logger,
     transcriptService,
@@ -412,11 +419,9 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
           { name: 'search', description: 'Global message search' },
           { name: 'transcript', description: 'Turn-granular session transcript' },
           { name: 'prompts', description: 'Prompt submission & abort' },
-          { name: 'approvals', description: 'Approval resolution' },
-          { name: 'questions', description: 'Question resolution & dismiss' },
+          { name: 'interactions', description: 'Approval and question responses' },
           { name: 'tools', description: 'Tool & MCP server management' },
           { name: 'tasks', description: 'Task management' },
-          { name: 'terminals', description: 'PTY terminal sessions' },
           { name: 'fs', description: 'Filesystem operations' },
           { name: 'files', description: 'File upload & download' },
           { name: 'remote-control', description: 'Remote Control tunnel' },
@@ -438,7 +443,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     hostIdentity: opts.hostIdentity,
     debugEndpoints,
     enableShutdown,
-    enableTerminals,
     guiStore,
     pluginMarketplaceUrl: (() => {
       const configured = opts.pluginMarketplaceUrl ?? process.env['PYTHINKER_CODE_PLUGIN_MARKETPLACE_URL'];
@@ -460,7 +464,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       void close().catch((error: unknown) => logger.error({ error }, 'server close failed'));
     },
     connectionRegistry,
-    broadcaster,
     transcriptService,
     sessionRating,
     dangerousBypassAuth: opts.disableAuth === true,
@@ -473,7 +476,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     validateCredential,
     registry: connectionRegistry,
     broadcaster,
-    logger,
   });
   const wssDebug = debugEndpoints ? registerWsDebug() : undefined;
 
@@ -603,6 +605,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       'provider-model catalog auto-refresh failed to start',
     );
   });
+  sessionIdleReaper.start();
 
   process.on('unhandledRejection', onUnhandledRejection);
   process.on('uncaughtException', onUncaughtException);

@@ -38,17 +38,20 @@ function makeHost(
         models: { k2: { provider: 'openai', model: 'kimi-k2', maxContextSize: 200_000 } },
         providers: {},
       })),
+      auth: { getCachedAccessToken: vi.fn(async () => 'test-token') },
     },
     options: { startup: {} },
     setAppState: vi.fn((patch: Record<string, unknown>) => Object.assign(appState, patch)),
     setStartupReady: vi.fn(),
     resetSessionRuntime: vi.fn(),
+    setAuthRequired: vi.fn(),
     setSession: vi.fn(async (next: unknown) => {
       (host as { session: unknown }).session = next;
     }),
     syncRuntimeState: vi.fn(async () => {}),
     appendStartupNotice: vi.fn(),
     hydrateLazyConfigDefaults: vi.fn(async () => {}),
+    waitForSessionAssembly: vi.fn(async () => {}),
     sessionEventHandler: { startSubscription: vi.fn() },
     fetchSessions: vi.fn(async () => {}),
     updateTerminalTitle: vi.fn(),
@@ -65,7 +68,27 @@ function makeHost(
   return { host, appState, session };
 }
 
+describe('login-required startup', () => {
+  it('marks the application as blocked until authentication is resolved', () => {
+    const { host } = makeHost();
+    const authFlow = new AuthFlowController(host);
+
+    authFlow.enterLoginRequiredStartupState();
+
+    expect(host.setAuthRequired).toHaveBeenCalledWith(true);
+  });
+});
+
 describe('activateModelAfterLogin', () => {
+  it('clears auth required after a model is activated', async () => {
+    const { host } = makeHost();
+    const authFlow = new AuthFlowController(host);
+
+    await authFlow.activateModelAfterLogin('k2', 'high');
+
+    expect(host.setAuthRequired).toHaveBeenCalledWith(false);
+  });
+
   it('reports an engine-tracked switch when the pick changes the bound alias', async () => {
     const { host, session } = makeHost({ withSession: true });
     const authFlow = new AuthFlowController(host);
@@ -124,5 +147,32 @@ describe('refreshConfigAfterLogin', () => {
     const reachedLazy = await new AuthFlowController(lazy.host).refreshConfigAfterLogin();
     expect(reachedLazy).toBe(false);
     expect(lazy.host.harness.createSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('refreshProviderModels', () => {
+  it('reloads app-state providers and models even when the engine reports no model change', async () => {
+    // A config-only registry change (type, baseUrl, …) is persisted by the
+    // engine while the provider lands in `unchanged` — the TUI must still
+    // reload, or appState keeps the stale provider record.
+    const { host } = makeHost();
+    const refreshProviderModels = vi.fn(async () => ({
+      changed: [],
+      unchanged: ['custom'],
+      failed: [],
+    }));
+    (host.harness as unknown as { refreshProviderModels: unknown }).refreshProviderModels =
+      refreshProviderModels;
+
+    const result = await new AuthFlowController(host).refreshProviderModels({
+      providerId: 'custom',
+    });
+
+    expect(refreshProviderModels).toHaveBeenCalledWith({ providerId: 'custom' });
+    expect(result.unchanged).toEqual(['custom']);
+    expect(host.setAppState).toHaveBeenCalledWith({
+      availableModels: expect.anything(),
+      availableProviders: expect.anything(),
+    });
   });
 });

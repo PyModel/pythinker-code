@@ -112,7 +112,9 @@ export async function promptPlatformSelection(
         resolve(undefined);
       },
     });
-    host.mountEditorReplacement(selector);
+    host.mountEditorReplacement(selector, undefined, () => {
+      resolve(undefined);
+    });
   });
 }
 
@@ -130,7 +132,9 @@ function promptAuthenticationMethodSelection(
         resolve(undefined);
       },
     });
-    host.mountEditorReplacement(selector);
+    host.mountEditorReplacement(selector, undefined, () => {
+      resolve(undefined);
+    });
   });
 }
 
@@ -185,7 +189,9 @@ export function promptLogoutProviderSelection(
         resolve(undefined);
       },
     });
-    host.mountEditorReplacement(picker);
+    host.mountEditorReplacement(picker, undefined, () => {
+      resolve(undefined);
+    });
   });
 }
 
@@ -195,7 +201,8 @@ export function promptApiKey(
   subtitleLines: readonly string[] = ['Your key will be saved to ~/.pythinker-code/config.toml'],
   options: ApiKeyInputDialogOptions = {},
 ): Promise<string | undefined> {
-  return new Promise((resolve) => {
+  const releaseAuthBlock = host.beginAuthBlock();
+  return new Promise<string | undefined>((resolve) => {
     const dialog = new ApiKeyInputDialogComponent(
       platformName,
       subtitleLines,
@@ -205,8 +212,10 @@ export function promptApiKey(
       },
       options,
     );
-    host.mountEditorReplacement(dialog);
-  });
+    host.mountEditorReplacement(dialog, undefined, () => {
+      resolve(undefined);
+    });
+  }).finally(releaseAuthBlock);
 }
 
 /**
@@ -230,7 +239,9 @@ export function promptBaseUrl(host: SlashCommandHost, platformName: string): Pro
         emptyHint: 'Base URL cannot be empty.',
       },
     );
-    host.mountEditorReplacement(dialog);
+    host.mountEditorReplacement(dialog, undefined, () => {
+      resolve(undefined);
+    });
   });
 }
 
@@ -265,7 +276,9 @@ export function promptCatalogProviderSelection(host: SlashCommandHost, catalog: 
         resolve(undefined);
       },
     });
-    host.mountEditorReplacement(picker);
+    host.mountEditorReplacement(picker, undefined, () => {
+      resolve(undefined);
+    });
   });
 }
 
@@ -354,7 +367,9 @@ export function runModelSelector(
         resolve(undefined);
       },
     });
-    host.mountEditorReplacement(selector);
+    host.mountEditorReplacement(selector, undefined, () => {
+      resolve(undefined);
+    });
   });
 }
 
@@ -366,7 +381,9 @@ export function promptFeedbackInput(host: SlashCommandHost): Promise<FeedbackPro
       host.restoreEditor();
       resolve(result.kind === 'ok' ? { value: result.value } : undefined);
     });
-    host.mountEditorReplacement(dialog);
+    host.mountEditorReplacement(dialog, undefined, () => {
+      resolve(undefined);
+    });
   });
 }
 
@@ -404,6 +421,8 @@ export function promptFeedbackAttachment(
         resolve(undefined);
       },
     });
-    host.mountEditorReplacement(picker);
+    host.mountEditorReplacement(picker, undefined, () => {
+      resolve(undefined);
+    });
   });
 }

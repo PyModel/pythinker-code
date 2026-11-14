@@ -66,6 +66,55 @@ const SUMMARY = {
 };
 
 describe('facade routing', () => {
+  it('reshapes single-object params into positional wire args', async () => {
+    const channel = new FakeChannel();
+    const klient = createKlientFromChannel(channel);
+
+    channel.result = { id: 'w1', root: '/x', name: 'n', kind: 'implicit', additionalDirs: [], createdAt: 1, lastOpenedAt: 2 };
+    await klient.global.workspaces.createOrTouch({ root: '/x', name: 'n' });
+    expect(channel.calls[0]).toMatchObject({
+      service: 'workspaceService',
+      method: 'createOrTouch',
+      args: ['/x', 'n'],
+    });
+
+    channel.result = undefined; // void output
+    await klient.global.plugins.setMcpServerEnabled({ id: 'p', server: 's', enabled: true });
+    expect(channel.calls[1]).toMatchObject({
+      service: 'pluginService',
+      method: 'setPluginMcpServerEnabled',
+      args: [{ id: 'p', server: 's', enabled: true }],
+    });
+
+  });
+
+
+  it('routes capability calls through the registered app service contract', async () => {
+    const channel = new FakeChannel();
+    const klient = createKlientFromChannel(channel);
+    const status = {
+      id: 'pythinker-cu',
+      displayName: 'Pythinker Computer Use',
+      description: 'Background GUI automation',
+      supported: true,
+      state: 'partial',
+      steps: [{ id: 'permissions', state: 'missing' }],
+      // The completed-install note survives the contract parse (not stripped).
+      install: { running: false, note: 'user-skill-migrated' },
+    };
+    channel.result = [status];
+
+    await expect(klient.global.capabilities.list()).resolves.toEqual([status]);
+    channel.result = status;
+    await expect(klient.global.capabilities.get('pythinker-cu')).resolves.toEqual(status);
+    await expect(klient.global.capabilities.install('pythinker-cu')).resolves.toEqual(status);
+
+    expect(channel.calls).toEqual([
+      { scope: {}, service: 'capabilityService', method: 'listCapabilities', args: [] },
+      { scope: {}, service: 'capabilityService', method: 'getCapability', args: ['pythinker-cu'] },
+      { scope: {}, service: 'capabilityService', method: 'installCapability', args: ['pythinker-cu'] },
+    ]);
+  });
 
   it('env() fans out property reads and merges them', async () => {
     const channel = new FakeChannel();
@@ -306,13 +355,105 @@ describe('session skills routing', () => {
     const agent = klient.session('s1').agent('main');
     const scope = { sessionId: 's1', agentId: 'main' };
 
-    channel.results.set('agentContextMemoryService.get', [{ role: 'user' }]);
+    channel.results.set('agentContextMemoryService.get', [
+      { role: 'system', content: [{ type: 'text', text: 'rules' }] },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'hello' },
+          { type: 'image_url', imageUrl: { url: 'https://example.com/a.png' } },
+          { type: 'audio_url', audioUrl: { url: 'ms://audio-1', id: 'audio-1' } },
+          { type: 'video_url', videoUrl: { url: 'media://video-1', name: 'clip.mp4' } },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'think', think: 'bare' },
+          {
+            type: 'think',
+            think: 'full',
+            encrypted: 'encrypted',
+            detailsIndex: 0,
+            hidden: false,
+            reasoningKey: '',
+          },
+        ],
+        toolCalls: [],
+      },
+      { role: 'tool', content: [{ type: 'text', text: 'done' }], toolCallId: 'call-1' },
+    ]);
     channel.results.set('agentTokenCountingService.statusSize', 42);
-    await expect(agent.getContext()).resolves.toEqual({
-      history: [{ role: 'user' }],
+    await expect(agent.getContext()).resolves.toStrictEqual({
+      history: [
+        { role: 'system', content: [{ type: 'text', text: 'rules' }], toolCalls: [] },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'hello' },
+            { type: 'image_url', imageUrl: { url: 'https://example.com/a.png' } },
+            { type: 'audio_url', audioUrl: { url: 'ms://audio-1', id: 'audio-1' } },
+            { type: 'video_url', videoUrl: { url: 'media://video-1', name: 'clip.mp4' } },
+          ],
+          toolCalls: [],
+        },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'think', think: 'bare' },
+            {
+              type: 'think',
+              think: 'full',
+              encrypted: 'encrypted',
+              detailsIndex: 0,
+              hidden: false,
+              reasoningKey: '',
+            },
+          ],
+          toolCalls: [],
+        },
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'done' }],
+          toolCalls: [],
+          toolCallId: 'call-1',
+        },
+      ],
       tokenCount: 42,
     });
     expect(channel.calls).toEqual([
+      { scope, service: 'agentContextMemoryService', method: 'get', args: [] },
+      { scope, service: 'agentTokenCountingService', method: 'statusSize', args: [] },
+    ]);
+
+    const envelope = {
+      id: 'message-1',
+      providerMessageId: 'provider-1',
+      name: 'named',
+      origin: { kind: 'user' },
+      isError: false,
+      partial: false,
+      toolCallDisplays: {},
+      note: '',
+      usage: { inputOther: 1, output: 2, inputCacheRead: 3, inputCacheCreation: 4 },
+      llmTiming: { llmFirstTokenLatencyMs: 5, llmStreamDurationMs: 6 },
+      durationMs: 0,
+    };
+    channel.results.set('agentContextMemoryService.get', [
+      { role: 'user', content: [{ type: 'text', text: 'hello' }], ...envelope },
+    ]);
+    await expect(agent.getContext()).resolves.toStrictEqual({
+      history: [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'hello' }],
+          toolCalls: [],
+          ...envelope,
+        },
+      ],
+      tokenCount: 42,
+    });
+    expect(channel.calls.slice(2)).toEqual([
       { scope, service: 'agentContextMemoryService', method: 'get', args: [] },
       { scope, service: 'agentTokenCountingService', method: 'statusSize', args: [] },
     ]);
@@ -326,7 +467,7 @@ describe('agent mcp / compaction routing', () => {
     const agent = klient.session('s1').agent('main');
 
     const entries = [
-      { name: 'mock', transport: 'stdio', status: 'pending', toolCount: 0 },
+      { name: 'mock', transport: 'stdio', status: 'failed', toolCount: 0, nextRetryAt: 123456 },
     ];
     channel.results.set('agentMcpService.list', entries);
     await expect(agent.getMcpServers()).resolves.toEqual(entries);

@@ -1,61 +1,32 @@
 import { BugIndicatingError } from '#/_base/errors/errors';
-import type { ModelCapability as HumanModelCapability } from '#human/llm/capability';
-import type { ProtocolEndpoint, ProviderConnection } from '#human/llm/protocol/connection';
-import type { ProtocolTraitFor } from '#human/llm/provider/definition';
-import type { LlmErrorClassifier } from '#human/llm/requester/requester';
+import type { ModelCapability as HumanModelCapability } from '#human/llm-requester/capability';
+import type { DefaultHeadersResolver, ProtocolEndpoint } from '#human/llm-requester/connection';
 import {
-  pythinkerAnthropicTrait,
-  pythinkerConnection,
-  pythinkerOpenAITrait,
-  pythinkerResponsesTrait,
-  PYTHINKER_DEFAULT_BASE_URL,
-} from '#human/llm-pythinker/trait';
-import { classifyPythinkerQuotaError } from '#human/llm-pythinker/errors';
+  anthropicEndpoint,
+  geminiEndpoint,
+  pythinkerEndpoint,
+  openAIEndpoint,
+  vertexEndpoint,
+} from '#human/llm-requester/endpoints';
+import type { LlmErrorClassifier } from '#human/llm-requester/requester';
+import type { LlmRequester } from '#human/llm/requester';
+import { pythinkerRequesters } from '#human/llm/builtin/provider/pythinker/index';
+import { classifyPythinkerQuotaError } from '#human/llm/builtin/provider/pythinker/errors';
 
 import type { Protocol } from '../protocol/protocol';
 import type { ModelSource } from './provider';
 
-export const openAIConnection: ProviderConnection = {
-  endpoint: () => ({ apiKeyEnv: 'OPENAI_API_KEY', baseUrlEnv: 'OPENAI_BASE_URL' }),
-};
-
-export const anthropicConnection: ProviderConnection = {
-  endpoint: () => ({ apiKeyEnv: 'ANTHROPIC_API_KEY', baseUrlEnv: 'ANTHROPIC_BASE_URL' }),
-};
-
-export const geminiEndpoint: ProtocolEndpoint = {
-  apiKeyEnv: 'GOOGLE_API_KEY',
-  baseUrlEnv: 'GOOGLE_GEMINI_BASE_URL',
-};
-
-export const vertexEndpoint: ProtocolEndpoint = {
-  apiKeyEnv: 'VERTEXAI_API_KEY',
-  baseUrlEnv: 'GOOGLE_VERTEX_BASE_URL',
-};
-
-export const geminiConnection: ProviderConnection = {
-  endpoint: () => geminiEndpoint,
-};
-
-export const vertexConnection: ProviderConnection = {
-  endpoint: () => vertexEndpoint,
-};
-
-export const pythinkerEndpoint: ProtocolEndpoint = {
-  apiKeyEnv: 'PYTHINKER_API_KEY',
-  baseUrlEnv: 'PYTHINKER_BASE_URL',
-  defaultBaseUrl: PYTHINKER_DEFAULT_BASE_URL,
-};
-
 export interface ProviderDefinition<N extends Protocol = Protocol> {
   readonly id: string;
   readonly baseProtocol: N;
-  readonly trait?: ProtocolTraitFor<N>;
-  readonly connection?: ProviderConnection;
+  readonly requester?: LlmRequester<'protocol'>;
+  readonly thinkingDriven?: boolean;
+  readonly strictThinkingValidation?: boolean;
   readonly classifyError?: LlmErrorClassifier;
   readonly capability?: (modelName: string) => HumanModelCapability | undefined;
   readonly endpoint?: ProtocolEndpoint;
   readonly endpoints?: readonly ProtocolEndpoint[];
+  readonly defaultHeaders?: DefaultHeadersResolver;
   readonly hostHeaders?: 'full' | 'user-agent';
   readonly modelSource?: ModelSource;
 }
@@ -201,19 +172,19 @@ function firstEnvHit(
 registerProviderDefinition({
   id: 'anthropic',
   baseProtocol: 'anthropic',
-  endpoint: { apiKeyEnv: 'ANTHROPIC_API_KEY', baseUrlEnv: 'ANTHROPIC_BASE_URL' },
+  endpoint: anthropicEndpoint,
 });
 
 registerProviderDefinition({
   id: 'openai',
   baseProtocol: 'openai',
-  endpoint: { apiKeyEnv: 'OPENAI_API_KEY', baseUrlEnv: 'OPENAI_BASE_URL' },
+  endpoint: openAIEndpoint,
 });
 
 registerProviderDefinition({
   id: 'openai_responses',
   baseProtocol: 'openai_responses',
-  endpoint: { apiKeyEnv: 'OPENAI_API_KEY', baseUrlEnv: 'OPENAI_BASE_URL' },
+  endpoint: openAIEndpoint,
 });
 
 registerProviderDefinition({
@@ -225,8 +196,9 @@ registerProviderDefinition({
 registerProviderDefinition({
   id: 'pythinker',
   baseProtocol: 'openai',
-  trait: pythinkerOpenAITrait,
-  connection: pythinkerConnection,
+  requester: pythinkerRequesters.openai,
+  thinkingDriven: true,
+  strictThinkingValidation: true,
   classifyError: classifyPythinkerQuotaError,
   endpoint: pythinkerEndpoint,
   hostHeaders: 'full',
@@ -236,8 +208,8 @@ registerProviderDefinition({
 registerProviderDefinition({
   id: 'pythinker',
   baseProtocol: 'anthropic',
-  trait: pythinkerAnthropicTrait,
-  connection: pythinkerConnection,
+  requester: pythinkerRequesters.anthropic,
+  thinkingDriven: true,
   classifyError: classifyPythinkerQuotaError,
   endpoint: pythinkerEndpoint,
   hostHeaders: 'full',
@@ -247,8 +219,8 @@ registerProviderDefinition({
 registerProviderDefinition({
   id: 'pythinker',
   baseProtocol: 'openai_responses',
-  trait: pythinkerResponsesTrait,
-  connection: pythinkerConnection,
+  requester: pythinkerRequesters.openai_responses,
+  thinkingDriven: true,
   classifyError: classifyPythinkerQuotaError,
   endpoint: pythinkerEndpoint,
   hostHeaders: 'full',

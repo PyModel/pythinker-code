@@ -1,5 +1,5 @@
 import { createOAuthCredentialProvider } from '#/credentials/credentials';
-import type { LlmCredentialProvider } from '#/llm/requester/requester';
+import type { LlmCredentialProvider } from '#/llm-requester/requester';
 
 export interface AccessTokenProvider {
   getAccessToken(options?: {

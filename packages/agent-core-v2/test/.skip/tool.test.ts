@@ -9,8 +9,8 @@ import { ILogService } from '#/_base/log/log';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { userCancellationReason } from '#/_base/utils/abort';
 import { createHooks } from '#/hooks';
-import type { ToolCall } from '#human/llm/message';
-import type { TokenUsage } from '#human/llm/usage';
+import type { ToolCall } from '#human/message';
+import type { TokenUsage } from '#human/llm-requester/usage';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -26,6 +26,7 @@ import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentUserToolService, type UserToolRegistration } from '#/agent/userTool/userTool';
+import { IAgentDynamicWorkflowService } from '#/features/dynamic_workflow/agent/dynamic_workflow';
 import {
   AgentDynamicWorkflowToolInputSchema,
   type AgentDynamicWorkflowToolInput,
@@ -45,7 +46,11 @@ import { DEFAULT_SUBAGENT_TIMEOUT_MS, SECONDARY_MODEL_SECTION, SUBAGENT_SECTION 
 import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
 import { Error2, ErrorCodes } from '#/errors';
 import type { AgentTaskSettlement } from '#/agent/task/types';
-import { SubagentTask } from '#/agent/tools/agent/subagent-task';
+import {
+  NO_PARTIAL_OUTPUT,
+  PARTIAL_OUTPUT_NOTICE,
+  SubagentTask,
+} from '#/agent/tools/agent/subagent-task';
 import { runAgentTurn } from '#/session/subagent/runAgentTurn';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
@@ -62,6 +67,7 @@ import {
   type RunAgentOptions,
 } from '#/session/subagent/subagent';
 import { IEventBus } from '#/app/event/eventBus';
+import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import type { Event2 } from '#/app/event/event2';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
@@ -216,6 +222,7 @@ interface AgentLifecycleStubOptions {
     request: AgentRunRequest,
     options: RunAgentOptions,
   ) => Promise<AgentRunCompletion>;
+  readonly partialOutput?: (agentId: string) => string;
   readonly createError?: Error;
   readonly handleServices?: ReadonlyMap<string, ReadonlyMap<unknown, unknown>>;
 }
@@ -420,6 +427,7 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
         agentId: agent.agentId,
         turn: {} as AgentRunHandle['turn'],
         completion,
+        partialOutput: () => options.partialOutput?.(agent.agentId) ?? '',
       };
     }),
     get: vi.fn((agentId: string) => contextsByAgentId.get(agentId)),
@@ -475,6 +483,11 @@ function agentDynamicWorkflowTool(ctx: TestAgentContext): ExecutableTool<AgentDy
   const tool = ctx.get(IAgentToolRegistryService).resolve('AgentDynamicWorkflow');
   expect(tool).toBeDefined();
   return tool! as ExecutableTool<AgentDynamicWorkflowToolInput>;
+}
+
+function agentDynamicWorkflowToolInDynamicWorkflowMode(ctx: TestAgentContext): ExecutableTool<AgentDynamicWorkflowToolInput> {
+  ctx.get(IAgentDynamicWorkflowService).enter('manual');
+  return agentDynamicWorkflowTool(ctx);
 }
 
 function executeAgentTool(
@@ -688,10 +701,12 @@ describe('Agent tool description', () => {
 
     const tool = ctx.toolsData().find((entry) => entry.name === 'Agent');
     expect(tool).toBeDefined();
-    expect(tool!.description).toContain('Context forking');
+    expect(tool!.description).toContain('inheriting your current agent type, model, and tool set.');
     const properties = (tool!.parameters as { properties?: Record<string, unknown> } | undefined)
       ?.properties;
-    expect(properties).toHaveProperty('fork');
+    expect(properties?.['fork']).toMatchObject({
+      description: 'Start with a snapshot of your completed conversation history, inheriting your current agent type, model, and tool set.',
+    });
   });
 
   it('does not offer the default agent type to the builtin default caller', () => {
@@ -976,7 +991,7 @@ describe('Agent tool description', () => {
     expect(agentDescription()).not.toContain('Available models');
   });
 
-  it('renders the pool in config order with the default first and the caller alias on the primary line', () => {
+  it('renders the pool in config order with the default first and no primary choice', () => {
     ctx = createTestAgent({
       initialConfig: {
         secondaryModel: {
@@ -995,12 +1010,9 @@ describe('Agent tool description', () => {
     expect(description).toContain('Available models');
     const defaultIndex = description.indexOf('- provider/fast [default]: fast and cheap');
     const smartIndex = description.indexOf('- provider/smart: hard tasks');
-    const primaryIndex = description.indexOf(
-      '- primary (= mock-model): your current model and thinking level\n',
-    );
     expect(defaultIndex).toBeGreaterThanOrEqual(0);
     expect(smartIndex).toBeGreaterThan(defaultIndex);
-    expect(primaryIndex).toBeGreaterThan(smartIndex);
+    expect(description).not.toContain('- primary');
   });
 
   it('renders the caller-in-pool alias as a plain entry and renders empty descriptions bare', () => {
@@ -1022,8 +1034,8 @@ describe('Agent tool description', () => {
 
     expect(description).toContain('- provider/fast [default]: fast and cheap');
     expect(description).toContain('- mock-model: the main model, great at hard things');
-    expect(description).toContain('- provider/smart\n');
-    expect(description).toContain('- primary (= mock-model): your current model and thinking level\n');
+    expect(description).toMatch(/^- provider\/smart$/m);
+    expect(description).not.toContain('- primary');
   });
 
   it('marks the default alias with [default]', () => {
@@ -1048,7 +1060,6 @@ describe('Agent tool description', () => {
     const fastIndex = description.indexOf('- provider/fast: fast and cheap');
     expect(defaultIndex).toBeGreaterThanOrEqual(0);
     expect(fastIndex).toBeGreaterThan(defaultIndex);
-    expect(description).toContain('- primary (= mock-model): your current model and thinking level\n');
   });
 
   function agentParameters(): Record<string, unknown> {
@@ -1066,12 +1077,12 @@ describe('Agent tool description', () => {
     expect(properties).toHaveProperty('prompt');
   });
 
-  it('advertises the model parameter when a pool is configured', () => {
+  it('advertises the model parameter when the pool offers more than one model', () => {
     ctx = createTestAgent({
       initialConfig: {
         secondaryModel: {
           defaultModel: 'provider/fast',
-          models: { 'provider/fast': 'fast and cheap' },
+          models: { 'provider/fast': 'fast and cheap', 'provider/smart': 'hard tasks' },
         },
         models: POOL_MODEL_ENTRIES,
       },
@@ -1098,26 +1109,16 @@ describe('Agent tool description', () => {
     expect(agentDescription()).not.toContain('Available models');
   });
 
-  it('treats a pool-less default_model as an implicit single-entry pool', () => {
+  it.each([
+    { name: 'a pool-less default_model', secondaryModel: { defaultModel: 'provider/fast' } },
+    {
+      name: 'a single-entry pool table',
+      secondaryModel: { defaultModel: 'provider/fast', models: { 'provider/fast': 'fast' } },
+    },
+  ])('hides the model parameter and the pool description for $name', ({ secondaryModel }) => {
     ctx = createTestAgent({
       initialConfig: {
-        secondaryModel: { defaultModel: 'provider/fast' },
-        models: POOL_MODEL_ENTRIES,
-      },
-    });
-
-    const properties = agentParameters()['properties'] as Record<string, unknown>;
-    expect(properties).toHaveProperty('model');
-
-    const description = agentDescription();
-    expect(description).toContain('- provider/fast [default]\n');
-    expect(description).toContain('- primary (= mock-model): your current model and thinking level\n');
-  });
-
-  it('hides the model parameter and the pool description when force is set', () => {
-    ctx = createTestAgent({
-      initialConfig: {
-        secondaryModel: { defaultModel: 'provider/fast', force: true },
+        secondaryModel,
         models: POOL_MODEL_ENTRIES,
       },
     });
@@ -1733,17 +1734,26 @@ describe('Agent tool execution contract', () => {
     expect(lifecycle.run).not.toHaveBeenCalled();
   });
 
-  it('accepts fork with the primary model choice', async () => {
+  it('accepts fork with its own model alias but rejects the removed primary choice', async () => {
     const lifecycle = createAgentLifecycleStub({
       createAgentIds: ['agent-child'],
       runCompletion: async () => ({ summary: 'child result' }),
     });
     const context = createAgentToolContext(lifecycle, forkFlags());
 
-    const result = await executeAgentTool(context, {
+    const rejected = await executeAgentTool(context, {
       prompt: 'Continue the analysis',
       description: 'Fork context',
       model: 'primary',
+      fork: true,
+    });
+    expect(rejected).toMatchObject({ isError: true, output: FORK_WITH_MODEL_UNAVAILABLE });
+    expect(lifecycle.fork).not.toHaveBeenCalled();
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Continue the analysis',
+      description: 'Fork context',
+      model: 'mock-model',
       fork: true,
     });
 
@@ -1940,37 +1950,32 @@ describe('Agent tool execution contract', () => {
     );
   });
 
-  it('spawns on the caller model when the tool call opts into "primary"', async () => {
+  it('rejects the removed "primary" choice instead of escaping the pool', async () => {
     const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
     const context = createAgentToolContext(lifecycle, {
       initialConfig: {
         secondaryModel: {
           defaultModel: 'provider/fast',
-          models: { 'provider/fast': 'fast and cheap' },
+          models: { 'provider/fast': 'fast and cheap', 'provider/smart': 'hard tasks' },
         },
       },
     });
 
-    await executeAgentTool(context, {
+    const result = await executeAgentTool(context, {
       prompt: 'Investigate',
       description: 'Find cause',
       model: 'primary',
     });
 
-    expect(lifecycle.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        binding: expect.objectContaining({
-          model: 'mock-model',
-          thinking: 'off',
-        }),
-      }),
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain(
+      'Invalid model "primary". Available models: provider/fast, provider/smart.',
     );
+    expect(lifecycle.create).not.toHaveBeenCalled();
   });
 
-  it('binds the caller-in-pool alias without thinking, unlike "primary"', async () => {
-    const lifecycle = createAgentLifecycleStub({
-      createAgentIds: ['agent-child', 'agent-child-2'],
-    });
+  it('binds the caller-in-pool alias like any pool entry, without inheriting thinking', async () => {
+    const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
     const context = createAgentToolContext(lifecycle, {
       initialConfig: {
         secondaryModel: {
@@ -1985,22 +1990,10 @@ describe('Agent tool execution contract', () => {
       description: 'Find cause',
       model: 'mock-model',
     });
-    await executeAgentTool(context, {
-      prompt: 'Investigate',
-      description: 'Find cause',
-      model: 'primary',
-    });
 
-    expect(lifecycle.create).toHaveBeenNthCalledWith(
-      1,
+    expect(lifecycle.create).toHaveBeenCalledWith(
       expect.objectContaining({
         binding: expect.objectContaining({ model: 'mock-model', thinking: undefined }),
-      }),
-    );
-    expect(lifecycle.create).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        binding: expect.objectContaining({ model: 'mock-model', thinking: 'off' }),
       }),
     );
   });
@@ -2051,7 +2044,7 @@ describe('Agent tool execution contract', () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain(
-      'Invalid model "provider/typo". Available models: provider/fast, provider/smart, primary.',
+      'Invalid model "provider/typo". Available models: provider/fast, provider/smart.',
     );
     expect(lifecycle.create).not.toHaveBeenCalled();
   });
@@ -2071,34 +2064,6 @@ describe('Agent tool execution contract', () => {
           model: 'mock-model',
           thinking: 'off',
         }),
-      }),
-    );
-  });
-
-  it('binds the forced default_model and rejects any explicit choice, "primary" included', async () => {
-    const lifecycle = createAgentLifecycleStub({ createAgentIds: ['agent-child'] });
-    const context = createAgentToolContext(lifecycle, {
-      initialConfig: {
-        secondaryModel: { defaultModel: 'provider/fast', force: true },
-      },
-    });
-
-    const rejected = await executeAgentTool(context, {
-      prompt: 'Investigate',
-      description: 'Find cause',
-      model: 'primary',
-    });
-    expect(rejected.isError).toBe(true);
-    expect(rejected.output).toContain('[secondary_model].force is set');
-    expect(lifecycle.create).not.toHaveBeenCalled();
-
-    await executeAgentTool(context, {
-      prompt: 'Investigate',
-      description: 'Find cause',
-    });
-    expect(lifecycle.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        binding: expect.objectContaining({ model: 'provider/fast', thinking: undefined }),
       }),
     );
   });
@@ -2169,7 +2134,6 @@ describe('Agent tool execution contract', () => {
     const result = await executeAgentTool(context, {
       prompt: 'Investigate',
       description: 'Find cause',
-      model: 'primary',
     });
 
     expect(result.isError).toBe(true);
@@ -2249,6 +2213,7 @@ describe('Agent tool execution contract', () => {
         agentId: 'agent-child',
         turn: {} as AgentRunHandle['turn'],
         completion: Promise.resolve({ summary: 'child result' }),
+        partialOutput: () => '',
       },
       {
         profileName: 'explore',
@@ -3055,8 +3020,92 @@ describe('Agent tool execution contract', () => {
     expect(result.output).toContain('status: failed');
     expect(result.output).toContain('stop_reason: cancelled');
     expect(result.output).toContain('The subagent was stopped before it finished by user.');
+    expect(result.output).toContain(NO_PARTIAL_OUTPUT);
     expect(result.output).not.toContain('resume_hint:');
     expect(result.output).toContain('next_step: The user stopped this subagent.');
+  });
+
+  it('hands back foreground subagent text after user cancellation and non-abort failure', async () => {
+    const partialOutput = 'Found the loop at src/parser.ts:42; not verified yet.';
+    const lifecycle = createAgentLifecycleStub({
+      createAgentIds: ['agent-child'],
+      runCompletion: (_agentId, _request, options) =>
+        new Promise((_resolve, reject) => {
+          options.signal.addEventListener(
+            'abort',
+            () => {
+              reject(options.signal.reason);
+            },
+            { once: true },
+          );
+        }),
+      partialOutput: () => partialOutput,
+    });
+    const context = createAgentToolContext(lifecycle);
+    const controller = new AbortController();
+
+    const resultPromise = executeAgentTool(
+      context,
+      { prompt: 'Investigate', description: 'Find cause' },
+      controller.signal,
+    );
+    await vi.waitFor(() => {
+      expect(context.get(IAgentTaskService).list(false)).toHaveLength(1);
+    });
+    controller.abort(userCancellationReason());
+    const result = await resultPromise;
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('status: failed');
+    expect(result.output).toContain('stop_reason: cancelled');
+    expect(result.output).toContain(`${PARTIAL_OUTPUT_NOTICE}\n\n${partialOutput}`);
+    expect(result.output).not.toContain(NO_PARTIAL_OUTPUT);
+    expect(result.output).toContain('next_step: The user stopped this subagent.');
+
+    const failedLifecycle = createAgentLifecycleStub({
+      createAgentIds: ['agent-child'],
+      runCompletion: (_agentId, _request, options) => {
+        expect(options.signal.aborted).toBe(false);
+        return Promise.reject(new Error('provider down'));
+      },
+      partialOutput: () => partialOutput,
+    });
+    const failure = await executeAgentTool(createAgentToolContext(failedLifecycle), {
+      prompt: 'Investigate',
+      description: 'Find cause',
+    });
+
+    expect(failure.isError).toBe(true);
+    expect(failure.output).toContain('status: failed');
+    expect(failure.output).toContain('stop_reason: error');
+    expect(failure.output).toContain(
+      'subagent error: The subagent was stopped before it finished. Reason: provider down',
+    );
+    expect(failure.output).toContain(`${PARTIAL_OUTPUT_NOTICE}\n\n${partialOutput}`);
+    expect(
+      failedLifecycle.publishedEvents.filter((event) => event.type === 'subagent.failed'),
+    ).toEqual([
+      expect.objectContaining({ subagentId: 'agent-child', error: 'provider down' }),
+    ]);
+  });
+
+  it('keeps a completed foreground subagent result free of partial-output notices', async () => {
+    const lifecycle = createAgentLifecycleStub({
+      createAgentIds: ['agent-child'],
+      partialOutput: () => 'Working notes that should not be repeated.',
+    });
+    const context = createAgentToolContext(lifecycle);
+
+    const result = await executeAgentTool(context, {
+      prompt: 'Investigate',
+      description: 'Find cause',
+    });
+
+    expect(result.isError ?? false).toBe(false);
+    expect(result.output).toContain('status: completed');
+    expect(result.output).toContain('child result');
+    expect(result.output).not.toContain('[partial output]');
+    expect(result.output).not.toContain('Working notes that should not be repeated.');
   });
 
   it('reports the reason when a foreground subagent is stopped for another cause', async () => {
@@ -3238,6 +3287,18 @@ describe('AgentDynamicWorkflow tool description', () => {
     expect(agentDynamicWorkflowDescription()).toContain('{{item}}');
   });
 
+  it('describes fork as inheriting the current type, model, and tools', () => {
+    ctx = createTestAgent(forkFlags());
+
+    expect(agentDynamicWorkflowDescription()).toContain(
+      'inheriting your current agent type, model, and tool set.',
+    );
+    const properties = agentDynamicWorkflowParameters()['properties'] as Record<string, unknown>;
+    expect(properties['fork']).toMatchObject({
+      description: 'Start every item-spawned subagent with a snapshot of your completed conversation history, inheriting your current agent type, model, and tool set.',
+    });
+  });
+
   it('omits the models section when no [secondary_model.models] pool is configured', () => {
     ctx = createTestAgent();
 
@@ -3258,8 +3319,9 @@ describe('AgentDynamicWorkflow tool description', () => {
     const description = agentDynamicWorkflowDescription();
 
     expect(description).toContain(
-      'Available models (pass via model): provider/fast [default], provider/smart, primary (your current model and thinking level).',
+      'Available models (pass via model): provider/fast [default], provider/smart.',
     );
+    expect(description).not.toContain('primary');
   });
 
   function agentDynamicWorkflowParameters(): Record<string, unknown> {
@@ -3277,12 +3339,22 @@ describe('AgentDynamicWorkflow tool description', () => {
     expect(properties).toHaveProperty('prompt_template');
   });
 
-  it('advertises the model parameter when a pool is configured', () => {
+  it('advertises the model parameter only when the pool offers more than one model', async () => {
+    ctx = createTestAgent({
+      initialConfig: {
+        secondaryModel: { defaultModel: 'provider/fast' },
+        models: POOL_MODEL_ENTRIES,
+      },
+    });
+    expect(agentDynamicWorkflowParameters()['properties']).not.toHaveProperty('model');
+    expect(agentDynamicWorkflowDescription()).not.toContain('Available models');
+    await ctx.dispose();
+
     ctx = createTestAgent({
       initialConfig: {
         secondaryModel: {
           defaultModel: 'provider/fast',
-          models: { 'provider/fast': 'fast and cheap' },
+          models: { 'provider/fast': 'fast and cheap', 'provider/smart': 'hard tasks' },
         },
         models: POOL_MODEL_ENTRIES,
       },
@@ -3326,7 +3398,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
     };
     ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
 
-    const result = await executeTool(agentDynamicWorkflowTool(ctx), {
+    const result = await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
       turnId: 0,
       toolCallId: 'call_dynamic_workflow',
       args: {
@@ -3413,7 +3485,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
       },
     );
 
-    await executeTool(agentDynamicWorkflowTool(ctx), {
+    await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
       turnId: 0,
       toolCallId: 'call_dynamic_workflow',
       args: {
@@ -3441,7 +3513,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
     );
   });
 
-  it('threads the caller model into spawn task plans when the tool call opts into "primary"', async () => {
+  it('rejects the removed "primary" choice before starting any subagent', async () => {
     const runDynamicWorkflow = vi.fn(
       async (
         args: SessionDynamicWorkflowRunArgs,
@@ -3473,7 +3545,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
       },
     );
 
-    await executeTool(agentDynamicWorkflowTool(ctx), {
+    const result = await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
       turnId: 0,
       toolCallId: 'call_dynamic_workflow',
       args: {
@@ -3486,20 +3558,9 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
       signal,
     });
 
-    expect(runDynamicWorkflow).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tasks: [
-          expect.objectContaining({
-            kind: 'spawn',
-            plan: { profileName: 'explore', model: 'mock-model', modelSource: 'primary_override', thinking: 'off', fork: false },
-          }),
-          expect.objectContaining({
-            kind: 'spawn',
-            plan: { profileName: 'explore', model: 'mock-model', modelSource: 'primary_override', thinking: 'off', fork: false },
-          }),
-        ],
-      }),
-    );
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('Invalid model "primary". Available models: provider/fast.');
+    expect(runDynamicWorkflow).not.toHaveBeenCalled();
   });
 
   it('resumes mapped agents before spawning item subagents', async () => {
@@ -3530,7 +3591,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
     };
     ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
 
-    const result = await executeTool(agentDynamicWorkflowTool(ctx), {
+    const result = await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
       turnId: 0,
       toolCallId: 'call_dynamic_workflow',
       args: {
@@ -3656,7 +3717,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
     };
     ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
 
-    const result = await executeTool(agentDynamicWorkflowTool(ctx), {
+    const result = await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
       turnId: 0,
       toolCallId: 'call_dynamic_workflow',
       args: {
@@ -3703,7 +3764,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
     };
     ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
 
-    const result = await executeTool(agentDynamicWorkflowTool(ctx), {
+    const result = await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
       turnId: 0,
       toolCallId: 'call_dynamic_workflow',
       args: {
@@ -3753,7 +3814,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
     };
     ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
 
-    const result = await executeTool(agentDynamicWorkflowTool(ctx), {
+    const result = await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
       turnId: 0,
       toolCallId: 'call_dynamic_workflow',
       args: {
@@ -3809,7 +3870,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
     };
     ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
 
-    const result = await executeTool(agentDynamicWorkflowTool(ctx), {
+    const result = await executeTool(agentDynamicWorkflowToolInDynamicWorkflowMode(ctx), {
       turnId: 0,
       toolCallId: 'call_dynamic_workflow',
       args: {
@@ -3835,7 +3896,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
   it('declares broad accesses and does not expose permission rule argument matching', async () => {
     ctx = createTestAgent();
 
-    const execution = await agentDynamicWorkflowTool(ctx).resolveExecution({
+    const execution = await agentDynamicWorkflowToolInDynamicWorkflowMode(ctx).resolveExecution({
       description: 'Review files',
       prompt_template: 'Review {{item}}',
       items: ['src/a.ts', 'src/b.ts'],
@@ -3856,7 +3917,7 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
   it('counts resumed and item-based subagents in the display name', async () => {
     ctx = createTestAgent();
 
-    const execution = await agentDynamicWorkflowTool(ctx).resolveExecution({
+    const execution = await agentDynamicWorkflowToolInDynamicWorkflowMode(ctx).resolveExecution({
       description: 'Finish review',
       prompt_template: 'Review {{item}}',
       items: ['src/new.ts'],
@@ -3871,6 +3932,90 @@ describe('AgentDynamicWorkflow tool execution contract', () => {
       agent_name: 'dynamic_workflow (3 subagents)',
       prompt: 'Finish review',
     });
+  });
+
+  it('rejects calls while dynamic_workflow mode is off without turning it on', async () => {
+    const runDynamicWorkflow = vi.fn(async (): Promise<readonly SessionDynamicWorkflowRunResult[]> => []);
+    const dynamicWorkflowService: ISessionDynamicWorkflowService = {
+      _serviceBrand: undefined,
+      getDynamicWorkflowItem: async () => undefined,
+      run: runDynamicWorkflow as ISessionDynamicWorkflowService['run'],
+      cancel: () => {},
+    };
+    ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
+
+    const result = await executeTool(agentDynamicWorkflowTool(ctx), {
+      turnId: 0,
+      toolCallId: 'call_dynamic_workflow',
+      args: {
+        description: 'Review files',
+        prompt_template: 'Review {{item}}',
+        items: ['src/a.ts', 'src/b.ts'],
+      },
+      signal,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('DynamicWorkflow mode is off, so AgentDynamicWorkflow did not run');
+    expect(runDynamicWorkflow).not.toHaveBeenCalled();
+    expect(ctx.get(IAgentDynamicWorkflowService).isActive).toBe(false);
+  });
+
+  it('answers a model-started AgentDynamicWorkflow call with an error while dynamic_workflow mode is off', async () => {
+    const runDynamicWorkflow = vi.fn(async (): Promise<readonly SessionDynamicWorkflowRunResult[]> => []);
+    const dynamicWorkflowService: ISessionDynamicWorkflowService = {
+      _serviceBrand: undefined,
+      getDynamicWorkflowItem: async () => undefined,
+      run: runDynamicWorkflow as ISessionDynamicWorkflowService['run'],
+      cancel: () => {},
+    };
+    ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
+    const dynamicWorkflowModeUpdates: boolean[] = [];
+    const subscription = ctx.get(IEventBus).subscribe(AgentStatusUpdated, (event) => {
+      if (event.dynamicWorkflowMode !== undefined) dynamicWorkflowModeUpdates.push(event.dynamicWorkflowMode);
+    });
+
+    ctx.mockNextResponse({ type: 'text', text: 'I will start a dynamic_workflow.' }, agentDynamicWorkflowCall());
+    ctx.mockNextResponse({ type: 'text', text: 'I will review the files myself.' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Review the files' }] });
+    await ctx.untilTurnEnd();
+    subscription.dispose();
+
+    expect(runDynamicWorkflow).not.toHaveBeenCalled();
+    expect(dynamicWorkflowModeUpdates).toEqual([]);
+    expect(ctx.get(IAgentDynamicWorkflowService).isActive).toBe(false);
+    expect(JSON.stringify(ctx.get(IAgentContextMemoryService).get())).toContain(
+      'DynamicWorkflow mode is off, so AgentDynamicWorkflow did not run',
+    );
+  });
+
+  it('runs a model-started AgentDynamicWorkflow call in a one-task dynamic_workflow and turns dynamic_workflow mode off after the turn', async () => {
+    const runDynamicWorkflow = vi.fn(
+      async (args: SessionDynamicWorkflowRunArgs): Promise<readonly SessionDynamicWorkflowRunResult[]> =>
+        args.tasks.map((task, index) => ({
+          task,
+          agentId: `agent-explore-${String(index + 1)}`,
+          status: 'completed' as const,
+          result: 'ok',
+        })),
+    );
+    const dynamicWorkflowService: ISessionDynamicWorkflowService = {
+      _serviceBrand: undefined,
+      getDynamicWorkflowItem: async () => undefined,
+      run: runDynamicWorkflow as ISessionDynamicWorkflowService['run'],
+      cancel: () => {},
+    };
+    ctx = createTestAgent(dynamicWorkflowServices(dynamicWorkflowService));
+    const dynamic_workflow = ctx.get(IAgentDynamicWorkflowService);
+    dynamic_workflow.enter('task');
+
+    ctx.mockNextResponse({ type: 'text', text: 'I will start a dynamic_workflow.' }, agentDynamicWorkflowCall());
+    ctx.mockNextResponse({ type: 'text', text: 'The dynamic_workflow finished.' });
+    await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Review the files' }] });
+    await ctx.untilTurnEnd();
+
+    expect(runDynamicWorkflow).toHaveBeenCalledTimes(1);
+    expect(dynamic_workflow.isActive).toBe(false);
   });
 });
 
@@ -4331,7 +4476,7 @@ describe('Agent tools', () => {
       `);
       expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
         system: <system-prompt>
-        tools: Agent, AgentDynamicWorkflow, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, Lookup, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, Write
+        tools: Agent, AgentDynamicWorkflow, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, Lookup, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, Write
         messages:
           user: text "Look up moon"
           user: text <auto-mode-enter-reminder>
@@ -4400,7 +4545,7 @@ describe('Agent tools', () => {
         [emit] turn.ended                     { "time": "<time>", "agentId": "main", "turnId": 1, "reason": "completed" }
       `);
       expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-        tools: Agent, AgentDynamicWorkflow, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, Write
+        tools: Agent, AgentDynamicWorkflow, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, ExitPlanMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, Write
         messages:
           <last>
           assistant: text "The lookup result is moon-result."
@@ -4499,6 +4644,20 @@ function agentCall(): ToolCall {
       prompt: 'Investigate deeply',
       description: 'Investigate deeply',
       subagent_type: 'coder',
+    }),
+  };
+}
+
+function agentDynamicWorkflowCall(): ToolCall {
+  return {
+    type: 'function',
+    id: 'call_dynamic_workflow',
+    name: 'AgentDynamicWorkflow',
+    arguments: JSON.stringify({
+      description: 'Review files',
+      prompt_template: 'Review {{item}}',
+      items: ['src/a.ts', 'src/b.ts'],
+      subagent_type: 'explore',
     }),
   };
 }

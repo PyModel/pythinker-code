@@ -8,6 +8,7 @@ import {
   AgentDynamicWorkflowProgressComponent,
   agentDynamicWorkflowDescriptionFromArgs,
   agentDynamicWorkflowGridHeightForTerminalRows,
+  isAgentDynamicWorkflowRejection,
 } from '../components/messages/agent-dynamic-workflow-progress';
 import { modelDisplayName } from '../components/dialogs/model-selector';
 import { MAIN_AGENT_ID } from '../constant/pythinker-tui';
@@ -80,6 +81,13 @@ export class SubAgentEventHandler {
     const childAgentId = event.agentId;
     if (childAgentId === MAIN_AGENT_ID) return false;
     if (this.host.btwPanelController.routeEvent(event)) return true;
+    if (
+      event.type === 'agent.status.updated' ||
+      event.type === 'tool.call.started' ||
+      event.type === 'tool.result'
+    ) {
+      this.host.programStatus?.touchSubagent(childAgentId);
+    }
 
     // Tee every child-agent event into the activity store before the routing
     // below swallows events whose parent card is gone (Ctrl+B) or never
@@ -161,21 +169,29 @@ export class SubAgentEventHandler {
   handleLifecycleEvent(event: SubagentLifecycleEvent): void {
     switch (event.type) {
       case 'subagent.spawned':
+        this.host.programStatus?.startSubagent({
+          agentId: event.subagentId,
+          title: event.description ?? event.subagentName,
+          taskId: event.taskId,
+        });
         this.handleSubagentSpawned(event);
         return;
       case 'subagent.started':
-        this.handleSubagentStarted(event);
-        return;
       case 'subagent.suspended':
-        this.handleSubagentSuspended(event);
+        this.host.programStatus?.touchSubagent(event.subagentId);
+        if (event.type === 'subagent.started') this.handleSubagentStarted(event);
+        else this.handleSubagentSuspended(event);
         return;
       case 'subagent.completed':
+        this.host.programStatus?.completeSubagent(event.subagentId);
         this.handleSubagentCompleted(event);
         return;
       case 'subagent.failed':
+        this.host.programStatus?.failSubagent(event.subagentId, event.error);
         this.handleSubagentFailed(event);
         return;
       case 'subagent.cancelled':
+        this.host.programStatus?.cancelSubagent(event.subagentId);
         this.handleSubagentCancelled(event);
         return;
     }
@@ -213,6 +229,7 @@ export class SubAgentEventHandler {
     toolCallId: string,
     args: Record<string, unknown>,
   ): void {
+    if (!this.showsAgentDynamicWorkflowProgress(toolCallId)) return;
     const progress = this.ensureAgentDynamicWorkflowProgress(toolCallId, args);
     progress.markInputComplete();
     this.requestRender();
@@ -223,6 +240,7 @@ export class SubAgentEventHandler {
     args: Record<string, unknown>,
     options: { readonly streamingArguments?: string | undefined },
   ): void {
+    if (!this.showsAgentDynamicWorkflowProgress(toolCallId)) return;
     this.ensureAgentDynamicWorkflowProgress(toolCallId, args, options);
     this.requestRender();
   }
@@ -235,7 +253,9 @@ export class SubAgentEventHandler {
     const progress = this.agentDynamicWorkflowProgress.get(toolCallId);
     if (progress === undefined) return;
 
-    if (isError && isUserCancelledSubagentError(resultData.output)) {
+    if (isError && !progress.hasSubagents() && isAgentDynamicWorkflowRejection(resultData.output)) {
+      this.removeAgentDynamicWorkflowProgress(toolCallId, progress);
+    } else if (isError && isUserCancelledSubagentError(resultData.output)) {
       if (progress.isRequestStreaming()) {
         this.removeAgentDynamicWorkflowProgress(toolCallId, progress);
       } else {
@@ -514,6 +534,7 @@ export class SubAgentEventHandler {
     // in-run update/fallback path.
     const modelDisplay = this.spawnedModelDisplay(event);
     const effortDisplay = this.subagentEffortDisplay(event.thinkingEffort);
+    this.ensureStartedAgentDynamicWorkflowProgress(event.parentToolCallId);
     if (this.updateAgentDynamicWorkflowProgress(event.parentToolCallId, (progress) => {
       progress.registerSubagent({
         agentId: event.subagentId,
@@ -676,6 +697,24 @@ export class SubAgentEventHandler {
     update(progress);
     this.requestRender();
     return true;
+  }
+
+  /**
+   * While dynamic_workflow mode is off the core rejects AgentDynamicWorkflow before any subagent
+   * starts, so a new call gets no panel; a panel already on screen keeps
+   * following its call.
+   */
+  private showsAgentDynamicWorkflowProgress(toolCallId: string): boolean {
+    return this.host.state.appState.dynamicWorkflowMode || this.agentDynamicWorkflowProgress.has(toolCallId);
+  }
+
+  /** A dynamic_workflow that spawns subagents always gets a panel, even when its call
+   *  streamed while dynamic_workflow mode still showed as off. */
+  private ensureStartedAgentDynamicWorkflowProgress(parentToolCallId: string): void {
+    if (this.agentDynamicWorkflowProgress.has(parentToolCallId)) return;
+    const toolCall = this.host.streamingUI.getActiveToolCall(parentToolCallId);
+    if (toolCall?.name !== 'AgentDynamicWorkflow') return;
+    this.ensureAgentDynamicWorkflowProgress(parentToolCallId, toolCall.args).markInputComplete();
   }
 
   private ensureAgentDynamicWorkflowProgress(

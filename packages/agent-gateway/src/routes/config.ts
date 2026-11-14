@@ -91,7 +91,12 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
         ]);
         for (const domain of Object.keys(camelPatch)) {
           if (!allowedDomains.has(domain)) continue;
-          await config.set(domain, camelPatch[domain]);
+          const patch = camelPatch[domain];
+          if (domain === 'secondaryModel' && patch === null) {
+            await config.replace(domain, null);
+          } else {
+            await config.set(domain, patch);
+          }
         }
         const response = toConfigResponse(config.getAll());
         const changedFields = Object.keys(req.body as Record<string, unknown>);
@@ -220,14 +225,12 @@ function convertKeysSnakeToCamel(obj: unknown, preserveKeys = false): unknown {
     return obj.map((item) => convertKeysSnakeToCamel(item));
   }
   if (isPlainObject(obj)) {
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(obj)) {
-      result[preserveKeys ? key : snakeToCamel(key)] = convertKeysSnakeToCamel(
-        value,
-        !preserveKeys && MAP_VALUED_CONFIG_KEYS.has(key),
-      );
-    }
-    return result;
+    return Object.fromEntries(
+      Object.entries(obj).map(([key, value]) => [
+        preserveKeys ? key : snakeToCamel(key),
+        convertKeysSnakeToCamel(value, !preserveKeys && MAP_VALUED_CONFIG_KEYS.has(key)),
+      ]),
+    );
   }
   return obj;
 }

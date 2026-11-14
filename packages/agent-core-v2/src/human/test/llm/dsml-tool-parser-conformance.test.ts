@@ -10,7 +10,7 @@ import {
   DsmlStreamParser,
   extractDsmlToolCalls,
   parseInvokeBody,
-} from '#/llm/requester/bases/openai/dsml-tool-parser';
+} from '#/llm/builtin/protocol/openai/dsml-tool-parser';
 
 interface Normalized {
   text: string;
@@ -321,7 +321,7 @@ describe('DsmlStreamParser conformance', () => {
   describe('implementation parity with @pymodel/kosong', () => {
     it('keeps both parser copies byte-identical except for the message import', () => {
       const dir = import.meta.dirname;
-      const here = resolve(dir, '../../llm/requester/bases/openai/dsml-tool-parser.ts');
+      const here = resolve(dir, '../../llm/builtin/protocol/openai/dsml-tool-parser.ts');
       const legacy = resolve(dir, '../../../../../kosong/src/providers/dsml-tool-parser.ts');
       const v2 = readFileSync(here, 'utf8').replace(
         "from '#/llm/message';",
