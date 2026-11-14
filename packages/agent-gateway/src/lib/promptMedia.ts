@@ -502,9 +502,6 @@ function sanitizeAttachmentName(name: string): string {
 async function materializeAttachmentToDir(file: GetResult, dir: string): Promise<string> {
   await mkdir(dir, { recursive: true });
   const target = join(dir, `${file.meta.id}-${sanitizeAttachmentName(file.meta.name)}`);
-  const info = await stat(target).catch(() => undefined);
-  if (info?.size === file.meta.size) return target;
-
   await pipeline(file.stream(), createWriteStream(target));
   return target;
 }
@@ -517,8 +514,7 @@ async function persistAttachmentBytes(
   try {
     await mkdir(dir, { recursive: true });
     const target = join(dir, name);
-    const info = await stat(target).catch(() => undefined);
-    if (info?.size !== bytes.length) await writeFile(target, bytes);
+    await writeFile(target, bytes);
     return target;
   } catch {
     return null;

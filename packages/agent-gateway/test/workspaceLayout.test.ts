@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -97,7 +97,6 @@ describe('local/local on-disk layout (byte compatibility)', () => {
     expect(session).toBeDefined();
     await session!.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
     const wirePath = join(sessionDir, 'agents', 'main', 'wire.jsonl');
-    await expect(stat(wirePath)).resolves.toBeDefined();
     const firstWireLine = (await readFile(wirePath, 'utf8')).split('\n')[0]!;
     expect((JSON.parse(firstWireLine) as { type: string }).type).toBe('metadata');
     const metaWithAgent = JSON.parse(await readFile(join(sessionDir, 'state.json'), 'utf8')) as {

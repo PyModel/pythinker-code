@@ -60,33 +60,37 @@ function hash(bytes: Uint8Array): string {
 }
 
 async function verifyExisting(path: string, expectedHash: string): Promise<void> {
-  let before = await lstat(path);
-  for (let attempt = 0; before.isFile() && before.nlink === 2 && attempt < 20; attempt++) {
-    await delay(10);
-    before = await lstat(path);
-  }
-  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) {
-    throw failure('IMAGE_FILE_UNSAFE', 'Existing attachment must be a regular file with one link.');
-  }
-  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const existing = await handle.stat();
-    if (!existing.isFile() || existing.nlink !== 1 || existing.ino !== before.ino || existing.dev !== before.dev) {
-      throw failure('IMAGE_FILE_UNSAFE', 'Existing attachment changed while opening it.');
+  for (let attempt = 0; attempt < 21; attempt++) {
+    const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW).catch((error: unknown) => {
+      if (errorCode(error) === 'ELOOP') {
+        throw failure('IMAGE_FILE_UNSAFE', 'Existing attachment must be a regular file with one link.');
+      }
+      throw error;
+    });
+    try {
+      const existing = await handle.stat();
+      if (!existing.isFile() || existing.nlink !== 1) {
+        if (existing.isFile() && existing.nlink === 2 && attempt < 20) {
+          await delay(10);
+          continue;
+        }
+        throw failure('IMAGE_FILE_UNSAFE', 'Existing attachment must be a regular file with one link.');
+      }
+      const digest = createHash('sha256');
+      const buffer = Buffer.allocUnsafe(64 * 1024);
+      while (true) {
+        const { bytesRead } = await handle.read(buffer);
+        if (!bytesRead) break;
+        digest.update(buffer.subarray(0, bytesRead));
+      }
+      if (digest.digest('hex') !== expectedHash) {
+        throw failure('IMAGE_FILE_MISMATCH', 'Existing attachment bytes do not match the imported content.');
+      }
+      await handle.chmod(0o600);
+      return;
+    } finally {
+      await handle.close();
     }
-    const digest = createHash('sha256');
-    const buffer = Buffer.allocUnsafe(64 * 1024);
-    while (true) {
-      const { bytesRead } = await handle.read(buffer);
-      if (!bytesRead) break;
-      digest.update(buffer.subarray(0, bytesRead));
-    }
-    if (digest.digest('hex') !== expectedHash) {
-      throw failure('IMAGE_FILE_MISMATCH', 'Existing attachment bytes do not match the imported content.');
-    }
-    await handle.chmod(0o600);
-  } finally {
-    await handle.close();
   }
 }
 

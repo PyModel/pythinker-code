@@ -611,8 +611,50 @@ function replaceCharacters(value: string, replacements: Readonly<Record<string, 
 	return result;
 }
 
+function isJsWhitespace(char: string): boolean {
+	const code = char.charCodeAt(0);
+	return (
+		code === 0x09 ||
+		code === 0x0a ||
+		code === 0x0b ||
+		code === 0x0c ||
+		code === 0x0d ||
+		code === 0x20 ||
+		code === 0xa0 ||
+		code === 0x1680 ||
+		(code >= 0x2000 && code <= 0x200a) ||
+		code === 0x2028 ||
+		code === 0x2029 ||
+		code === 0x202f ||
+		code === 0x205f ||
+		code === 0x3000 ||
+		code === 0xfeff
+	);
+}
+
+function isScriptOperator(char: string): boolean {
+	return char === "=" || char === "+" || char === "-";
+}
+
 function normalizeScriptValue(value: string): string {
-	return value.trim().replace(/\s*([=+-])\s*/g, "$1");
+	const text = value.trim();
+	let result = "";
+	let index = 0;
+	while (index < text.length) {
+		const char = text[index]!;
+		if (!isScriptOperator(char)) {
+			result += char;
+			index += 1;
+			continue;
+		}
+		while (result.length > 0 && isJsWhitespace(result[result.length - 1]!)) {
+			result = result.slice(0, -1);
+		}
+		result += char;
+		index += 1;
+		while (index < text.length && isJsWhitespace(text[index]!)) index += 1;
+	}
+	return result;
 }
 
 function formatUnicodeScript(value: string, kind: "sub" | "sup"): string | undefined {

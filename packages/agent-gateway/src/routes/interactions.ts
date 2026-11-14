@@ -132,29 +132,31 @@ function toQuestionResult(
   questions: readonly QuestionItem[],
 ): QuestionResult {
   const itemsById = new Map(questions.map((item) => [item.id, item]));
-  const flattened: QuestionAnswers = {};
+  const entries: [string, string][] = [];
   for (const [qid, ans] of Object.entries(body.answers ?? {})) {
     const item = itemsById.get(qid);
-    const key = item?.question ?? qid;
+    if (item === undefined) continue;
+    const key = item.question;
     const optionText = (id: string): string =>
-      item?.options.find((o) => o.id === id)?.label ?? id;
+      item.options.find((o) => o.id === id)?.label ?? id;
     switch (ans.kind) {
       case 'single':
-        flattened[key] = optionText(ans.option_id);
+        entries.push([key, optionText(ans.option_id)]);
         break;
       case 'multi':
-        flattened[key] = ans.option_ids.map(optionText).join(', ');
+        entries.push([key, ans.option_ids.map(optionText).join(', ')]);
         break;
       case 'other':
-        flattened[key] = ans.text;
+        entries.push([key, ans.text]);
         break;
       case 'multi_with_other':
-        flattened[key] = [...ans.option_ids.map(optionText), ans.other_text].join(', ');
+        entries.push([key, [...ans.option_ids.map(optionText), ans.other_text].join(', ')]);
         break;
       case 'skipped':
         break;
     }
   }
+  const flattened: QuestionAnswers = Object.fromEntries(entries);
   if (body.method === undefined || body.method === 'click') return { answers: flattened };
   return { answers: flattened, method: body.method };
 }

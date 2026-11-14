@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, scryptSync } from 'node:crypto';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/state/state';
@@ -555,7 +555,7 @@ async function accountHashFor(model: Model): Promise<string> {
     }
   }
   if (identity === undefined) return 'no-key';
-  return createHash('sha256').update(identity).digest('hex').slice(0, 16);
+  return scryptSync(identity, 'pythinker-media-account', 8, { N: 1024, r: 8, p: 1 }).toString('hex');
 }
 
 function stableJwtSubject(token: string): string | undefined {

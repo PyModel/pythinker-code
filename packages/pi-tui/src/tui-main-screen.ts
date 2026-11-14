@@ -609,9 +609,8 @@ export class TuiMainScreen extends TuiBase implements TUI {
 		output.append("\x1b[?2026l"); // End synchronized output
 
 		if (process.env['PI_TUI_DEBUG'] === "1") {
-			const debugDir = "/tmp/tui";
-			fs.mkdirSync(debugDir, { recursive: true });
-			const debugPath = path.join(debugDir, `render-${Date.now()}-${Math.random().toString(36).slice(2)}.log`);
+			const debugDir = fs.mkdtempSync(path.join(os.tmpdir(), "tui-"));
+			const debugPath = path.join(debugDir, "render.log");
 			const debugData = [
 				`firstChanged: ${firstChanged}`,
 				`viewportTop: ${viewportTop}`,
@@ -634,7 +633,7 @@ export class TuiMainScreen extends TuiBase implements TUI {
 				"=== buffer ===",
 				`[${output.length} chars written in bounded chunks]`,
 			].join("\n");
-			fs.writeFileSync(debugPath, debugData);
+			fs.writeFileSync(debugPath, debugData, { mode: 0o600 });
 		}
 
 		output.flush();

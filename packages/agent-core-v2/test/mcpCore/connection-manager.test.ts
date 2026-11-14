@@ -85,6 +85,18 @@ function stdioConfig(args: string[] = [stdioFixture]) {
 }
 
 
+const FIXED_DELAY_IMPORT_SCRIPT = 'setTimeout(() => import(process.env.FIXTURE_URL), 400);\n';
+
+async function writeFixedDelayImportRunner(): Promise<string> {
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'mcp-delayed-'));
+  const runner = join(dir, 'delayed-import.mjs');
+  await writeFile(runner, FIXED_DELAY_IMPORT_SCRIPT, 'utf8');
+  return runner;
+}
+
 async function writeDelayedImportRunner(target: string): Promise<string> {
   const { mkdtemp, writeFile } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
@@ -227,13 +239,12 @@ describe('McpConnectionManager', () => {
       expect(cm.get('alpha')?.status).toBe('connected');
       expect(cm.resolved('alpha')).toBeDefined();
 
-      const delayedMockServer = `setTimeout(() => import(${JSON.stringify(
-        pathToFileURL(stdioFixture).href,
-      )}), 400)`;
+      const runner = await writeFixedDelayImportRunner();
       const connecting = cm.connect('slow', {
         transport: 'stdio',
         command: process.execPath,
-        args: ['-e', delayedMockServer],
+        args: [runner],
+        env: { FIXTURE_URL: pathToFileURL(stdioFixture).href },
         startupTimeoutMs: 5_000,
       });
       await sleep(50);

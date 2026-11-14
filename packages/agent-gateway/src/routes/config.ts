@@ -225,14 +225,12 @@ function convertKeysSnakeToCamel(obj: unknown, preserveKeys = false): unknown {
     return obj.map((item) => convertKeysSnakeToCamel(item));
   }
   if (isPlainObject(obj)) {
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(obj)) {
-      result[preserveKeys ? key : snakeToCamel(key)] = convertKeysSnakeToCamel(
-        value,
-        !preserveKeys && MAP_VALUED_CONFIG_KEYS.has(key),
-      );
-    }
-    return result;
+    return Object.fromEntries(
+      Object.entries(obj).map(([key, value]) => [
+        preserveKeys ? key : snakeToCamel(key),
+        convertKeysSnakeToCamel(value, !preserveKeys && MAP_VALUED_CONFIG_KEYS.has(key)),
+      ]),
+    );
   }
   return obj;
 }

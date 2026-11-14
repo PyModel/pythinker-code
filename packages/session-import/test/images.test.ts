@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { link, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { link, mkdir, mkdtemp, open, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
@@ -219,7 +219,12 @@ test('manifest index is stable, private, complete and refuses modified same-name
   expect(await store.saveManifest()).toBe(first);
   expect(JSON.parse(await readFile(first, 'utf8'))).toEqual(JSON.parse(JSON.stringify(store.manifest())));
   expect(store.manifest()).toMatchObject([{ sourceLine: 7, location: '$.message.content[0]', metadataOnly: false }]);
-  expect((await stat(first)).mode & 0o777).toBe(0o600);
+  const modeHandle = await open(first, 'r');
+  try {
+    expect((await modeHandle.stat()).mode & 0o777).toBe(0o600);
+  } finally {
+    await modeHandle.close();
+  }
   expect(store.report().savedFiles).toBe(1);
   await writeFile(first, 'changed');
   await expect(store.saveManifest()).rejects.toMatchObject({ code: 'IMAGE_FILE_MISMATCH' });
@@ -295,7 +300,7 @@ test('publishes streamed attachments only after all bytes are written', async ()
   const writing = writeAttachmentFile(directory, 'history.jsonl', chunks());
   await ready;
   const path = join(directory, 'history.jsonl');
-  await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' });
+  await expect(readFile(path)).rejects.toMatchObject({ code: 'ENOENT' });
   const temporary = await readdir(directory);
   expect(temporary).toHaveLength(1);
   expect(temporary[0]).toMatch(/^\.import-.*\.tmp$/);

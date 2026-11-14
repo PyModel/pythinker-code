@@ -330,8 +330,10 @@ async function probeWireEncoding(): Promise<void> {
       'pythinker: deferred tool stays OUT of top-level tools[]',
     );
     console.log(
-      `[ok] pythinker: declaration on wire (role=${String(declaration.role)}), ` +
-        `top-level tools=[${(pythinkerBody?.tools ?? []).map((t) => t.function?.name ?? '?').join(', ')}]`,
+      oneLine(
+        `[ok] pythinker: declaration on wire (role=${String(declaration.role)}), ` +
+          `top-level tools=[${(pythinkerBody?.tools ?? []).map((t) => t.function?.name ?? '?').join(', ')}]`,
+      ),
     );
 
     // 2) plain openai: the same declaration message is dropped outright — the
@@ -656,8 +658,10 @@ async function probeTappedContext(): Promise<void> {
           void (async () => {
             const raw = Buffer.concat(chunks);
             tapCount += 1;
-            console.log(`\n[${m.model}] ── request #${String(tapCount)} → ${upstream}${req.url ?? ''}`);
-            for (const line of describeWireBody(raw)) console.log(line);
+            console.log(
+              oneLine(`\n[${m.model}] ── request #${String(tapCount)} → ${upstream}${req.url ?? ''}`),
+            );
+            for (const line of describeWireBody(raw)) console.log(oneLine(line));
             const headers = { ...(req.headers as Record<string, string>) };
             delete headers['host'];
             delete headers['content-length'];
@@ -675,9 +679,9 @@ async function probeTappedContext(): Promise<void> {
             });
             res.writeHead(response.status, passthrough);
             res.end(Buffer.from(await response.arrayBuffer()));
-          })().catch((error: unknown) => {
+          })().catch(() => {
             res.writeHead(502);
-            res.end(String(error));
+            res.end('upstream request failed');
           });
         });
       });
@@ -729,6 +733,10 @@ async function main(): Promise<void> {
 try {
   await main();
 } catch (error) {
-  console.error(error);
+  console.error(oneLine(error));
   process.exit(1);
+}
+
+function oneLine(value: unknown): string {
+  return String(value).replaceAll(/[\r\n\u2028\u2029]/g, ' ');
 }
