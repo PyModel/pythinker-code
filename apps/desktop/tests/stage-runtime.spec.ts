@@ -9,6 +9,7 @@ import {
   deployTargetArgument,
   dereferenceSymlinks,
   packageManagerInvocation,
+  shouldAssertWindowsNodePty,
   withDeployRetries,
 } from '../scripts/stage-runtime'
 
@@ -62,6 +63,12 @@ describe('deploy target argument', () => {
 })
 
 describe('Windows node-pty materialization', () => {
+  it('checks the Windows addon only on Windows', () => {
+    expect(shouldAssertWindowsNodePty('win32')).toBe(true)
+    expect(shouldAssertWindowsNodePty('linux')).toBe(false)
+    expect(shouldAssertWindowsNodePty('darwin')).toBe(false)
+  })
+
   it('replaces a symlink with the file it names', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pythinker-deref-'))
     try {

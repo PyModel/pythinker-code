@@ -186,6 +186,16 @@ export async function dereferenceSymlinks(directory: string): Promise<void> {
 }
 
 /**
+ * The Windows addon check applies only when this process is packaging Windows.
+ * Linux and macOS package jobs do not download the win32 prebuilds.
+ * @param platform - The value of `process.platform`.
+ * @returns Whether staging must contain real `win32-x64` node-pty files.
+ */
+export function shouldAssertWindowsNodePty(platform: string): boolean {
+  return platform === 'win32'
+}
+
+/**
  * Fail staging when the Windows node-pty addon was not materialized.
  * @param nodeModules - The staged `node_modules` directory.
  */
@@ -244,7 +254,9 @@ async function main(): Promise<void> {
     }
     await materializeLinks()
     await dereferenceSymlinks(join(staging, 'node_modules', 'node-pty'))
-    await assertWindowsNodePty(join(staging, 'node_modules'))
+    if (shouldAssertWindowsNodePty(process.platform)) {
+      await assertWindowsNodePty(join(staging, 'node_modules'))
+    }
   } finally {
     await rm(deployed, { recursive: true, force: true })
   }
