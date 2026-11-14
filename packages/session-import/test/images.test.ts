@@ -219,16 +219,16 @@ test('manifest index is stable, private, complete and refuses modified same-name
   expect(await store.saveManifest()).toBe(first);
   expect(JSON.parse(await readFile(first, 'utf8'))).toEqual(JSON.parse(JSON.stringify(store.manifest())));
   expect(store.manifest()).toMatchObject([{ sourceLine: 7, location: '$.message.content[0]', metadataOnly: false }]);
+  expect(store.report().savedFiles).toBe(1);
+  await writeFile(first, 'changed');
+  await expect(store.saveManifest()).rejects.toMatchObject({ code: 'IMAGE_FILE_MISMATCH' });
+  expect(await readFile(first, 'utf8')).toBe('changed');
   const modeHandle = await open(first, 'r');
   try {
     expect((await modeHandle.stat()).mode & 0o777).toBe(0o600);
   } finally {
     await modeHandle.close();
   }
-  expect(store.report().savedFiles).toBe(1);
-  await writeFile(first, 'changed');
-  await expect(store.saveManifest()).rejects.toMatchObject({ code: 'IMAGE_FILE_MISMATCH' });
-  expect(await readFile(first, 'utf8')).toBe('changed');
 });
 
 test('legacy image arrays retain field order and textual references', async () => {

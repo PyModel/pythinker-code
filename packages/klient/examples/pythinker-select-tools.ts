@@ -738,5 +738,5 @@ try {
 }
 
 function oneLine(value: unknown): string {
-  return String(value).replaceAll(/[\r\n\u2028\u2029]/g, ' ');
+  return String(value).replaceAll(/\n/g, '').replaceAll(/\r/g, '');
 }
