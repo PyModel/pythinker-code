@@ -1,5 +1,11 @@
 # @pymodel/pythinker-desktop
 
+## 2.0.1
+
+### Patch Changes
+
+- [#409](https://github.com/PyModel/pythinker-code/pull/409) [`b5c2241`](https://github.com/PyModel/pythinker-code/commit/b5c22414b8f82143fa83acb3fc49bf02da5bfd96) Thanks [@elkaix](https://github.com/elkaix)! - Fix the Windows desktop package so the terminal addon is included.
+
 ## 2.0.0
 
 ### Major Changes
