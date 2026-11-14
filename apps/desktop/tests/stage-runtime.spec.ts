@@ -1,10 +1,15 @@
+import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import {
   DEPLOY_ATTEMPTS,
+  assertWindowsNodePty,
   deployRetryDelayMs,
   deployTargetArgument,
+  dereferenceSymlinks,
   packageManagerInvocation,
+  shouldAssertWindowsNodePty,
   withDeployRetries,
 } from '../scripts/stage-runtime'
 
@@ -54,6 +59,51 @@ describe('deploy target argument', () => {
     const target = '/repo/node_modules/.pythinker-desktop-staging/runtime-abc123'
 
     expect(deployTargetArgument('/repo', target)).not.toBe(target)
+  })
+})
+
+describe('Windows node-pty materialization', () => {
+  it('checks the Windows addon only on Windows', () => {
+    expect(shouldAssertWindowsNodePty('win32')).toBe(true)
+    expect(shouldAssertWindowsNodePty('linux')).toBe(false)
+    expect(shouldAssertWindowsNodePty('darwin')).toBe(false)
+  })
+
+  it('replaces a symlink with the file it names', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pythinker-deref-'))
+    try {
+      const real = join(root, 'real.node')
+      const link = join(root, 'tree', 'pty.node')
+      await writeFile(real, 'addon')
+      await mkdir(join(root, 'tree'))
+      await symlink(real, link)
+
+      await dereferenceSymlinks(join(root, 'tree'))
+
+      const metadata = await lstat(link)
+      expect(metadata.isSymbolicLink()).toBe(false)
+      expect(metadata.isFile()).toBe(true)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a staged Host whose pty.node is still a symlink', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pythinker-pty-assert-'))
+    try {
+      const real = join(root, 'real.node')
+      const nodeModules = join(root, 'node_modules')
+      const link = join(nodeModules, 'node-pty', 'prebuilds', 'win32-x64', 'pty.node')
+      await writeFile(real, 'addon')
+      await mkdir(join(link, '..'), { recursive: true })
+      await symlink(real, link)
+      await writeFile(join(link, '..', 'conpty.node'), '')
+      await writeFile(join(link, '..', 'conpty_console_list.node'), '')
+
+      await expect(assertWindowsNodePty(nodeModules)).rejects.toThrow(/pty\.node/)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })
 

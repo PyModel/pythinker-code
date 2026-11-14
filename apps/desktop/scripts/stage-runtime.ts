@@ -160,6 +160,55 @@ async function materializeLinks(): Promise<void> {
   }
 }
 
+/** Windows node-pty files the packaged Host must contain as real files. */
+export const WINDOWS_NODE_PTY_FILES = [
+  ['node-pty', 'prebuilds', 'win32-x64', 'pty.node'],
+  ['node-pty', 'prebuilds', 'win32-x64', 'conpty.node'],
+  ['node-pty', 'prebuilds', 'win32-x64', 'conpty_console_list.node'],
+] as const
+
+/**
+ * Replace every symlink under `directory` with the file or directory it names.
+ *
+ * `pnpm deploy` stores native addons as links into the content-addressable
+ * store. electron-builder recreates every link as a directory junction on
+ * Windows, and a junction cannot be `pty.node`, so the packaged Host then
+ * fails its own file check.
+ * @param directory - Tree to rewrite. Missing directories are ignored.
+ */
+export async function dereferenceSymlinks(directory: string): Promise<void> {
+  if (!existsSync(directory)) return
+  for (let link = await findSymlink(directory); link !== undefined; link = await findSymlink(directory)) {
+    const source = await realpath(link)
+    await rm(link, { recursive: true, force: true })
+    await cp(source, link, { recursive: true, dereference: true })
+  }
+}
+
+/**
+ * The Windows addon check applies only when this process is packaging Windows.
+ * Linux and macOS package jobs do not download the win32 prebuilds.
+ * @param platform - The value of `process.platform`.
+ * @returns Whether staging must contain real `win32-x64` node-pty files.
+ */
+export function shouldAssertWindowsNodePty(platform: string): boolean {
+  return platform === 'win32'
+}
+
+/**
+ * Fail staging when the Windows node-pty addon was not materialized.
+ * @param nodeModules - The staged `node_modules` directory.
+ */
+export async function assertWindowsNodePty(nodeModules: string): Promise<void> {
+  for (const segments of WINDOWS_NODE_PTY_FILES) {
+    const path = join(nodeModules, ...segments)
+    const metadata = await lstat(path).catch(() => undefined)
+    if (metadata === undefined || !metadata.isFile() || metadata.isSymbolicLink()) {
+      throw new Error(`desktop Host is missing a real Windows node-pty file: ${path}`)
+    }
+  }
+}
+
 async function deploy(target: string): Promise<void> {
   const savedWorkspaceState = existsSync(workspaceState) ? await readFile(workspaceState) : undefined
   try {
@@ -193,6 +242,7 @@ async function main(): Promise<void> {
     await mkdir(staging, { recursive: true })
     await cp(join(deployed, 'node_modules'), join(staging, 'node_modules'), {
       recursive: true,
+      dereference: true,
     })
     const runtimePackage = join(staging, 'node_modules/@pymodel/pythinker-code')
     await mkdir(runtimePackage, { recursive: true })
@@ -203,6 +253,10 @@ async function main(): Promise<void> {
       })
     }
     await materializeLinks()
+    await dereferenceSymlinks(join(staging, 'node_modules', 'node-pty'))
+    if (shouldAssertWindowsNodePty(process.platform)) {
+      await assertWindowsNodePty(join(staging, 'node_modules'))
+    }
   } finally {
     await rm(deployed, { recursive: true, force: true })
   }
