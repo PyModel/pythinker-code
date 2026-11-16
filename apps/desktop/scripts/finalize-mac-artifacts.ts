@@ -6,7 +6,6 @@ import {
   existsSync,
   readFileSync,
   readdirSync,
-  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
@@ -192,9 +191,9 @@ export function finalizeMacArtifacts(options: FinalizeMacArtifactsOptions): void
       throw new Error(`stapler failed for ${filename} with status ${String(stapling.status)}:\n${staplerOutput}`)
     }
 
-    const size = statSync(dmgPath).size
-    const sha512 = createHash('sha512').update(readFileSync(dmgPath)).digest('base64')
-    metadata = rewriteLatestMacYaml(metadata, filename, sha512, size, manifestName)
+    const dmg = readFileSync(dmgPath)
+    const sha512 = createHash('sha512').update(dmg).digest('base64')
+    metadata = rewriteLatestMacYaml(metadata, filename, sha512, dmg.length, manifestName)
 
     const blockmapPath = `${dmgPath}.blockmap`
     if (existsSync(blockmapPath)) {
