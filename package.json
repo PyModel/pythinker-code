@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "architecture:check": "node scripts/architecture/architecture-check.mjs",
-    "postinstall": "node scripts/fix-node-pty-perms.mjs && node scripts/security/prune-monaco-distributions.mjs",
+    "postinstall": "node scripts/security/prune-monaco-distributions.mjs",
     "build": "pnpm -r run build",
     "build:packages": "pnpm -r --filter './packages/*' run build",
     "dev:cli": "pnpm -C apps/pythinker-code run dev",
