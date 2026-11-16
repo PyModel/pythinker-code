@@ -1,5 +1,11 @@
 # @pymodel/pythinker-desktop
 
+## 2.0.2
+
+### Patch Changes
+
+- [#413](https://github.com/PyModel/pythinker-code/pull/413) [`cd4241b`](https://github.com/PyModel/pythinker-code/commit/cd4241bf15eed910e675bf157ee63835b5a68028) Thanks [@elkaix](https://github.com/elkaix)! - Fix the Windows desktop installer build.
+
 ## 2.0.1
 
 ### Patch Changes
