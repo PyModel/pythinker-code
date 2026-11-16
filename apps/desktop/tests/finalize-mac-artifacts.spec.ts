@@ -8,6 +8,7 @@ import {
   finalizeMacArtifacts,
   rewriteLatestMacYaml,
 } from '../scripts/finalize-mac-artifacts'
+import { checkNotaryAccess } from '../scripts/check-notary-access'
 
 const directories: string[] = []
 
@@ -208,5 +209,38 @@ sha512: old
     }).toThrow('status: Invalid')
     expect(log).toHaveBeenCalledWith(output)
     expect(runCommand).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Apple notary access check', () => {
+  const env = {
+    APPLE_API_KEY: '/private/AuthKey.p8',
+    APPLE_API_KEY_ID: 'KEY123',
+    APPLE_API_ISSUER: 'issuer-id',
+  }
+
+  it('asks notarytool for history with the release credentials', () => {
+    const calls: Array<readonly string[]> = []
+    checkNotaryAccess(env, (command, args) => {
+      calls.push([command, ...args])
+      return { status: 0, stderr: '', stdout: '{"history":[]}' }
+    })
+
+    expect(calls).toEqual([[
+      'xcrun', 'notarytool', 'history', '--output-format', 'json',
+      '--key', '/private/AuthKey.p8', '--key-id', 'KEY123', '--issuer', 'issuer-id',
+    ]])
+  })
+
+  it('names the expired agreement when Apple returns 403', () => {
+    const stderr = 'Error: HTTP status code: 403. A required agreement is missing or has expired.'
+
+    expect(() => checkNotaryAccess(env, () => ({ status: 69, stderr, stdout: '' })))
+      .toThrow(/required agreement is missing[\s\S]*accept the current agreements/u)
+  })
+
+  it('reports other rejections without the agreement hint', () => {
+    expect(() => checkNotaryAccess(env, () => ({ status: 1, stderr: 'Error: HTTP status code: 401. Unable to authenticate.', stdout: '' })))
+      .toThrow(/status 1\):\nError: HTTP status code: 401\. Unable to authenticate\.$/u)
   })
 })

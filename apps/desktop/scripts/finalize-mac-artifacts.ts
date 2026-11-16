@@ -137,7 +137,7 @@ export function rewriteLatestMacYaml(
   return lines.join('\n')
 }
 
-function defaultCommandRunner(command: string, args: readonly string[]): CommandResult {
+export function defaultCommandRunner(command: string, args: readonly string[]): CommandResult {
   const result = spawnSync(command, args, { encoding: 'utf8' })
   if (result.error !== undefined) throw result.error
   return { status: result.status, stderr: result.stderr, stdout: result.stdout }

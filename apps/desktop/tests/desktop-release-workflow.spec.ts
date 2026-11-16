@@ -30,6 +30,12 @@ describe('desktop release workflow', () => {
     expect(workflow).toContain('verify-update-manifest.ts mac')
   })
 
+  it('checks Apple notary access before it packages macOS', () => {
+    const check = workflow.indexOf('scripts/check-notary-access.ts')
+    expect(check).toBeGreaterThan(workflow.indexOf('scripts/assert-release-signing.ts'))
+    expect(check).toBeLessThan(workflow.indexOf('electron-builder --mac dmg zip --publish never'))
+  })
+
   it('requires Windows signing and verifies the actual release binaries', () => {
     expect(workflow).toContain('scripts/assert-windows-release-signing.ts')
     expect(workflow).toContain('scripts/verify-windows-signatures.ts')
