@@ -428,7 +428,7 @@ export function spawnPythinkerServer(options: SpawnPythinkerServerOptions): Host
  * Terminate a child and its descendants.
  *
  * Windows has no signal delivery: `child.kill` calls TerminateProcess on one
- * PID, so the Host's own children (node-pty shells, subagent hosts) survive and
+ * PID, so the Host's own children (shells, subagent hosts) survive and
  * keep holding the loopback port. `taskkill /T` walks the tree instead.
  * Because this call is synchronous, keep it bounded so a stalled taskkill falls
  * back to a single-process kill instead of blocking the Electron main loop indefinitely.
