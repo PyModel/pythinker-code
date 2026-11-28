@@ -3271,11 +3271,9 @@ describe('concurrent state writes', () => {
     });
 
     let heldContent = '';
-    for (;;) {
-      try {
-        heldContent = await readFile(lockPath, 'utf8');
-        break;
-      } catch {
+    while (heldContent === '') {
+      heldContent = await readFile(lockPath, 'utf8').catch(() => '');
+      if (heldContent === '') {
         await new Promise<void>((resolve) => {
           setTimeout(resolve, 10);
         });
