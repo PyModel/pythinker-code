@@ -1,5 +1,11 @@
 # @pymodel/pythinker-code
 
+## 3.0.1
+
+### Patch Changes
+
+- [#416](https://github.com/PyModel/pythinker-code/pull/416) [`1b71724`](https://github.com/PyModel/pythinker-code/commit/1b717241f12a81abe8baa78a7b7c03e6379ba576) Thanks [@elkaix](https://github.com/elkaix)! - Restore the macOS Intel download and the Homebrew formula update that 3.0.0 did not publish.
+
 ## 3.0.0
 
 ### Major Changes
