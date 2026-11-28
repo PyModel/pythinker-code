@@ -36,6 +36,10 @@ void test('release workflow uses full push-boundary lane signals and isolated jo
   assert.match(brewJob, /needs:\n      - release\n      - publish-native-assets\n/u);
   assert.match(workflow, /^  verify-brew-install:/mu);
   assert.match(workflow, /BREW_RESULT: \$\{\{ needs\.verify-brew-install\.result \}\}/u);
+  assert.match(
+    workflow,
+    /DOKPLOY_CDN_DEPLOY_WEBHOOK: \$\{\{ needs\.redeploy-cdn\.result == 'success' && secrets\.DOKPLOY_CDN_DEPLOY_WEBHOOK \|\| '' \}\}/u,
+  );
 });
 
 void test('VS Code release supports isolated recovery and attests verified VSIX files', () => {

@@ -24,10 +24,11 @@ export const nativeTargets = Object.freeze([
 
 export const expectedCliAssets = Object.freeze([
   'manifest.json',
-  ...nativeTargets.flatMap((target) => [
-    `pythinker-code-${target}.zip`,
-    `pythinker-code-${target}.zip.sha256`,
-  ]),
+  ...nativeTargets.flatMap((target) => {
+    const binary = `pythinker-code-${target}${target.startsWith('win32-') ? '.exe' : ''}`;
+    return [binary, `pythinker-code-${target}.tar.gz`, `pythinker-code-${target}.zip`, `pythinker-code-${target}.zst`]
+      .flatMap((name) => [name, `${name}.sha256`]);
+  }),
 ]);
 
 const packagePaths = {
@@ -302,7 +303,7 @@ export async function collectReleaseStatus({
       observed: npm.version ?? 'unavailable',
       ok: cliOk,
       details: npm.error ?? cliRelease.error
-        ?? `GitHub assets ${(cliRelease.assets ?? []).length}/${expectedCliAssets.length}${missingDetail(cliMissing)}`,
+        ?? `GitHub assets ${expectedCliAssets.length - cliMissing.length}/${expectedCliAssets.length}${missingDetail(cliMissing)}`,
     },
     {
       lane: 'CDN',

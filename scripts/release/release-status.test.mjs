@@ -153,13 +153,28 @@ void test('fails when a published CLI release is missing one required asset', as
   const result = await collectReleaseStatus({
     rootDir,
     desktopCommitCount,
-    fetchImpl: fixtureFetch({ cliAssets: expectedCliAssets.filter((name) => name !== 'manifest.json') }),
+    fetchImpl: fixtureFetch({
+      cliAssets: [...expectedCliAssets.filter((name) => name !== 'manifest.json'), 'notes.txt'],
+    }),
   });
 
   assert.equal(result.ok, false);
   const cli = result.rows.find((row) => row.lane === 'npm CLI');
   assert.equal(cli?.ok, false);
   assert.match(cli?.details ?? '', /missing manifest\.json/u);
+  assert.match(cli?.details ?? '', new RegExp(`GitHub assets ${expectedCliAssets.length - 1}/${expectedCliAssets.length};`, 'u'));
+});
+
+void test('expects every per-target archive, binary and checksum on the CLI release', () => {
+  assert.equal(expectedCliAssets.length, 49);
+  for (const name of [
+    'pythinker-code-darwin-x64',
+    'pythinker-code-darwin-x64.tar.gz.sha256',
+    'pythinker-code-win32-x64.exe',
+    'pythinker-code-linux-arm64.zst',
+  ]) {
+    assert.ok(expectedCliAssets.includes(name), name);
+  }
 });
 
 void test('fails when the Homebrew formula lags the published CLI version', async (t) => {

@@ -36,6 +36,12 @@ describe('desktop release workflow', () => {
     expect(check).toBeLessThan(workflow.indexOf('electron-builder --mac dmg zip --publish never'))
   })
 
+  it('checks Azure signing access before it packages Windows', () => {
+    const check = workflow.indexOf('scripts/check-azure-signing-access.ts')
+    expect(check).toBeGreaterThan(workflow.indexOf('scripts/assert-windows-release-signing.ts'))
+    expect(check).toBeLessThan(workflow.indexOf('scripts/package-win.ts --publish never'))
+  })
+
   it('requires Windows signing and verifies the actual release binaries', () => {
     expect(workflow).toContain('scripts/assert-windows-release-signing.ts')
     expect(workflow).toContain('scripts/verify-windows-signatures.ts')

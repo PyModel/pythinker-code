@@ -5,6 +5,7 @@ import {
   windowsPackageInvocation,
   windowsSigningArgs,
 } from '../scripts/package-win'
+import { checkAzureSigningAccess } from '../scripts/check-azure-signing-access'
 
 type JsonObject = Record<string, unknown>
 
@@ -221,5 +222,51 @@ describe('Windows package invocation', () => {
   it('uses pnpm on both platforms', () => {
     expect(windowsPackageInvocation('darwin', signingEnvironment, 'never').command).toBe('pnpm')
     expect(windowsPackageInvocation('win32', signingEnvironment, 'never').command).toBe('pnpm')
+  })
+})
+
+describe('checkAzureSigningAccess', () => {
+  const azureEnv = {
+    AZURE_TENANT_ID: 'tenant',
+    AZURE_CLIENT_ID: 'client',
+    AZURE_CLIENT_SECRET: 'secret',
+    AZURE_SIGNING_ENDPOINT: 'https://eus.codesigning.azure.net',
+    AZURE_SIGNING_ACCOUNT: 'account',
+    AZURE_SIGNING_CERT_PROFILE: 'profile',
+  }
+  const respond = (signStatus: number, tokenStatus = 200) => {
+    const calls: string[] = []
+    const fetchImpl = (input: string) => {
+      calls.push(input)
+      if (input.startsWith('https://login.microsoftonline.com/')) {
+        return Promise.resolve(Response.json({ access_token: 'token' }, { status: tokenStatus }))
+      }
+      return Promise.resolve(new Response(null, { status: signStatus }))
+    }
+    return { calls, fetchImpl }
+  }
+
+  it('skips when Azure signing is not configured', async () => {
+    const { calls, fetchImpl } = respond(200)
+    await expect(checkAzureSigningAccess({}, fetchImpl)).resolves.toBe('skipped')
+    expect(calls).toEqual([])
+  })
+
+  it('asks the profile certificate chain with the release credentials', async () => {
+    const { calls, fetchImpl } = respond(200)
+    await expect(checkAzureSigningAccess(azureEnv, fetchImpl)).resolves.toBeUndefined()
+    expect(calls[1]).toBe('https://eus.codesigning.azure.net/codesigningaccounts/account/certificateprofiles/profile/sign/certchain?api-version=2023-06-15-preview')
+  })
+
+  it('fails fast when Azure refuses signing, with the billing hint', async () => {
+    await expect(checkAzureSigningAccess(azureEnv, respond(403).fetchImpl)).rejects.toThrow(/HTTP 403[\s\S]*subscription is disabled/u)
+  })
+
+  it('fails when Entra rejects the client secret', async () => {
+    await expect(checkAzureSigningAccess(azureEnv, respond(200, 401).fetchImpl)).rejects.toThrow(/AZURE_CLIENT_SECRET has not expired/u)
+  })
+
+  it('only warns on an inconclusive answer so it cannot block a valid release', async () => {
+    await expect(checkAzureSigningAccess(azureEnv, respond(404).fetchImpl)).resolves.toMatch(/HTTP 404/u)
   })
 })

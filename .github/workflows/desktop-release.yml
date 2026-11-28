@@ -432,6 +432,13 @@ jobs:
         working-directory: apps/desktop
         run: node --import tsx scripts/assert-windows-release-signing.ts
 
+      # Azure answers signing with HTTP 403 when the subscription is disabled
+      # or the signer role is gone. Ask first so the job fails in seconds
+      # instead of after staging and packaging.
+      - name: Check Azure signing access
+        working-directory: apps/desktop
+        run: node --import tsx scripts/check-azure-signing-access.ts
+
       - name: Package desktop release
         working-directory: apps/desktop
         run: node --import tsx scripts/package-win.ts --publish never
