@@ -17,7 +17,8 @@ mechanics and failure modes.
   precedence over OIDC. Do not run `changeset publish` locally.
 - **Private lanes use the push boundary.** `publishedPackages` only lists packages published to npm.
   Desktop and VS Code are private workspaces, so `detect-lane-bumps.mjs` compares their versions at
-  `github.event.before` and `github.sha`.
+  `github.event.before` and `github.sha`. Desktop also stays pending while `desktop-v<version>` has
+  no tag, so the next push to main retries a desktop release that a failed run did not tag.
 - **Desktop Stable and Beta are tag-driven.** The required `cut-desktop-tag` job creates
   `desktop-v<version>`, which starts `desktop-release.yml`; prerelease versions publish to the
   explicit Beta feed.

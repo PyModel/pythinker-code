@@ -74,7 +74,7 @@ jobs:
       packages_published: ${{ steps.changesets.outputs.published }}
       cli_version_bumped: ${{ steps.lane-versions.outputs.cli_version_bumped }}
       cli_version: ${{ steps.lane-versions.outputs.cli_version }}
-      desktop_version_bumped: ${{ steps.lane-versions.outputs.desktop_version_bumped }}
+      desktop_release_pending: ${{ steps.lane-versions.outputs.desktop_release_pending }}
       desktop_version: ${{ steps.lane-versions.outputs.desktop_version }}
       extension_version_bumped: ${{ steps.lane-versions.outputs.extension_version_bumped }}
       extension_version: ${{ steps.lane-versions.outputs.extension_version }}
@@ -297,7 +297,7 @@ jobs:
     name: Cut desktop release tag
     needs: release
     if: >-
-      needs.release.outputs.desktop_version_bumped == 'true'
+      needs.release.outputs.desktop_release_pending == 'true'
       && vars.RELEASE_LANE_DESKTOP != 'disabled'
     runs-on: ubuntu-latest
     permissions:
@@ -740,7 +740,7 @@ jobs:
           CDN_VERIFY_RESULT: ${{ needs.verify-cdn-release.result }}
           BREW_ENABLED: ${{ vars.RELEASE_LANE_BREW != 'disabled' }}
           BREW_RESULT: ${{ needs.verify-brew-install.result }}
-          DESKTOP_EXPECTED: ${{ needs.release.outputs.desktop_version_bumped }}
+          DESKTOP_EXPECTED: ${{ needs.release.outputs.desktop_release_pending }}
           DESKTOP_ENABLED: ${{ vars.RELEASE_LANE_DESKTOP != 'disabled' }}
           DESKTOP_RESULT: ${{ needs.cut-desktop-tag.result }}
           VSCODE_EXPECTED: ${{ needs.release.outputs.extension_version_bumped }}
