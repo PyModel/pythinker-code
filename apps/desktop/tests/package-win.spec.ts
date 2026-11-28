@@ -2,8 +2,10 @@ import { createRequire } from 'node:module'
 import { describe, expect, it } from 'vitest'
 import {
   requireWindowsReleaseSigning,
+  windowsReleaseUnsigned,
   windowsPackageInvocation,
   windowsSigningArgs,
+  windowsStoreInvocation,
 } from '../scripts/package-win'
 import { checkAzureSigningAccess } from '../scripts/check-azure-signing-access'
 
@@ -84,6 +86,10 @@ const signingEnvironment: NodeJS.ProcessEnv = {
   AZURE_SIGNING_CERT_PROFILE: 'certificate-profile',
   AZURE_SIGNING_PUBLISHER_NAME: 'CN=Example Publisher, O=Example Publisher, L=Redmond, S=WA, C=US',
 }
+const storeEnvironment: NodeJS.ProcessEnv = {
+  MS_STORE_IDENTITY_NAME: 'Example.Pythinker',
+  MS_STORE_PUBLISHER: 'CN=00000000-0000-0000-0000-000000000000',
+}
 
 describe('Windows Azure signing configuration', () => {
   it('leaves the build unsigned when no signing variables are set', () => {
@@ -144,6 +150,11 @@ describe('Electron Builder configuration', () => {
     }
   })
 
+  it('accepts the Microsoft Store package identity', () => {
+    const { args } = windowsStoreInvocation('darwin', storeEnvironment)
+    expect(() => { assertConfigurationAccepted(args.slice(args.indexOf('--config.appx.identityName'))) }).not.toThrow()
+  })
+
   it('rejects an option Electron Builder has removed', () => {
     expect(() => { assertConfigurationAccepted(['--config.win.publisherName', 'CN=Example Publisher']) })
       .toThrow('Electron Builder rejects unknown options: /win.publisherName')
@@ -153,6 +164,12 @@ describe('Electron Builder configuration', () => {
 describe('Windows tagged-release signing', () => {
   it('rejects an unsigned tagged release', () => {
     expect(() => requireWindowsReleaseSigning({})).toThrow('Windows release signing is not configured')
+  })
+
+  it('ships unsigned only when the maintainers set WINDOWS_SIGNING=none', () => {
+    expect(requireWindowsReleaseSigning({ WINDOWS_SIGNING: ' none ' })).toBeUndefined()
+    expect(windowsReleaseUnsigned({ WINDOWS_SIGNING: 'none' })).toBe(true)
+    expect(() => requireWindowsReleaseSigning({ WINDOWS_SIGNING: 'azure' })).toThrow('Windows release signing is not configured')
   })
 
   it('accepts a complete certificate configuration and sets the updater publisher', () => {
@@ -217,6 +234,20 @@ describe('Windows package invocation', () => {
     expect(win32.args).toEqual(expectedArgs)
     expect(darwin.args.some(argument => argument.startsWith('--config.win.'))).toBe(false)
     expect(win32.args.some(argument => argument.startsWith('--config.win.'))).toBe(false)
+  })
+
+  it('packages the Microsoft Store app with the Partner Center identity and no signing', () => {
+    const invocation = windowsStoreInvocation('win32', { ...signingEnvironment, ...storeEnvironment })
+
+    expect(invocation.args).toEqual([
+      'exec', 'electron-builder', '--win', 'appx', '--x64', '--publish', 'never',
+      '--config.appx.identityName', 'Example.Pythinker',
+      '--config.appx.publisher', 'CN=00000000-0000-0000-0000-000000000000',
+    ])
+  })
+
+  it('refuses a Store package without the Partner Center identity', () => {
+    expect(() => windowsStoreInvocation('win32', { MS_STORE_IDENTITY_NAME: 'Example.Pythinker' })).toThrow('MS_STORE_PUBLISHER')
   })
 
   it('uses pnpm on both platforms', () => {

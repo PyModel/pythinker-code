@@ -48,6 +48,20 @@ describe('desktop release workflow', () => {
     expect(workflow).toContain('verify-update-manifest.ts win')
   })
 
+  it('ships Windows unsigned only through the WINDOWS_SIGNING repository variable', () => {
+    expect(workflow.match(/if: vars\.WINDOWS_SIGNING != 'none'/gu)).toHaveLength(2)
+    expect(workflow.match(/WINDOWS_SIGNING: \$\{\{ vars\.WINDOWS_SIGNING \}\}/gu)).toHaveLength(2)
+  })
+
+  it('packages the Store app last, for stable only, without failing the job', () => {
+    const store = workflow.indexOf('scripts/package-win.ts --store')
+    expect(store).toBeGreaterThan(workflow.indexOf('name: desktop-windows\n'))
+    expect(store).toBeLessThan(workflow.indexOf('\n  publish:'))
+    const declaration = workflow.slice(workflow.lastIndexOf('      - name:', store), store)
+    expect(declaration).toContain("needs.prepare.outputs.channel == 'stable'")
+    expect(declaration).toContain('continue-on-error: true')
+  })
+
   it('gives users the changelog as the release body instead of a build stamp', () => {
     expect(workflow).toContain('scripts/desktop-release.mjs notes')
     expect(workflow).toContain('--notes-file "$notes_file"')

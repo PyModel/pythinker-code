@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { verifySignature } from 'electron-updater/out/windowsExecutableCodeSignatureVerifier.js'
 import { parseUpdateInfo } from 'electron-updater/out/providers/Provider.js'
+import { windowsReleaseUnsigned } from './package-win'
 import { verifyWindowsInstaller } from './verify-win-installer'
 
 export type WindowsSignatureVerifier = (
@@ -50,6 +51,11 @@ export async function verifyWindowsSignatures(
 
 async function main(): Promise<void> {
   const desktopRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+  if (windowsReleaseUnsigned(process.env)) {
+    verifyWindowsInstaller(desktopRoot)
+    console.log('::warning::WINDOWS_SIGNING=none: checked the installer structure only; there is no signature to verify.')
+    return
+  }
   const publisher = process.env['AZURE_SIGNING_PUBLISHER_NAME']
     ?? process.env['WINDOWS_SIGNING_PUBLISHER_NAME']
   if (publisher === undefined) throw new Error('Windows signing publisher is not configured')

@@ -396,8 +396,11 @@ jobs:
 
       # Only non-empty WIN_CSC_* signing secrets are exported. Without them the
       # artifacts are unsigned and installers trigger a SmartScreen warning, so
-      # the credential check below fails the run rather than shipping one.
+      # the credential check below fails the run rather than shipping one,
+      # unless the WINDOWS_SIGNING repository variable is `none`. Then no
+      # credentials are exported and the release ships unsigned on purpose.
       - name: Resolve Windows signing credentials
+        if: vars.WINDOWS_SIGNING != 'none'
         shell: bash
         env:
           IN_WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
@@ -411,6 +414,7 @@ jobs:
             if [ -n "$value" ]; then printf '%s<<%s\n%s\n%s\n' "$name" "$delimiter" "$value" "$delimiter" >> "$GITHUB_ENV"; fi
           done
       - name: Resolve Azure signing configuration
+        if: vars.WINDOWS_SIGNING != 'none'
         shell: bash
         env:
           IN_AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -430,6 +434,8 @@ jobs:
 
       - name: Require signing
         working-directory: apps/desktop
+        env:
+          WINDOWS_SIGNING: ${{ vars.WINDOWS_SIGNING }}
         run: node --import tsx scripts/assert-windows-release-signing.ts
 
       # Azure answers signing with HTTP 403 when the subscription is disabled
@@ -457,6 +463,8 @@ jobs:
 
       - name: Verify Windows release signatures
         working-directory: apps/desktop
+        env:
+          WINDOWS_SIGNING: ${{ vars.WINDOWS_SIGNING }}
         run: node --import tsx scripts/verify-windows-signatures.ts
 
       - name: Mint releases-repo token
@@ -491,6 +499,28 @@ jobs:
           path: |
             apps/desktop/dist/*.exe
             apps/desktop/dist/*.yml
+          if-no-files-found: error
+
+      # The Store signs this package when it is submitted, so it needs no
+      # certificate. Upload it in Partner Center by hand. It runs after the
+      # installer uploads and cannot fail the job, so a Store problem never
+      # holds back the installer release.
+      - name: Package Microsoft Store app
+        id: store
+        if: needs.prepare.outputs.channel == 'stable' && vars.MS_STORE_IDENTITY_NAME != '' && vars.MS_STORE_PUBLISHER != ''
+        continue-on-error: true
+        working-directory: apps/desktop
+        env:
+          MS_STORE_IDENTITY_NAME: ${{ vars.MS_STORE_IDENTITY_NAME }}
+          MS_STORE_PUBLISHER: ${{ vars.MS_STORE_PUBLISHER }}
+        run: node --import tsx scripts/package-win.ts --store
+
+      - name: Upload Microsoft Store package
+        if: steps.store.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pinned from v7
+        with:
+          name: desktop-windows-store
+          path: apps/desktop/dist/*.appx
           if-no-files-found: error
 
   # Publishing last, and only once both platforms uploaded, is what makes the

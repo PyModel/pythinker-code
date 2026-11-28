@@ -127,6 +127,12 @@
       "perMachine": false,
       "shortcutName": "Pythinker"
     },
+    "appx": {
+      "applicationId": "Pythinker",
+      "artifactName": "Pythinker-${version}-${arch}-Store.${ext}",
+      "displayName": "Pythinker",
+      "publisherDisplayName": "PyModel LLC"
+    },
     "linux": {
       "category": "Development",
       "target": [
