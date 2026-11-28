@@ -319,6 +319,14 @@ describe('checkAzureSigningAccess', () => {
     }
   })
 
+  it('only warns when the token response cannot be read or holds no token', async () => {
+    const tokenBody = (body: string) => (input: string) => Promise.resolve(input.startsWith('https://login.microsoftonline.com/')
+      ? new Response(body, { status: 200 })
+      : new Response(null, { status: 202 }))
+    await expect(checkAzureSigningAccess(azureEnv, tokenBody('not json'))).resolves.toMatch(/token response could not be read/u)
+    await expect(checkAzureSigningAccess(azureEnv, tokenBody('{}'))).resolves.toMatch(/returned no access token/u)
+  })
+
   it('only warns when either request fails on the network', async () => {
     const failing = (failHost: string) => (input: string) => {
       if (input.includes(failHost)) return Promise.reject(new TypeError('fetch failed'))

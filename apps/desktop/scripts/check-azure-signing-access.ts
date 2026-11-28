@@ -65,8 +65,13 @@ export async function checkAzureSigningAccess(env: NodeJS.ProcessEnv, fetchImpl:
       + 'Check AZURE_TENANT_ID, AZURE_CLIENT_ID and that AZURE_CLIENT_SECRET has not expired.')
   }
   if (!tokenResponse.ok) return inconclusive(`Microsoft Entra answered HTTP ${String(tokenResponse.status)}`)
-  const token = (await tokenResponse.json() as { readonly access_token?: unknown }).access_token
-  if (typeof token !== 'string' || token === '') throw new Error('Microsoft Entra returned no access token for Azure signing.')
+  let token: unknown
+  try {
+    token = (await tokenResponse.json() as { readonly access_token?: unknown }).access_token
+  } catch (error) {
+    return inconclusive(`Microsoft Entra token response could not be read (${error instanceof Error ? error.message : String(error)})`)
+  }
+  if (typeof token !== 'string' || token === '') return inconclusive('Microsoft Entra returned no access token')
 
   const base = endpoint.endsWith('/') ? endpoint : `${endpoint}/`
   const url = new URL(`codesigningaccounts/${encodeURIComponent(account)}/certificateprofiles/${encodeURIComponent(profile)}/sign`, base)
