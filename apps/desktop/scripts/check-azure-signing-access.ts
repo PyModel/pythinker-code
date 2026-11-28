@@ -16,6 +16,19 @@ function value(env: NodeJS.ProcessEnv, name: string): string | undefined {
   return trimmed === '' ? undefined : trimmed
 }
 
+function inconclusive(what: string): string {
+  return `${what}; packaging will surface any real signing failure.`
+}
+
+/** Send one request; a network failure is inconclusive, so it comes back as a warning instead of a rejection. */
+async function send(fetchImpl: FetchLike, label: string, url: string, init: RequestInit): Promise<Response | string> {
+  try {
+    return await fetchImpl(url, init)
+  } catch (error) {
+    return inconclusive(`${label} request failed (${error instanceof Error ? error.message : String(error)})`)
+  }
+}
+
 /**
  * Start one signing operation over a random digest with the release credentials.
  * Reading the certificate chain still succeeds while a disabled subscription refuses signing,
@@ -36,7 +49,7 @@ export async function checkAzureSigningAccess(env: NodeJS.ProcessEnv, fetchImpl:
     return 'skipped'
   }
 
-  const tokenResponse = await fetchImpl(`https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`, {
+  const tokenResponse = await send(fetchImpl, 'Microsoft Entra token', `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`, {
     method: 'POST',
     body: new URLSearchParams({
       grant_type: 'client_credentials',
@@ -45,25 +58,29 @@ export async function checkAzureSigningAccess(env: NodeJS.ProcessEnv, fetchImpl:
       scope: 'https://codesigning.azure.net/.default',
     }),
   })
-  if (!tokenResponse.ok) {
+  if (typeof tokenResponse === 'string') return tokenResponse
+  // Entra answers 400 for an unknown tenant or client and 401 for a wrong or expired secret.
+  if (tokenResponse.status === 400 || tokenResponse.status === 401 || tokenResponse.status === 403) {
     throw new Error(`Microsoft Entra rejected the Azure signing client (HTTP ${String(tokenResponse.status)}). `
       + 'Check AZURE_TENANT_ID, AZURE_CLIENT_ID and that AZURE_CLIENT_SECRET has not expired.')
   }
+  if (!tokenResponse.ok) return inconclusive(`Microsoft Entra answered HTTP ${String(tokenResponse.status)}`)
   const token = (await tokenResponse.json() as { readonly access_token?: unknown }).access_token
   if (typeof token !== 'string' || token === '') throw new Error('Microsoft Entra returned no access token for Azure signing.')
 
   const base = endpoint.endsWith('/') ? endpoint : `${endpoint}/`
   const url = new URL(`codesigningaccounts/${encodeURIComponent(account)}/certificateprofiles/${encodeURIComponent(profile)}/sign`, base)
   url.searchParams.set('api-version', DATA_PLANE_API_VERSION)
-  const response = await fetchImpl(url.toString(), {
+  const response = await send(fetchImpl, 'Azure Artifact Signing', url.toString(), {
     method: 'POST',
     headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
     body: JSON.stringify({ signatureAlgorithm: 'RS256', digest: randomBytes(32).toString('base64') }),
   })
+  if (typeof response === 'string') return response
   if (response.status === 401 || response.status === 403) {
     throw new Error(`Azure Artifact Signing refused the release credentials (HTTP ${String(response.status)}).\n${REFUSED_HINT}`)
   }
-  if (!response.ok) return `Azure Artifact Signing answered HTTP ${String(response.status)}; packaging will surface any real signing failure.`
+  if (!response.ok) return inconclusive(`Azure Artifact Signing answered HTTP ${String(response.status)}`)
   return undefined
 }
 

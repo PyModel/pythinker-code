@@ -274,7 +274,26 @@ describe('checkAzureSigningAccess', () => {
     await expect(checkAzureSigningAccess(azureEnv, respond(200, 401).fetchImpl)).rejects.toThrow(/AZURE_CLIENT_SECRET has not expired/u)
   })
 
+  it('fails when Entra does not know the tenant or client', async () => {
+    await expect(checkAzureSigningAccess(azureEnv, respond(200, 400).fetchImpl)).rejects.toThrow(/HTTP 400/u)
+  })
+
   it('only warns on an inconclusive answer so it cannot block a valid release', async () => {
     await expect(checkAzureSigningAccess(azureEnv, respond(404).fetchImpl)).resolves.toMatch(/HTTP 404/u)
+  })
+
+  it('only warns when Entra is throttled or unavailable', async () => {
+    for (const status of [429, 503]) {
+      await expect(checkAzureSigningAccess(azureEnv, respond(200, status).fetchImpl)).resolves.toMatch(new RegExp(`Entra answered HTTP ${String(status)}`, 'u'))
+    }
+  })
+
+  it('only warns when either request fails on the network', async () => {
+    const failing = (failHost: string) => (input: string) => {
+      if (input.includes(failHost)) return Promise.reject(new TypeError('fetch failed'))
+      return Promise.resolve(Response.json({ access_token: 'token' }))
+    }
+    await expect(checkAzureSigningAccess(azureEnv, failing('login.microsoftonline.com'))).resolves.toMatch(/Entra token request failed \(fetch failed\)/u)
+    await expect(checkAzureSigningAccess(azureEnv, failing('codesigning.azure.net'))).resolves.toMatch(/Artifact Signing request failed \(fetch failed\)/u)
   })
 })
