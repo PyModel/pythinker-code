@@ -28,12 +28,23 @@ function readVersion(ref, path, cwd) {
   }
 }
 
+// A release run that fails leaves the desktop version untagged, and the next
+// push does not bump it again. The tag, not the push diff, shows if it shipped.
+function hasTag(tag, cwd) {
+  try {
+    execFileSync('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}`], { cwd, stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function detectLaneBumps({ before, after, cwd = process.cwd() }) {
   if (typeof before !== 'string' || before === '' || typeof after !== 'string' || after === '') {
     throw new Error('Both before and after Git revisions are required.');
   }
 
-  return Object.fromEntries(Object.entries(lanes).map(([name, path]) => {
+  const result = Object.fromEntries(Object.entries(lanes).map(([name, path]) => {
     const beforeVersion = readVersion(before, path, cwd);
     const afterVersion = readVersion(after, path, cwd);
     const order = compareSemverCore(afterVersion, beforeVersion);
@@ -48,13 +59,15 @@ export function detectLaneBumps({ before, after, cwd = process.cwd() }) {
       bumped: beforeVersion !== afterVersion,
     }];
   }));
+  result.desktop.pending = result.desktop.bumped || !hasTag(`desktop-v${result.desktop.after}`, cwd);
+  return result;
 }
 
 function writeOutputs(result, outputPath) {
   const lines = [
     `cli_version_bumped=${String(result.cli.bumped)}`,
     `cli_version=${result.cli.after}`,
-    `desktop_version_bumped=${String(result.desktop.bumped)}`,
+    `desktop_release_pending=${String(result.desktop.pending)}`,
     `desktop_version=${result.desktop.after}`,
     `extension_version_bumped=${String(result.extension.bumped)}`,
     `extension_version=${result.extension.after}`,

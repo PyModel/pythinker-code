@@ -48,12 +48,33 @@ void test('detects a lane bump anywhere in the pushed commit range', async (t) =
   await writeFile(join(root, 'README.md'), 'unrelated final commit\n');
   const after = commit(root, 'unrelated follow-up');
 
+  git(root, ['tag', 'desktop-v1.0.0', before]);
+
   const result = detectLaneBumps({ before, after, cwd: root });
   assert.deepEqual(result, {
     cli: { before: '1.0.0', after: '1.0.0', bumped: false },
-    desktop: { before: '1.0.0', after: '1.0.0', bumped: false },
+    desktop: { before: '1.0.0', after: '1.0.0', bumped: false, pending: false },
     extension: { before: '1.0.0', after: '1.1.0', bumped: true },
   });
+});
+
+void test('keeps an untagged desktop version pending after a failed release run', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'release-lanes-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, ['init', '-b', 'main']);
+
+  await Promise.all(Object.values(packagePaths).map((path) => writePackage(root, path, '1.0.0')));
+  git(root, ['tag', 'desktop-v1.0.0', commit(root, 'initial')]);
+  await writePackage(root, packagePaths.desktop, '1.0.1');
+  const bump = commit(root, 'release desktop 1.0.1');
+  await writeFile(join(root, 'README.md'), 'next push\n');
+  const after = commit(root, 'unrelated follow-up');
+
+  assert.deepEqual(detectLaneBumps({ before: bump, after, cwd: root }).desktop, {
+    before: '1.0.1', after: '1.0.1', bumped: false, pending: true,
+  });
+  git(root, ['tag', 'desktop-v1.0.1', bump]);
+  assert.equal(detectLaneBumps({ before: bump, after, cwd: root }).desktop.pending, false);
 });
 
 void test('fails closed when the push boundary cannot be read', async (t) => {
