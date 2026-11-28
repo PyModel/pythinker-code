@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { verifyWindowsSignatures } from '../scripts/verify-windows-signatures'
+import { verifyUnsignedWindowsRelease, verifyWindowsSignatures } from '../scripts/verify-windows-signatures'
 
 const VERSION = '9.9.9'
 const PUBLISHER = 'CN=Example Publisher, O=Example Publisher'
@@ -61,6 +61,19 @@ describe('Windows Authenticode verification', () => {
       )
       await expect(verifyWindowsSignatures(root, PUBLISHER, () => Promise.resolve(null)))
         .rejects.toThrow('does not contain the expected Windows publisher')
+    })
+  })
+
+  it('accepts an unsigned release whose updater carries no publisher', async () => {
+    await withFixture(async (root) => {
+      await writeFile(join(root, 'dist', 'win-unpacked', 'resources', 'app-update.yml'), 'provider: github\n')
+      expect(() => { verifyUnsignedWindowsRelease(root) }).not.toThrow()
+    })
+  })
+
+  it('rejects an unsigned release whose updater would reject later unsigned updates', async () => {
+    await withFixture(async (root) => {
+      expect(() => { verifyUnsignedWindowsRelease(root) }).toThrow('Unsigned Windows release has an updater publisher')
     })
   })
 

@@ -5,12 +5,30 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { verifySignature } from 'electron-updater/out/windowsExecutableCodeSignatureVerifier.js'
 import { parseUpdateInfo } from 'electron-updater/out/providers/Provider.js'
+import { windowsReleaseUnsigned } from './package-win'
 import { verifyWindowsInstaller } from './verify-win-installer'
 
 export type WindowsSignatureVerifier = (
   publisherNames: string[],
   path: string,
 ) => Promise<string | null>
+
+/**
+ * Check an unsigned release: the installer must be well formed, and the updater must carry no publisher.
+ * A publisher there makes every unsigned install reject all later unsigned updates.
+ */
+export function verifyUnsignedWindowsRelease(desktopRoot: string): void {
+  verifyWindowsInstaller(desktopRoot)
+  const appUpdatePath = join(desktopRoot, 'dist', 'win-unpacked', 'resources', 'app-update.yml')
+  const appUpdate = parseUpdateInfo(
+    readFileSync(appUpdatePath, 'utf8'),
+    'app-update.yml',
+    pathToFileURL(appUpdatePath),
+  ) as unknown as { readonly publisherName?: unknown }
+  if (appUpdate.publisherName !== undefined && appUpdate.publisherName !== null) {
+    throw new Error('Unsigned Windows release has an updater publisher, so installs would reject every later update')
+  }
+}
 
 /** Verify the installer and packaged application against the updater publisher. */
 export async function verifyWindowsSignatures(
@@ -50,6 +68,11 @@ export async function verifyWindowsSignatures(
 
 async function main(): Promise<void> {
   const desktopRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+  if (windowsReleaseUnsigned(process.env)) {
+    verifyUnsignedWindowsRelease(desktopRoot)
+    console.log('::warning::WINDOWS_SIGNING=none: checked the installer structure only; there is no signature to verify.')
+    return
+  }
   const publisher = process.env['AZURE_SIGNING_PUBLISHER_NAME']
     ?? process.env['WINDOWS_SIGNING_PUBLISHER_NAME']
   if (publisher === undefined) throw new Error('Windows signing publisher is not configured')

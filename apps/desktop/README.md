@@ -72,7 +72,11 @@ Run `pnpm run dist:win` on a native Windows x64 host; cross-building from macOS 
 
 Windows artifacts are signed through Azure Artifact Signing when `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_SIGNING_CERT_PROFILE`, and `AZURE_SIGNING_PUBLISHER_NAME` are all set; they are unsigned when neither signing method is set. The credential variables are read from the environment; the four `AZURE_SIGNING_*` variables map to `azureSignOptions.endpoint`, `azureSignOptions.codeSigningAccountName`, `azureSignOptions.certificateProfileName`, and `azureSignOptions.publisherName`, respectively. Setting only part of either signing method, or setting both methods, is a hard error.
 
-Tagged releases require one complete Windows signing method. CI verifies the installer and packaged app with electron-updater's Authenticode verifier before upload. Both platform jobs also recompute every size and SHA-512 value in the selected channel manifest (`latest`, `beta`, or `nightly`). The final job downloads the draft assets and repeats both manifest checks before publication. Manual workflow runs remain private workflow artifacts and cannot publish an unsigned build.
+Tagged releases require one complete Windows signing method, unless the `WINDOWS_SIGNING` repository variable is `none`. Then CI exports no signing credentials, ships the installer unsigned, and checks only its structure. Otherwise CI verifies the installer and packaged app with electron-updater's Authenticode verifier before upload. Both platform jobs also recompute every size and SHA-512 value in the selected channel manifest (`latest`, `beta`, or `nightly`). The final job downloads the draft assets and repeats both manifest checks before publication. Manual workflow runs remain private workflow artifacts and cannot publish an unsigned build.
+
+#### Microsoft Store
+
+When the `MS_STORE_IDENTITY_NAME` and `MS_STORE_PUBLISHER` repository variables hold the package identity from Partner Center (Product identity page), a stable release also builds `Pythinker-<version>-x64-Store.appx` and keeps it as the `desktop-windows-store` workflow artifact. Upload it to the Store submission by hand. The Store signs the package, so it needs no certificate. `node --import tsx scripts/package-win.ts --store` builds the same package locally on Windows. The tile images are in `build/appx/`.
 
 ## Known limitations
 

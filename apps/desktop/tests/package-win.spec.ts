@@ -2,9 +2,13 @@ import { createRequire } from 'node:module'
 import { describe, expect, it } from 'vitest'
 import {
   requireWindowsReleaseSigning,
+  windowsReleaseUnsigned,
   windowsPackageInvocation,
   windowsSigningArgs,
+  windowsStoreEnvironment,
+  windowsStoreInvocation,
 } from '../scripts/package-win'
+import { checkAzureSigningAccess } from '../scripts/check-azure-signing-access'
 
 type JsonObject = Record<string, unknown>
 
@@ -83,6 +87,10 @@ const signingEnvironment: NodeJS.ProcessEnv = {
   AZURE_SIGNING_CERT_PROFILE: 'certificate-profile',
   AZURE_SIGNING_PUBLISHER_NAME: 'CN=Example Publisher, O=Example Publisher, L=Redmond, S=WA, C=US',
 }
+const storeEnvironment: NodeJS.ProcessEnv = {
+  MS_STORE_IDENTITY_NAME: 'Example.Pythinker',
+  MS_STORE_PUBLISHER: 'CN=00000000-0000-0000-0000-000000000000',
+}
 
 describe('Windows Azure signing configuration', () => {
   it('leaves the build unsigned when no signing variables are set', () => {
@@ -143,6 +151,11 @@ describe('Electron Builder configuration', () => {
     }
   })
 
+  it('accepts the Microsoft Store package identity', () => {
+    const { args } = windowsStoreInvocation('darwin', storeEnvironment)
+    expect(() => { assertConfigurationAccepted(args.slice(args.indexOf('--config.appx.identityName'))) }).not.toThrow()
+  })
+
   it('rejects an option Electron Builder has removed', () => {
     expect(() => { assertConfigurationAccepted(['--config.win.publisherName', 'CN=Example Publisher']) })
       .toThrow('Electron Builder rejects unknown options: /win.publisherName')
@@ -152,6 +165,28 @@ describe('Electron Builder configuration', () => {
 describe('Windows tagged-release signing', () => {
   it('rejects an unsigned tagged release', () => {
     expect(() => requireWindowsReleaseSigning({})).toThrow('Windows release signing is not configured')
+  })
+
+  it('ships unsigned only when the maintainers set WINDOWS_SIGNING=none', () => {
+    expect(requireWindowsReleaseSigning({ WINDOWS_SIGNING: 'none' })).toBeUndefined()
+    expect(() => requireWindowsReleaseSigning({ WINDOWS_SIGNING: 'azure' })).toThrow('Windows release signing is not configured')
+  })
+
+  it('reads WINDOWS_SIGNING the way the workflow does: any case, no trimming', () => {
+    expect(windowsReleaseUnsigned({ WINDOWS_SIGNING: 'None' })).toBe(true)
+    expect(windowsReleaseUnsigned({ WINDOWS_SIGNING: ' none' })).toBe(false)
+    expect(windowsReleaseUnsigned({})).toBe(false)
+  })
+
+  it('keeps certificate signing away from the Store package', () => {
+    const environment = windowsStoreEnvironment({
+      WIN_CSC_LINK: 'certificate.p12',
+      WIN_CSC_KEY_PASSWORD: 'password',
+      CSC_LINK: 'certificate.p12',
+      CSC_KEY_PASSWORD: 'password',
+      PATH: '/bin',
+    })
+    expect(environment).toEqual({ PATH: '/bin' })
   })
 
   it('accepts a complete certificate configuration and sets the updater publisher', () => {
@@ -218,8 +253,103 @@ describe('Windows package invocation', () => {
     expect(win32.args.some(argument => argument.startsWith('--config.win.'))).toBe(false)
   })
 
+  it('packages the Microsoft Store app with the Partner Center identity and no signing', () => {
+    const invocation = windowsStoreInvocation('win32', { ...signingEnvironment, ...storeEnvironment })
+
+    expect(invocation.args).toEqual([
+      'exec', 'electron-builder', '--win', 'appx', '--x64', '--publish', 'never',
+      '--config.appx.identityName', 'Example.Pythinker',
+      '--config.appx.publisher', 'CN=00000000-0000-0000-0000-000000000000',
+    ])
+  })
+
+  it('refuses a Store package without the Partner Center identity', () => {
+    expect(() => windowsStoreInvocation('win32', { MS_STORE_IDENTITY_NAME: 'Example.Pythinker' })).toThrow('MS_STORE_PUBLISHER')
+  })
+
   it('uses pnpm on both platforms', () => {
     expect(windowsPackageInvocation('darwin', signingEnvironment, 'never').command).toBe('pnpm')
     expect(windowsPackageInvocation('win32', signingEnvironment, 'never').command).toBe('pnpm')
+  })
+})
+
+describe('checkAzureSigningAccess', () => {
+  const azureEnv = {
+    AZURE_TENANT_ID: 'tenant',
+    AZURE_CLIENT_ID: 'client',
+    AZURE_CLIENT_SECRET: 'secret',
+    AZURE_SIGNING_ENDPOINT: 'https://eus.codesigning.azure.net',
+    AZURE_SIGNING_ACCOUNT: 'account',
+    AZURE_SIGNING_CERT_PROFILE: 'profile',
+  }
+  const respond = (signStatus: number, tokenStatus = 200) => {
+    const calls: string[] = []
+    const inits: (RequestInit | undefined)[] = []
+    const fetchImpl = (input: string, init?: RequestInit) => {
+      calls.push(input)
+      inits.push(init)
+      if (input.startsWith('https://login.microsoftonline.com/')) {
+        return Promise.resolve(Response.json({ access_token: 'token' }, { status: tokenStatus }))
+      }
+      return Promise.resolve(new Response(null, { status: signStatus }))
+    }
+    return { calls, inits, fetchImpl }
+  }
+
+  it('skips when Azure signing is not configured', async () => {
+    const { calls, fetchImpl } = respond(200)
+    await expect(checkAzureSigningAccess({}, fetchImpl)).resolves.toBe('skipped')
+    expect(calls).toEqual([])
+  })
+
+  it('starts a sign operation with the release credentials', async () => {
+    const { calls, inits, fetchImpl } = respond(202)
+    await expect(checkAzureSigningAccess(azureEnv, fetchImpl)).resolves.toBeUndefined()
+    expect(calls[1]).toBe('https://eus.codesigning.azure.net/codesigningaccounts/account/certificateprofiles/profile/sign?api-version=2022-06-15-preview')
+    expect(inits[1]?.method).toBe('POST')
+    const rawBody = inits[1]?.body
+    expect(typeof rawBody).toBe('string')
+    const body = JSON.parse(rawBody as string) as { readonly signatureAlgorithm: string, readonly digest: string }
+    expect(body.signatureAlgorithm).toBe('RS256')
+    expect(Buffer.from(body.digest, 'base64')).toHaveLength(32)
+  })
+
+  it('fails fast when Azure refuses signing, with the billing hint', async () => {
+    await expect(checkAzureSigningAccess(azureEnv, respond(403).fetchImpl)).rejects.toThrow(/HTTP 403[\s\S]*subscription is disabled/u)
+  })
+
+  it('fails when Entra rejects the client secret', async () => {
+    await expect(checkAzureSigningAccess(azureEnv, respond(200, 401).fetchImpl)).rejects.toThrow(/AZURE_CLIENT_SECRET has not expired/u)
+  })
+
+  it('fails when Entra does not know the tenant or client', async () => {
+    await expect(checkAzureSigningAccess(azureEnv, respond(200, 400).fetchImpl)).rejects.toThrow(/HTTP 400/u)
+  })
+
+  it('only warns on an inconclusive answer so it cannot block a valid release', async () => {
+    await expect(checkAzureSigningAccess(azureEnv, respond(404).fetchImpl)).resolves.toMatch(/HTTP 404/u)
+  })
+
+  it('only warns when Entra is throttled or unavailable', async () => {
+    for (const status of [429, 503]) {
+      await expect(checkAzureSigningAccess(azureEnv, respond(200, status).fetchImpl)).resolves.toMatch(new RegExp(`Entra answered HTTP ${String(status)}`, 'u'))
+    }
+  })
+
+  it('only warns when the token response cannot be read or holds no token', async () => {
+    const tokenBody = (body: string) => (input: string) => Promise.resolve(input.startsWith('https://login.microsoftonline.com/')
+      ? new Response(body, { status: 200 })
+      : new Response(null, { status: 202 }))
+    await expect(checkAzureSigningAccess(azureEnv, tokenBody('not json'))).resolves.toMatch(/token response could not be read/u)
+    await expect(checkAzureSigningAccess(azureEnv, tokenBody('{}'))).resolves.toMatch(/returned no access token/u)
+  })
+
+  it('only warns when either request fails on the network', async () => {
+    const failing = (failHost: string) => (input: string) => {
+      if (input.includes(failHost)) return Promise.reject(new TypeError('fetch failed'))
+      return Promise.resolve(Response.json({ access_token: 'token' }))
+    }
+    await expect(checkAzureSigningAccess(azureEnv, failing('login.microsoftonline.com'))).resolves.toMatch(/Entra token request failed \(fetch failed\)/u)
+    await expect(checkAzureSigningAccess(azureEnv, failing('codesigning.azure.net'))).resolves.toMatch(/Artifact Signing request failed \(fetch failed\)/u)
   })
 })

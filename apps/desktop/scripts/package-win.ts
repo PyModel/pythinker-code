@@ -1,4 +1,4 @@
-/** Package the Windows NSIS installer with optional Azure Artifact Signing. */
+/** Package the Windows NSIS installer, signed when signing is configured, or the Microsoft Store package with `--store`. */
 
 import { spawnSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
@@ -81,12 +81,47 @@ export function windowsSigningArgs(env: NodeJS.ProcessEnv): readonly string[] {
   return ['--config.win.signtoolOptions.publisherName', trimmedValue(env['WINDOWS_SIGNING_PUBLISHER_NAME'])!]
 }
 
-/** Require one complete signing method for a tagged Windows release. */
-export function requireWindowsReleaseSigning(env: NodeJS.ProcessEnv): string {
+/**
+ * True when the maintainers chose to ship Windows releases unsigned with `WINDOWS_SIGNING=none`.
+ * Matches the workflow's `vars.WINDOWS_SIGNING != 'none'` test, which ignores case and does not trim,
+ * so the scripts and the credential export always agree on the mode.
+ */
+export function windowsReleaseUnsigned(env: NodeJS.ProcessEnv): boolean {
+  return env['WINDOWS_SIGNING']?.toLowerCase() === 'none'
+}
+
+/**
+ * Require one complete signing method for a tagged Windows release.
+ * @returns The updater publisher, or undefined when `WINDOWS_SIGNING=none` ships the release unsigned.
+ */
+export function requireWindowsReleaseSigning(env: NodeJS.ProcessEnv): string | undefined {
+  if (windowsReleaseUnsigned(env)) return undefined
   const args = windowsSigningArgs(env)
-  if (args.length === 0) throw new Error('Windows release signing is not configured')
+  if (args.length === 0) throw new Error('Windows release signing is not configured. Configure signing, or set WINDOWS_SIGNING=none to ship unsigned.')
   return trimmedValue(env['AZURE_SIGNING_PUBLISHER_NAME'])
     ?? trimmedValue(env['WINDOWS_SIGNING_PUBLISHER_NAME'])!
+}
+
+/** Return the package-manager invocation for the Microsoft Store package, which the Store signs on submission. */
+export function windowsStoreInvocation(platform: string, env: NodeJS.ProcessEnv): {
+  readonly command: string
+  readonly args: readonly string[]
+  readonly shell: boolean
+} {
+  const identityName = trimmedValue(env['MS_STORE_IDENTITY_NAME'])
+  const publisher = trimmedValue(env['MS_STORE_PUBLISHER'])
+  if (identityName === undefined || publisher === undefined) {
+    throw new Error('Set MS_STORE_IDENTITY_NAME and MS_STORE_PUBLISHER to the package identity that Partner Center shows.')
+  }
+  const args = ['exec', 'electron-builder', '--win', 'appx', '--x64', '--publish', 'never',
+    '--config.appx.identityName', identityName, '--config.appx.publisher', publisher]
+  return packageManagerInvocation(platform, 'pnpm', args)
+}
+
+/** Drop certificate signing settings, which electron-builder would otherwise apply to the Store package with a subject that cannot match the Store publisher. */
+export function windowsStoreEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const certificateNames = new Set(['WIN_CSC_LINK', 'WIN_CSC_KEY_PASSWORD', 'CSC_LINK', 'CSC_KEY_PASSWORD'])
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !certificateNames.has(name)))
 }
 
 /** Return the package-manager invocation for a Windows installer build. */
@@ -100,10 +135,13 @@ export function windowsPackageInvocation(platform: string, env: NodeJS.ProcessEn
 }
 
 /** Package the Windows installer and optionally sign it through Azure Artifact Signing. */
-export function packageWin(options: { readonly publish: string }): void {
+export function packageWin(options: { readonly publish: string, readonly store?: boolean }): void {
   const desktopRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-  const invocation = windowsPackageInvocation(process.platform, process.env, options.publish)
-  const result = spawnSync(invocation.command, invocation.args, { cwd: desktopRoot, stdio: 'inherit', shell: invocation.shell })
+  const invocation = options.store === true
+    ? windowsStoreInvocation(process.platform, process.env)
+    : windowsPackageInvocation(process.platform, process.env, options.publish)
+  const env = options.store === true ? windowsStoreEnvironment(process.env) : process.env
+  const result = spawnSync(invocation.command, invocation.args, { cwd: desktopRoot, env, stdio: 'inherit', shell: invocation.shell })
   if (result.error !== undefined) throw result.error
   if (result.status !== 0) throw new Error(`electron-builder exited with ${String(result.status)}`)
 }
@@ -112,7 +150,10 @@ const invokedPath = process.argv[1]
 if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.meta.url)) {
   try {
     const publishIndex = process.argv.indexOf('--publish')
-    packageWin({ publish: publishIndex === -1 ? 'never' : (process.argv[publishIndex + 1] ?? 'never') })
+    packageWin({
+      publish: publishIndex === -1 ? 'never' : (process.argv[publishIndex + 1] ?? 'never'),
+      store: process.argv.includes('--store'),
+    })
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error))
     process.exitCode = 1

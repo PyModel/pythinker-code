@@ -364,10 +364,10 @@ jobs:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
       OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
-  # code.pythinker.com redeploys via Dokploy autodeploy on push to main (app
-  # Pythinker/code builds apps/site/Dockerfile from the repo). That autodeploy
-  # fires on the `ci: release packages` push — which STARTS the release — while
-  # apps/site/scripts/build-cdn.mjs reads the version from npm's dist-tag, which
+  # code.pythinker.com redeploys via Dokploy autodeploy on push to main (the
+  # CDN is built by the site repository). That autodeploy fires on the
+  # `ci: release packages` push — which STARTS the release — while the site's
+  # scripts/build-cdn.mjs reads the version from npm's dist-tag, which
   # only moves when the publish FINISHES. The first build therefore bakes in the
   # previous version and nothing rebuilds it, so the release stays invisible to
   # every installed client. This job fires a second deploy after the publish.
@@ -483,9 +483,11 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      # Retrigger the CDN only when redeploy-cdn ran. A rebuild after a skipped
+      # redeploy bakes in a manifest without the native platforms (3.0.0).
       - name: Verify release consistency
         env:
-          DOKPLOY_CDN_DEPLOY_WEBHOOK: ${{ secrets.DOKPLOY_CDN_DEPLOY_WEBHOOK }}
+          DOKPLOY_CDN_DEPLOY_WEBHOOK: ${{ needs.redeploy-cdn.result == 'success' && secrets.DOKPLOY_CDN_DEPLOY_WEBHOOK || '' }}
         run: node scripts/release/verify-release-consistency.mjs
 
   update-brew-tap:
