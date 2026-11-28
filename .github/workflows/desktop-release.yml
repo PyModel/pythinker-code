@@ -509,6 +509,7 @@ jobs:
         id: store
         if: needs.prepare.outputs.channel == 'stable' && vars.MS_STORE_IDENTITY_NAME != '' && vars.MS_STORE_PUBLISHER != ''
         continue-on-error: true
+        timeout-minutes: 20
         working-directory: apps/desktop
         env:
           MS_STORE_IDENTITY_NAME: ${{ vars.MS_STORE_IDENTITY_NAME }}
@@ -517,6 +518,7 @@ jobs:
 
       - name: Upload Microsoft Store package
         if: steps.store.outcome == 'success'
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pinned from v7
         with:
           name: desktop-windows-store

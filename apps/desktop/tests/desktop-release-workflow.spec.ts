@@ -49,17 +49,33 @@ describe('desktop release workflow', () => {
   })
 
   it('ships Windows unsigned only through the WINDOWS_SIGNING repository variable', () => {
-    expect(workflow.match(/if: vars\.WINDOWS_SIGNING != 'none'/gu)).toHaveLength(2)
-    expect(workflow.match(/WINDOWS_SIGNING: \$\{\{ vars\.WINDOWS_SIGNING \}\}/gu)).toHaveLength(2)
+    const step = (name: string) => {
+      const start = workflow.indexOf(`      - name: ${name}\n`)
+      expect(start).toBeGreaterThan(-1)
+      return workflow.slice(start, workflow.indexOf('      - name:', start + 1))
+    }
+    for (const name of ['Resolve Windows signing credentials', 'Resolve Azure signing configuration']) {
+      expect(step(name)).toContain("if: vars.WINDOWS_SIGNING != 'none'")
+    }
+    for (const script of ['scripts/assert-windows-release-signing.ts', 'scripts/verify-windows-signatures.ts']) {
+      const at = workflow.indexOf(script)
+      expect(workflow.slice(workflow.lastIndexOf('      - name:', at), at)).toContain('WINDOWS_SIGNING: ${{ vars.WINDOWS_SIGNING }}')
+    }
+    expect(workflow.match(/vars\.WINDOWS_SIGNING/gu)).toHaveLength(4)
   })
 
   it('packages the Store app last, for stable only, without failing the job', () => {
     const store = workflow.indexOf('scripts/package-win.ts --store')
+    expect(store).toBeGreaterThan(workflow.indexOf('name: Upload verified Windows release assets'))
     expect(store).toBeGreaterThan(workflow.indexOf('name: desktop-windows\n'))
     expect(store).toBeLessThan(workflow.indexOf('\n  publish:'))
     const declaration = workflow.slice(workflow.lastIndexOf('      - name:', store), store)
     expect(declaration).toContain("needs.prepare.outputs.channel == 'stable'")
     expect(declaration).toContain('continue-on-error: true')
+    expect(declaration).toContain('timeout-minutes:')
+    const upload = workflow.slice(workflow.indexOf('      - name: Upload Microsoft Store package'), workflow.indexOf('\n  publish:'))
+    expect(upload).toContain("if: steps.store.outcome == 'success'")
+    expect(upload).toContain('continue-on-error: true')
   })
 
   it('gives users the changelog as the release body instead of a build stamp', () => {

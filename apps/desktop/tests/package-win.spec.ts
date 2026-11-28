@@ -5,6 +5,7 @@ import {
   windowsReleaseUnsigned,
   windowsPackageInvocation,
   windowsSigningArgs,
+  windowsStoreEnvironment,
   windowsStoreInvocation,
 } from '../scripts/package-win'
 import { checkAzureSigningAccess } from '../scripts/check-azure-signing-access'
@@ -167,9 +168,25 @@ describe('Windows tagged-release signing', () => {
   })
 
   it('ships unsigned only when the maintainers set WINDOWS_SIGNING=none', () => {
-    expect(requireWindowsReleaseSigning({ WINDOWS_SIGNING: ' none ' })).toBeUndefined()
-    expect(windowsReleaseUnsigned({ WINDOWS_SIGNING: 'none' })).toBe(true)
+    expect(requireWindowsReleaseSigning({ WINDOWS_SIGNING: 'none' })).toBeUndefined()
     expect(() => requireWindowsReleaseSigning({ WINDOWS_SIGNING: 'azure' })).toThrow('Windows release signing is not configured')
+  })
+
+  it('reads WINDOWS_SIGNING the way the workflow does: any case, no trimming', () => {
+    expect(windowsReleaseUnsigned({ WINDOWS_SIGNING: 'None' })).toBe(true)
+    expect(windowsReleaseUnsigned({ WINDOWS_SIGNING: ' none' })).toBe(false)
+    expect(windowsReleaseUnsigned({})).toBe(false)
+  })
+
+  it('keeps certificate signing away from the Store package', () => {
+    const environment = windowsStoreEnvironment({
+      WIN_CSC_LINK: 'certificate.p12',
+      WIN_CSC_KEY_PASSWORD: 'password',
+      CSC_LINK: 'certificate.p12',
+      CSC_KEY_PASSWORD: 'password',
+      PATH: '/bin',
+    })
+    expect(environment).toEqual({ PATH: '/bin' })
   })
 
   it('accepts a complete certificate configuration and sets the updater publisher', () => {

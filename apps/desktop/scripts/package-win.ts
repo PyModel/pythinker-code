@@ -81,9 +81,13 @@ export function windowsSigningArgs(env: NodeJS.ProcessEnv): readonly string[] {
   return ['--config.win.signtoolOptions.publisherName', trimmedValue(env['WINDOWS_SIGNING_PUBLISHER_NAME'])!]
 }
 
-/** True when the maintainers chose to ship Windows releases unsigned with `WINDOWS_SIGNING=none`. */
+/**
+ * True when the maintainers chose to ship Windows releases unsigned with `WINDOWS_SIGNING=none`.
+ * Matches the workflow's `vars.WINDOWS_SIGNING != 'none'` test, which ignores case and does not trim,
+ * so the scripts and the credential export always agree on the mode.
+ */
 export function windowsReleaseUnsigned(env: NodeJS.ProcessEnv): boolean {
-  return trimmedValue(env['WINDOWS_SIGNING']) === 'none'
+  return env['WINDOWS_SIGNING']?.toLowerCase() === 'none'
 }
 
 /**
@@ -114,6 +118,12 @@ export function windowsStoreInvocation(platform: string, env: NodeJS.ProcessEnv)
   return packageManagerInvocation(platform, 'pnpm', args)
 }
 
+/** Drop certificate signing settings, which electron-builder would otherwise apply to the Store package with a subject that cannot match the Store publisher. */
+export function windowsStoreEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const certificateNames = new Set(['WIN_CSC_LINK', 'WIN_CSC_KEY_PASSWORD', 'CSC_LINK', 'CSC_KEY_PASSWORD'])
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !certificateNames.has(name)))
+}
+
 /** Return the package-manager invocation for a Windows installer build. */
 export function windowsPackageInvocation(platform: string, env: NodeJS.ProcessEnv, publish: string): {
   readonly command: string
@@ -130,7 +140,8 @@ export function packageWin(options: { readonly publish: string, readonly store?:
   const invocation = options.store === true
     ? windowsStoreInvocation(process.platform, process.env)
     : windowsPackageInvocation(process.platform, process.env, options.publish)
-  const result = spawnSync(invocation.command, invocation.args, { cwd: desktopRoot, stdio: 'inherit', shell: invocation.shell })
+  const env = options.store === true ? windowsStoreEnvironment(process.env) : process.env
+  const result = spawnSync(invocation.command, invocation.args, { cwd: desktopRoot, env, stdio: 'inherit', shell: invocation.shell })
   if (result.error !== undefined) throw result.error
   if (result.status !== 0) throw new Error(`electron-builder exited with ${String(result.status)}`)
 }
