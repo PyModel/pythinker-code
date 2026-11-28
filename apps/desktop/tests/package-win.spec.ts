@@ -236,14 +236,16 @@ describe('checkAzureSigningAccess', () => {
   }
   const respond = (signStatus: number, tokenStatus = 200) => {
     const calls: string[] = []
-    const fetchImpl = (input: string) => {
+    const inits: (RequestInit | undefined)[] = []
+    const fetchImpl = (input: string, init?: RequestInit) => {
       calls.push(input)
+      inits.push(init)
       if (input.startsWith('https://login.microsoftonline.com/')) {
         return Promise.resolve(Response.json({ access_token: 'token' }, { status: tokenStatus }))
       }
       return Promise.resolve(new Response(null, { status: signStatus }))
     }
-    return { calls, fetchImpl }
+    return { calls, inits, fetchImpl }
   }
 
   it('skips when Azure signing is not configured', async () => {
@@ -252,10 +254,16 @@ describe('checkAzureSigningAccess', () => {
     expect(calls).toEqual([])
   })
 
-  it('asks the profile certificate chain with the release credentials', async () => {
-    const { calls, fetchImpl } = respond(200)
+  it('starts a sign operation with the release credentials', async () => {
+    const { calls, inits, fetchImpl } = respond(202)
     await expect(checkAzureSigningAccess(azureEnv, fetchImpl)).resolves.toBeUndefined()
-    expect(calls[1]).toBe('https://eus.codesigning.azure.net/codesigningaccounts/account/certificateprofiles/profile/sign/certchain?api-version=2023-06-15-preview')
+    expect(calls[1]).toBe('https://eus.codesigning.azure.net/codesigningaccounts/account/certificateprofiles/profile/sign?api-version=2022-06-15-preview')
+    expect(inits[1]?.method).toBe('POST')
+    const rawBody = inits[1]?.body
+    expect(typeof rawBody).toBe('string')
+    const body = JSON.parse(rawBody as string) as { readonly signatureAlgorithm: string, readonly digest: string }
+    expect(body.signatureAlgorithm).toBe('RS256')
+    expect(Buffer.from(body.digest, 'base64')).toHaveLength(32)
   })
 
   it('fails fast when Azure refuses signing, with the billing hint', async () => {

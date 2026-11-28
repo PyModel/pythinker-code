@@ -1,9 +1,10 @@
 /** Fail a Windows release before packaging when Azure Artifact Signing refuses the release credentials. */
 
+import { randomBytes } from 'node:crypto'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const DATA_PLANE_API_VERSION = '2023-06-15-preview'
+const DATA_PLANE_API_VERSION = '2022-06-15-preview'
 const REFUSED_HINT = 'Azure refuses signing when the subscription is disabled (for example, for an overdue invoice) '
   + 'or when the client has no Artifact Signing Certificate Profile Signer role on the account. '
   + 'Fix that in the Azure portal, then rerun this job.'
@@ -16,7 +17,9 @@ function value(env: NodeJS.ProcessEnv, name: string): string | undefined {
 }
 
 /**
- * Ask Azure Artifact Signing for the profile's certificate chain with the release credentials.
+ * Start one signing operation over a random digest with the release credentials.
+ * Reading the certificate chain still succeeds while a disabled subscription refuses signing,
+ * so only the sign call proves that packaging can sign.
  * @param env - Environment that carries the Azure signing settings.
  * @param fetchImpl - HTTP client, replaced in tests.
  * @returns A warning when the answer is inconclusive, `skipped` when Azure signing is not configured, or undefined.
@@ -50,9 +53,13 @@ export async function checkAzureSigningAccess(env: NodeJS.ProcessEnv, fetchImpl:
   if (typeof token !== 'string' || token === '') throw new Error('Microsoft Entra returned no access token for Azure signing.')
 
   const base = endpoint.endsWith('/') ? endpoint : `${endpoint}/`
-  const url = new URL(`codesigningaccounts/${encodeURIComponent(account)}/certificateprofiles/${encodeURIComponent(profile)}/sign/certchain`, base)
+  const url = new URL(`codesigningaccounts/${encodeURIComponent(account)}/certificateprofiles/${encodeURIComponent(profile)}/sign`, base)
   url.searchParams.set('api-version', DATA_PLANE_API_VERSION)
-  const response = await fetchImpl(url.toString(), { headers: { authorization: `Bearer ${token}` } })
+  const response = await fetchImpl(url.toString(), {
+    method: 'POST',
+    headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ signatureAlgorithm: 'RS256', digest: randomBytes(32).toString('base64') }),
+  })
   if (response.status === 401 || response.status === 403) {
     throw new Error(`Azure Artifact Signing refused the release credentials (HTTP ${String(response.status)}).\n${REFUSED_HINT}`)
   }
