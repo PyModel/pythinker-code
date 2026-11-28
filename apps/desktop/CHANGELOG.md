@@ -1,5 +1,15 @@
 # @pymodel/pythinker-desktop
 
+## 2.0.2
+
+### Patch Changes
+
+- [#416](https://github.com/PyModel/pythinker-code/pull/416) [`1b71724`](https://github.com/PyModel/pythinker-code/commit/1b717241f12a81abe8baa78a7b7c03e6379ba576) Thanks [@elkaix](https://github.com/elkaix)! - Restore the macOS Intel download and the Homebrew formula update that 3.0.0 did not publish.
+
+- [#416](https://github.com/PyModel/pythinker-code/pull/416) [`1b71724`](https://github.com/PyModel/pythinker-code/commit/1b717241f12a81abe8baa78a7b7c03e6379ba576) Thanks [@elkaix](https://github.com/elkaix)! - Windows: the installer is no longer code-signed. If you use Pythinker 1.7 or earlier on Windows, the in-app update fails for this version, so install it once by hand: download the `x64-Setup.exe` file from [the latest release](https://github.com/PyModel/pythinker-desktop-releases/releases/latest) and run it. Your settings and sessions stay. If Windows shows "Windows protected your PC", select **More info**, then **Run anyway**. After this, updates install in the app again.
+
+- [#413](https://github.com/PyModel/pythinker-code/pull/413) [`cd4241b`](https://github.com/PyModel/pythinker-code/commit/cd4241bf15eed910e675bf157ee63835b5a68028) Thanks [@elkaix](https://github.com/elkaix)! - Fix the Windows desktop installer build.
+
 ## 2.0.1
 
 ### Patch Changes
